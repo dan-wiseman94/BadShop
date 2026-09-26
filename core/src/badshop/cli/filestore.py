@@ -1,0 +1,78 @@
+"""Store implementation for the CLI: refs are file paths."""
+
+import re
+import shutil
+from pathlib import Path
+
+from PIL import Image, UnidentifiedImageError
+
+from badshop.engine.common import load_image
+from badshop.engine.errors import EngineError
+from badshop.engine.result import Output
+
+
+def final_path(final_dir: Path, stem: str, ext: str) -> Path:
+    """Finished files never overwrite older ones: stem.ext, stem_2.ext, stem_3.ext..."""
+    final_dir.mkdir(parents=True, exist_ok=True)
+    p, i = final_dir / f"{stem}{ext}", 2
+    while p.exists():
+        p, i = final_dir / f"{stem}_{i}{ext}", i + 1
+    return p
+
+
+def clean_stem(stem: str) -> str:
+    return re.sub(r"_(work|result)$", "", stem)
+
+
+def _save_as_suffix(output: Output, path: Path) -> None:
+    """Write the -o output the way the reference's `im.save(out)` does: format from the suffix."""
+    if output.frames or output.quality is not None:  # fixed encoding: animated GIF, or JPEG at a set quality
+        path.write_bytes(output.encode())
+        return
+    try:
+        output.image.save(path)
+    except (ValueError, OSError, KeyError) as e:
+        raise EngineError(f"can't write {path.name} ({e})",
+                          hint="use a .png name (PNG keeps transparency)") from None
+
+
+class FileStore:
+    def __init__(self, work_dir: Path, final_dir: Path, out: str | None = None):
+        self.work_dir, self.final_dir, self.out = work_dir, final_dir, out
+        self._count = 0
+
+    def load(self, ref: str) -> Image.Image:
+        path = Path(ref)
+        if not path.is_file():
+            raise EngineError(f"no such image: {ref}", hint="check the path; outputs are printed as `key: path` lines")
+        try:
+            return load_image(path)
+        except (UnidentifiedImageError, OSError) as e:
+            raise EngineError(f"{ref} isn't an image this tool can read ({e})") from None
+
+    def put(self, output: Output, stem: str) -> str:
+        first = self._count == 0
+        self._count += 1
+        if self.out and first:
+            path = Path(self.out)
+        elif self.out:  # secondary outputs sit next to -o: small.png -> small_grid.png
+            o = Path(self.out)
+            path = o.with_name(f"{o.stem}_{output.key}{output.ext()}")
+        elif output.name_hint.startswith("final:"):
+            path = final_path(self.final_dir, output.name_hint[6:].replace("{stem}", clean_stem(stem)), output.ext())
+        else:
+            path = self.work_dir / output.name_hint.replace("{stem}", stem)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if self.out and first:
+            _save_as_suffix(output, path)
+        else:
+            path.write_bytes(output.encode())
+        return str(path)
+
+    def export(self, ref: str, name: str | None) -> str:
+        src = Path(ref)
+        if not src.is_file():
+            raise EngineError(f"no such image: {ref}")
+        dest = final_path(self.final_dir, name or clean_stem(src.stem), src.suffix)
+        shutil.copyfile(src, dest)
+        return str(dest)
