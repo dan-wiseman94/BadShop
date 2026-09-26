@@ -1,5 +1,6 @@
 import argparse
 import shutil
+from pathlib import Path
 from typing import ClassVar, Literal
 
 import pytest
@@ -8,7 +9,9 @@ from pydantic import Field
 
 from badshop.cli import main as cli
 from badshop.cli.argparse_gen import add_tool_parser
-from badshop.engine.result import EngineResult
+from badshop.cli.filestore import FileStore
+from badshop.engine.errors import EngineError
+from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import Box, ImageRef, Params
 from badshop.tools import REGISTRY
 from badshop.tools.registry import ToolSpec
@@ -60,6 +63,70 @@ def test_missing_file_is_a_clean_error(pair):
 def test_bad_value_is_a_clean_error(pair):
     p = pair.new("prep", "lincoln.png", "--max", "3", check=False)
     assert p.returncode == 1 and "max" in p.stderr and "Traceback" not in p.stderr
+
+
+def test_out_parent_is_a_file_is_a_clean_error(pair):
+    p = pair.new("prep", "lincoln.png", "-o", "lincoln.png/x.png", check=False)
+    assert p.returncode == 1
+    assert "can't write lincoln.png/x.png" in p.stderr and "hint:" in p.stderr
+    assert "Traceback" not in p.stderr
+
+
+def _anim() -> Output:
+    frames = [Image.new("RGB", (8, 8), c).quantize(colors=4) for c in ("red", "blue")]
+    return Output("animated", frames[0], "final:{stem}_spin", fmt="GIF", frames=frames, duration=100)
+
+
+def test_out_animation_follows_suffix(tmp_path):
+    out = _anim()
+    png = FileStore(tmp_path / "w", tmp_path / "f", str(tmp_path / "a.png")).put(out, "x")
+    with Image.open(png) as im:
+        assert im.format == "PNG" and im.n_frames == 2
+    gif = FileStore(tmp_path / "w", tmp_path / "f", str(tmp_path / "a.gif")).put(out, "x")
+    assert Path(gif).read_bytes() == out.encode()
+
+
+def test_out_unwritable_format_is_a_clean_error(tmp_path):
+    rgba = Output("result", Image.new("RGBA", (8, 8)), "{stem}_work.png")
+    with pytest.raises(EngineError, match="can't write x.jpg") as e:
+        FileStore(tmp_path / "w", tmp_path / "f", str(tmp_path / "x.jpg")).put(rgba, "x")
+    assert e.value.hint == "use a .png name (PNG keeps transparency)"
+    assert not (tmp_path / "x.jpg").exists()
+    with pytest.raises(EngineError, match="can't write a.jpg"):  # JPEG can't hold an animation
+        FileStore(tmp_path / "w", tmp_path / "f", str(tmp_path / "a.jpg")).put(_anim(), "x")
+    assert not (tmp_path / "a.jpg").exists()
+
+
+def test_filesystem_failures_are_clean_errors(tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a regular file where a folder should be")
+    (tmp_path / "taken.png").mkdir()
+    src = tmp_path / "src.png"
+    Image.new("RGB", (8, 8)).save(src)
+    work = Output("result", Image.new("RGB", (8, 8)), "{stem}_work.png")
+    final = Output("saved", Image.new("RGB", (8, 8)), "final:{stem}_saved", fmt="JPEG", quality=90)
+    attempts = [
+        lambda: FileStore(blocker / "work", tmp_path / "f").put(work, "x"),  # work folder can't be made
+        lambda: FileStore(tmp_path / "w", blocker / "final").put(final, "x"),  # $BADSHOP_OUT can't be made
+        lambda: FileStore(tmp_path / "w", blocker / "final").export(str(src), None),
+        lambda: FileStore(tmp_path / "w", tmp_path / "f", str(tmp_path / "taken.png")).put(work, "x"),
+    ]
+    for attempt in attempts:
+        with pytest.raises(EngineError, match="can't write") as e:
+            attempt()
+        assert e.value.hint == "check the folder exists and is writable"
+
+
+def test_filestore_errors_have_hints(tmp_path):
+    notes = tmp_path / "notes.png"
+    notes.write_text("not an image")
+    store = FileStore(tmp_path / "w", tmp_path / "f")
+    with pytest.raises(EngineError, match="isn't an image") as e:
+        store.load(str(notes))
+    assert e.value.hint == "use a PNG, JPEG, GIF or WebP file"
+    with pytest.raises(EngineError, match="no such image") as e:
+        store.export(str(tmp_path / "missing.png"), None)
+    assert e.value.hint == "check the path; outputs are printed as `key: path` lines"
 
 
 def test_help_lists_tools(pair):
