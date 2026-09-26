@@ -1,0 +1,189 @@
+"""Captions: Impact meme text, MS Paint text and WordArt, ported from reference/badshop.py."""
+
+import functools
+from pathlib import Path
+from typing import ClassVar, Literal
+
+from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL.ImageFont import FreeTypeFont
+from pydantic import Field
+
+from badshop.engine import assets
+from badshop.engine.common import font, rgb, to_rgb
+from badshop.engine.errors import EngineError
+from badshop.engine.result import EngineResult, Output
+from badshop.engine.types import Color, ImageRef, Params, Point
+
+SYSTEM_FONT_DIRS = [
+    Path("C:/Windows/Fonts"), Path("/Library/Fonts"), Path("/System/Library/Fonts"),
+    Path("/System/Library/Fonts/Supplemental"), Path.home() / "Library/Fonts",
+    Path("/usr/share/fonts"), Path("/usr/local/share/fonts"),
+    Path.home() / ".fonts", Path.home() / ".local/share/fonts",
+]
+FONT_CANDIDATES = {  # first hit wins; the real thing on Windows/macOS, a free lookalike downloaded elsewhere
+    "impact": ["impact.ttf", "Impact.ttf", "Anton-Regular.ttf", "LiberationSansNarrow-Bold.ttf",
+               "DejaVuSansCondensed-Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf", "Arial Bold.ttf"],
+    "paint": ["comicbd.ttf", "comic.ttf", "Comic Sans MS Bold.ttf", "Comic Sans MS.ttf",
+              "ComicNeue-Bold.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "Arial Bold.ttf"],
+    "plain": ["arial.ttf", "Arial.ttf", "LiberationSans-Regular.ttf", "DejaVuSans.ttf"],
+    "bold": ["arialbd.ttf", "Arial Bold.ttf", "LiberationSans-Bold.ttf", "DejaVuSans-Bold.ttf"],
+}
+FONT_CANDIDATES["wordart"] = FONT_CANDIDATES["impact"]
+FONT_DOWNLOADS = {  # SIL Open Font License lookalikes, fetched once when nothing better is installed
+    "Anton-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
+    "ComicNeue-Bold.ttf": "https://github.com/google/fonts/raw/main/ofl/comicneue/ComicNeue-Bold.ttf",
+}
+
+
+def _font_dirs(data_dir: str) -> list[Path]:
+    """The reference's FONT_DIRS, with downloaded fonts in the app data dir instead of the XDG cache."""
+    return [*SYSTEM_FONT_DIRS, Path(data_dir) / "fonts"]
+
+
+def find_font_file(style: str, explicit: str | None = None) -> str | None:
+    """Path (or Pillow-searchable name) of the best font for a style, or None for the built-in one."""
+    return _find_font_file(style, explicit, str(assets.data_dir()))
+
+
+@functools.lru_cache(maxsize=None)
+def _find_font_file(style: str, explicit: str | None, data_dir: str) -> str | None:
+    # data_dir is part of the cache key, so a changed BADSHOP_DATA_DIR is searched afresh.
+    names = [explicit] if explicit else FONT_CANDIDATES[style]
+    for name in names:
+        if Path(name).is_file():
+            return name
+        for d in _font_dirs(data_dir):
+            if d.is_dir():
+                hit = next(d.rglob(name), None)
+                if hit:
+                    return str(hit)
+        try:  # Pillow does its own platform search too
+            ImageFont.truetype(name, 10)
+            return name
+        except OSError:
+            pass
+        if name in FONT_DOWNLOADS and not explicit:
+            try:
+                return str(assets.cached(f"fonts/{name}", FONT_DOWNLOADS[name]))
+            except EngineError:
+                pass  # offline: keep going down the list
+    return None
+
+
+def load_font(style: str, size: int, explicit: str | None = None) -> tuple[FreeTypeFont, str]:
+    path = find_font_file(style, explicit)
+    if path is None:
+        return font(size), "built-in"
+    return ImageFont.truetype(path, size), Path(path).name
+
+
+def wrap_text(draw, text, fnt, max_width) -> list[str]:
+    lines = []
+    for para in text.split("\\n"):
+        cur = ""
+        for word in para.split():
+            trial = (cur + " " + word).strip()
+            if not cur or draw.textlength(trial, font=fnt) <= max_width:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
+        lines.append(cur)
+    return [l for l in lines if l]
+
+
+def rainbow(size) -> Image.Image:
+    """Left-to-right red-to-violet gradient, the WordArt preset everyone picked."""
+    w, h = size
+    hue = Image.linear_gradient("L").rotate(90).resize((w, h)).point(lambda v: v * 210 // 255)
+    full = Image.new("L", (w, h), 255)
+    return Image.merge("HSV", (hue, full, full)).convert("RGBA")
+
+
+def render_text(lines, fnt, style, color) -> Image.Image:
+    """RGBA layer with the text, tight around it."""
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    stroke = max(2, fnt.size // 14) if style in ("impact", "wordart") else 0
+    shadow = max(2, fnt.size // 12) if style == "paint" else 0
+    depth = max(3, fnt.size // 7) if style == "wordart" else 0
+    off = shadow + depth
+    widths = [probe.textlength(l, font=fnt) for l in lines]
+    ascent, descent = fnt.getmetrics()
+    lh = ascent + descent
+    W = int(max(widths)) + 2 * stroke + off + 4
+    H = lh * len(lines) + 2 * stroke + off + 4
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    if style == "wordart":
+        outer, inner = Image.new("L", (W, H), 0), Image.new("L", (W, H), 0)
+        do, di = ImageDraw.Draw(outer), ImageDraw.Draw(inner)
+        for i, line in enumerate(lines):
+            x, y = (W - off - widths[i]) / 2, stroke + i * lh
+            do.text((x, y), line, font=fnt, fill=255, stroke_width=stroke, stroke_fill=255)
+            di.text((x, y), line, font=fnt, fill=255)
+        side = Image.new("RGBA", (W, H), rgb(color) + (255,))
+        for k in range(depth, 0, -1):  # solid extrusion down and to the right
+            layer.paste(side, (0, 0), ImageChops.offset(outer, k, k))
+        layer.paste(Image.new("RGBA", (W, H), (0, 0, 0, 255)), (0, 0), outer)
+        layer.paste(rainbow((W, H)), (0, 0), inner)
+        return layer
+    for i, line in enumerate(lines):
+        x, y = (W - shadow - widths[i]) / 2, stroke + i * lh
+        if style == "impact":
+            d.text((x, y), line, font=fnt, fill="white", stroke_width=stroke, stroke_fill="black")
+        else:
+            d.text((x + shadow, y + shadow), line, font=fnt, fill="black")
+            d.text((x, y), line, font=fnt, fill=color)
+    return layer
+
+
+class TextParams(Params):
+    POSITIONAL: ClassVar = ("image", "text")
+    image: ImageRef = Field(description="image to caption")
+    text: str = Field(description="the words; a literal \\n forces a line break")
+    style: Literal["impact", "paint", "wordart"] = Field(
+        "impact", description="impact: white, black outline, uppercase; paint: colored with a hard "
+                              "shadow; wordart: rainbow face with a 3D extrusion")
+    bottom: bool = Field(False, description="bottom caption (default is top)")
+    at: Point | None = Field(None, description="center the text on this point instead")
+    size: int | None = Field(None, ge=4, description="font size in px (default: fits the image width)")
+    color: Color | None = Field(
+        None, description="paint text color (default red), or wordart extrusion color (default purple)")
+    rotate: float = Field(0, description="degrees counter-clockwise")
+    margin: int = Field(20, ge=0, description="gap from the edge in px")
+    font: str | None = Field(None, description="path or name of a font file to use instead")
+
+
+def caption(p: TextParams, image: Image.Image) -> EngineResult:
+    # reference/badshop.py cmd_text
+    im = to_rgb(image)
+    W, H = im.size
+    text = p.text.upper() if p.style == "impact" else p.text
+    probe = ImageDraw.Draw(im)
+    if p.color:
+        rgb(p.color)  # a clean error up front: the paint style hands the color straight to PIL
+    color = p.color or ("#46147a" if p.style == "wordart" else "red")
+    size = p.size or {"impact": W // 9, "wordart": W // 10}.get(p.style, W // 12)
+    while True:
+        fnt, used = load_font(p.style, size, p.font)
+        lines = wrap_text(probe, text, fnt, W - 2 * p.margin)
+        if p.size or len(lines) <= 3 or size <= W // 22:  # auto-size: shrink until it fits in 3 lines
+            break
+        size = int(size * 0.85)
+    if not lines:
+        raise EngineError("nothing to write", hint="give some words")
+    layer = render_text(lines, fnt, p.style, color)
+    if p.rotate:
+        layer = layer.rotate(p.rotate, resample=Image.BICUBIC, expand=True)
+    if p.at:
+        x, y = p.at[0] - layer.width // 2, p.at[1] - layer.height // 2
+    elif p.bottom:
+        x, y = (W - layer.width) // 2, H - layer.height - p.margin
+    else:
+        x, y = (W - layer.width) // 2, p.margin
+    im.paste(layer, (x, y), layer)
+    return EngineResult(
+        outputs=[Output("result", im, "result.png")],
+        lines=[f"text: {len(lines)} line(s), {p.style} style, font {used}, size {size}px, "
+               f"at top-left ({x}, {y})"],
+    )

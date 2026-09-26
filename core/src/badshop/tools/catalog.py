@@ -1,6 +1,6 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import basic
+from badshop.engine import basic, text
 from badshop.tools.registry import ToolSpec, register
 
 register(ToolSpec(
@@ -26,4 +26,14 @@ register(ToolSpec(
     description=("Return an image so you can see it. Set grid=true to overlay labeled pixel gridlines "
                  "(every 50 px, labels every 100) when you need to read coordinates. Views larger than "
                  "`max` are scaled down and say so; convert coordinates back before using them."),
+))
+
+register(ToolSpec(
+    name="text", params=text.TextParams, category="text",
+    run=lambda p, s: text.caption(p, s.load(p.image)),
+    summary="Impact caption, MS Paint text, or WordArt",
+    description=("Write a caption. Default: Impact meme style, white with black outline, uppercase, "
+                 "auto-sized, at the top; bottom=true for the punchline. style=paint is colored text with a "
+                 "hard shadow (looks drawn in MS Paint); style=wordart is a rainbow face with a 3D "
+                 "extrusion. at=[x,y] centers the text anywhere. A literal \\n forces a line break."),
 ))

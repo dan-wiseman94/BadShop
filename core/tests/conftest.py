@@ -34,7 +34,8 @@ def cli_env(cwd: Path) -> dict[str, str]:
 
 
 def _run(cmd: list[str], cwd: Path, check: bool) -> subprocess.CompletedProcess:
-    p = subprocess.run(cmd, cwd=cwd, env=cli_env(cwd), capture_output=True, text=True, timeout=900)
+    p = subprocess.run(cmd, cwd=cwd, env=cli_env(cwd), capture_output=True, text=True, encoding="utf-8",
+                       timeout=900)
     if check:
         assert p.returncode == 0, f"{cmd}\n--- stdout\n{p.stdout}\n--- stderr\n{p.stderr}"
     return p
