@@ -2,6 +2,7 @@
 
 import http.client
 import os
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -28,27 +29,40 @@ def http_get(url: str, timeout: float = 30) -> tuple[bytes, str]:
 
 
 def cached(name: str, url: str, progress: Callable[[int, int | None], None] | None = None) -> Path:
-    """Download `url` once into data_dir()/name and reuse it. Raises EngineError when offline."""
+    """Download `url` once into data_dir()/name and reuse it. Raises EngineError when offline.
+
+    Each call streams into its own temp file and renames it into place, so concurrent
+    downloads of one name (threads or processes) never share a partial file."""
     path = data_dir() / name
     if path.is_file():
         return path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name(path.name + ".part")
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    tmp = None
     try:
-        with urllib.request.urlopen(req, timeout=60) as r, part.open("wb") as fh:
-            total = int(r.headers.get("Content-Length") or 0) or None
-            done = 0
-            while chunk := r.read(CHUNK):
-                fh.write(chunk)
-                done += len(chunk)
-                if progress:
-                    progress(done, total)
-    except (urllib.error.URLError, OSError, TimeoutError, http.client.HTTPException) as e:
-        part.unlink(missing_ok=True)
-        raise EngineError(f"couldn't download {name} ({e})",
-                          hint="check the internet connection; it is only downloaded once") from e
-    part.replace(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".part")
+            with os.fdopen(fd, "wb") as fh:
+                total = int(r.headers.get("Content-Length") or 0) or None
+                done = 0
+                while chunk := r.read(CHUNK):
+                    fh.write(chunk)
+                    done += len(chunk)
+                    if progress:
+                        progress(done, total)
+        try:
+            os.replace(tmp, path)  # atomic; the last complete writer wins
+        except OSError:
+            if not path.is_file():  # e.g. Windows, where the winner's file may be open
+                raise
+            Path(tmp).unlink(missing_ok=True)
+    except BaseException as e:
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
+        if isinstance(e, (urllib.error.URLError, OSError, TimeoutError, http.client.HTTPException)):
+            raise EngineError(f"couldn't download {name} ({e})",
+                              hint="check the internet connection; it is only downloaded once") from e
+        raise
     return path
 
 

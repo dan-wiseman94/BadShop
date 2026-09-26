@@ -1,4 +1,6 @@
+import http.client
 import io
+import threading
 
 import pytest
 from PIL import Image
@@ -92,6 +94,71 @@ def test_cached_offline(monkeypatch, tmp_path):
         assets.cached("f.ttf", "http://127.0.0.1:9/nothing-listens-here")
     assert e.value.hint and "internet" in e.value.hint
     assert not (tmp_path / "d" / "f.ttf").exists()
+
+
+def test_cached_concurrent_downloads_of_one_name(monkeypatch, tmp_path):
+    # A pauses after 2 chunks, B starts and writes 1 chunk, A finishes, then B finishes.
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "d"))
+    src = tmp_path / "src.bin"
+    data = bytes(range(1, 256)) * (5 * assets.CHUNK // 255 + 1)
+    src.write_bytes(data)
+    a_paused, b_wrote, a_done = threading.Event(), threading.Event(), threading.Event()
+    got, errors = {}, {}
+
+    def hook_a(done, total):
+        if done == 2 * assets.CHUNK:
+            a_paused.set()
+            assert b_wrote.wait(10)
+
+    def hook_b(done, total):
+        if done == assets.CHUNK:
+            b_wrote.set()
+            assert a_done.wait(10)
+
+    def run(key, hook):
+        try:
+            p = assets.cached("m.bin", src.as_uri(), progress=hook)
+            got[key] = (p, p.read_bytes())  # read at return time, before the other thread moves on
+        except BaseException as e:
+            errors[key] = e
+        finally:
+            if key == "a":
+                a_done.set()
+            else:
+                b_wrote.set()
+
+    ta = threading.Thread(target=run, args=("a", hook_a))
+    ta.start()
+    assert a_paused.wait(10)
+    tb = threading.Thread(target=run, args=("b", hook_b))
+    tb.start()
+    ta.join(20)
+    tb.join(20)
+    assert errors == {}
+    assert got["a"][1] == data and got["b"][1] == data
+    assert got["a"][0] == got["b"][0] and got["a"][0].read_bytes() == data
+    assert list((tmp_path / "d").glob("*.part")) == []
+
+
+def test_cached_failure_mid_download_leaves_no_part_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "d"))
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"x" * (3 * assets.CHUNK))
+
+    def cut(done, total):
+        raise http.client.IncompleteRead(b"")
+
+    with pytest.raises(EngineError) as e:
+        assets.cached("m.bin", src.as_uri(), progress=cut)
+    assert e.value.hint and "internet" in e.value.hint
+    assert list((tmp_path / "d").iterdir()) == []
+
+
+def test_cached_unusable_data_dir_is_engine_error(monkeypatch, tmp_path):
+    (tmp_path / "file").write_text("not a directory")
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "file"))
+    with pytest.raises(EngineError):
+        assets.cached("sub/m.bin", (tmp_path / "file").as_uri())
 
 
 def test_configure_rembg_sets_home_without_overriding(monkeypatch, tmp_path):
