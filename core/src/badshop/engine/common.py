@@ -26,6 +26,18 @@ def has_alpha(im) -> bool:
     return im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
 
 
+def fit(im: Image.Image, longest: int) -> tuple[Image.Image, float]:
+    """Shrink (never enlarge) so the longest side is at most `longest` px: reference cmd_prep's resize.
+
+    Returns the image and the scale applied; source pixels = output pixels / scale.
+    """
+    w, h = im.size
+    scale = min(1.0, longest / max(w, h))
+    if scale < 1:
+        im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    return im, scale
+
+
 def font(size):
     try:
         return ImageFont.load_default(size=size)

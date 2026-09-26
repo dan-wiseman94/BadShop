@@ -5,7 +5,7 @@ from typing import ClassVar
 from PIL import Image
 from pydantic import Field
 
-from badshop.engine.common import draw_grid, to_rgb
+from badshop.engine.common import draw_grid, fit, has_alpha, to_rgb
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import ImageRef, Params
 
@@ -28,11 +28,7 @@ class PrepParams(Params):
 
 def prep(p: PrepParams, image: Image.Image) -> EngineResult:
     # reference/badshop.py cmd_prep: same resize, same grid
-    im = to_rgb(image)
-    w, h = im.size
-    scale = min(1.0, p.max / max(w, h))
-    if scale < 1:
-        im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    im, _ = fit(to_rgb(image), p.max)
     return EngineResult(
         outputs=[Output("work", im, "{stem}_work.png"), Output("grid", draw_grid(im), "{stem}_work_grid.png")],
         lines=[f"size: {im.width}x{im.height}"],
@@ -47,12 +43,8 @@ class ViewParams(Params):
 
 
 def view(p: ViewParams, image: Image.Image) -> EngineResult:
-    im = image.convert("RGBA") if image.mode in ("RGBA", "LA", "P") else to_rgb(image)
-    w, h = im.size
-    scale = min(1.0, p.max / max(w, h))
-    if scale < 1:
-        im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    im, scale = fit(image.convert("RGBA") if has_alpha(image) else to_rgb(image), p.max)
     if p.grid:
-        im = draw_grid(im.convert("RGB"))
+        im = draw_grid(im)  # on RGBA too: opaque lines and labels, transparent areas stay transparent
     note = "" if scale == 1 else f" (scaled {scale:.3f}; multiply by {1 / scale:.3f} for source pixels)"
     return EngineResult(outputs=[Output("view", im, "{stem}_view.png")], lines=[f"size: {im.width}x{im.height}{note}"])
