@@ -8,3 +8,4 @@ target/
 badshop_work/
 *.egg-info/
 .superpowers/
+core/.test-cache/
