@@ -23,7 +23,7 @@ from pydantic import Field
 from badshop.engine.assets import http_get  # always called as a module global, so tests can swap it
 from badshop.engine.common import WEB_FORMATS, font, has_alpha, load_image, to_rgb
 from badshop.engine.errors import EngineError
-from badshop.engine.result import EngineResult, Output
+from badshop.engine.result import EXT, EngineResult, Output
 from badshop.engine.types import Params
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
@@ -32,7 +32,6 @@ IMGFLIP_API = "https://api.imgflip.com/get_memes"
 # The release @latest resolved to on 2026-09-27 (tag v17.0.3); pinned so replays fetch the same pixels.
 TWEMOJI_URL = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/72x72/{}.png"
 IMAGE_MIMES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
-FORMAT_EXT = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
 NET_ERRORS = (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException)
 NET_HINT = "check the internet connection, or use a local file"
 MAX_TEXT = 5 * 2**20  # bytes of an API reply, and of a web page parsed for its preview image
@@ -214,11 +213,11 @@ def download_candidates(hits, slug, source_line=None) -> EngineResult:
         if im is None:
             lines.append(f"{i}: skipped, no usable image")
             continue
-        fmt = im.format if im.format in FORMAT_EXT else "PNG"  # read before convert() drops .format
+        fmt = im.format if im.format in EXT else "PNG"  # read before convert() drops .format
         kept = _keep(im)
         panels.append((i, kept, h["title"]))  # the sheet shows what was kept (same pixels as im for 8-bit)
         note = f"  [{h['note']}]" if h.get("note") else ""
-        outputs.append(Output(str(i), kept, f"fetch/{slug}_{i}{FORMAT_EXT[fmt]}", fmt=fmt,
+        outputs.append(Output(str(i), kept, f"fetch/{slug}_{i}{EXT[fmt]}", fmt=fmt,
                               caption=f"({im.width}x{im.height}) {h['title']}{note}"))
     if not panels:
         raise EngineError("every candidate failed to download", hint=_hint(lines, "try other words or another source"))

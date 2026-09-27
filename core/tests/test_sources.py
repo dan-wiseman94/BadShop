@@ -551,3 +551,11 @@ def test_sources_match_the_reference_offline(reference, monkeypatch, tmp_path, c
     assert list(new_files) == list(ref_files)
     for name in ref_files:
         assert new_files[name] == ref_files[name], name
+
+
+def test_candidates_use_the_output_extension_table():
+    # One format -> extension table: a candidate's file name and Output.ext() can't drift apart.
+    from badshop.engine import result
+
+    assert not hasattr(sources, "FORMAT_EXT")
+    assert sources.EXT is result.EXT
