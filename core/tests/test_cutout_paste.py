@@ -31,9 +31,8 @@ PASTES = [
 
 @pytest.mark.parametrize("args", PASTES)
 def test_paste_parity(pair, args):
-    for side in (pair.ref, pair.new):
-        side("paste", "lincoln.png", "emoji_joy.png", *args)
-    pair.assert_same("badshop_work/result.png")
+    out = pair.check("paste", "lincoln.png", "emoji_joy.png", *args, files=["badshop_work/result.png"])
+    assert "after scaling" in out or "copies" in out
 
 
 def test_paste_keeps_transparency():

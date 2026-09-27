@@ -27,18 +27,10 @@ def test_prep_parity(pair):
     pair.assert_same("badshop_work/lincoln_work_grid.png")
 
 
-def test_prep_out_parity(pair):
-    pair.ref("prep", "trump.png", "--max", "300", "-o", "small.png")
-    pair.new("prep", "trump.png", "--max", "300", "-o", "small.png")
-    pair.assert_same("small.png")
-    pair.assert_same("small_grid.png")
-
-
-def test_prep_out_jpg_parity(pair):
-    pair.ref("prep", "trump.png", "--max", "300", "-o", "small.jpg")
-    pair.new("prep", "trump.png", "--max", "300", "-o", "small.jpg")
-    pair.assert_same("small.jpg")
-    pair.assert_same("small_grid.png")
+@pytest.mark.parametrize("out", ["small.png", "small.jpg"])
+def test_prep_out_parity(pair, out):
+    stdout = pair.check("prep", "trump.png", "--max", "300", "-o", out, files=[out, "small_grid.png"])
+    assert stdout == f"work: {out}\ngrid: small_grid.png\nsize: 237x300\n"
 
 
 def test_prep_huge_image(pair):

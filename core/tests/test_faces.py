@@ -9,21 +9,36 @@ from conftest import FIXTURES
 
 
 def _lines(out: str) -> list[str]:
-    return [l for l in out.splitlines() if not l.startswith("annotated:")]
+    """find's stdout with the `annotated:` line first: the port prints outputs before the other lines
+    (ruling 5.8), the reference printed it last. The line itself, legend included, is still compared."""
+    lines = out.splitlines()
+    return sorted(lines, key=lambda l: not l.startswith("annotated:"))  # stable: the rest keep their order
+
+
+def _find_parity(pair, *args, found: bool = True) -> list[str]:
+    ref, new = _lines(pair.ref("find", *args).stdout), _lines(pair.new("find", *args).stdout)
+    assert new == ref
+    stem = args[0].removesuffix(".png")
+    if found:
+        assert new[0].startswith(f"annotated: badshop_work/{stem}_faces.png   (red = face")
+        pair.assert_same(f"badshop_work/{stem}_faces.png")
+    else:
+        assert new == [f"nothing found in {args[0]}; pick the box from the grid instead"]
+    return new
 
 
 @pytest.mark.models
 @pytest.mark.parametrize("image", ["lincoln.png", "trump.png"])
 def test_find_parity(pair, image):
-    ref, new = pair.ref("find", image).stdout, pair.new("find", image).stdout
-    assert _lines(new) == _lines(ref)
-    stem = image.removesuffix(".png")
-    pair.assert_same(f"badshop_work/{stem}_faces.png")
+    lines = _find_parity(pair, image)
+    # with the models cached this compares YuNet, not the Haar fallback both sides take offline
+    assert not any("YuNet unavailable" in l for l in lines)
+    assert any(l.startswith("face 1: box ") and " score " in l for l in lines)
 
 
-@pytest.mark.parametrize("args", [["--detector", "haar"], ["--what", "cats"]])
-def test_find_haar_parity(pair, args):
-    assert _lines(pair.new("find", "lincoln.png", *args).stdout) == _lines(pair.ref("find", "lincoln.png", *args).stdout)
+@pytest.mark.parametrize("args, found", [(["--detector", "haar"], True), (["--what", "cats"], False)])
+def test_find_haar_parity(pair, args, found):
+    _find_parity(pair, "lincoln.png", *args, found=found)
 
 
 @pytest.mark.models

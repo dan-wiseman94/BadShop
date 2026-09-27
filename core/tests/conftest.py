@@ -1,5 +1,6 @@
 """Shared fixtures. The `pair` fixture runs the reference CLI and the new CLI side by side."""
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -53,6 +54,9 @@ def frames(path: Path) -> tuple[list[bytes], tuple[int, int], list[int | None], 
 
 
 def assert_same_image(a: Path, b: Path) -> None:
+    with Image.open(a) as ia, Image.open(b) as ib:
+        assert ia.format == ib.format, f"format {ia.format} != {ib.format} ({a} vs {b})"
+        assert ia.mode == ib.mode, f"mode {ia.mode} != {ib.mode} ({a} vs {b})"
     fa, sa, da, la = frames(a)
     fb, sb, db, lb = frames(b)
     assert sa == sb, f"size {sa} != {sb} ({a} vs {b})"
@@ -80,7 +84,32 @@ class Pair:
     def assert_same(self, rel_ref: str, rel_new: str | None = None) -> None:
         assert_same_image(self.ref_dir / rel_ref, self.new_dir / (rel_new or rel_ref))
 
+    def check(self, *args: str, files: tuple[str, ...] | list[str] = ()) -> str:
+        """Run one command on both sides. Stdout must match, with each side's folder written as <CWD>,
+        and so must every listed file (pixels, frames, durations, loop, format and mode).
+        Returns the normalised stdout."""
+        ref = self.ref(*args).stdout.replace(str(self.ref_dir), "<CWD>")
+        new = self.new(*args).stdout.replace(str(self.new_dir), "<CWD>")
+        assert new == ref
+        for f in files:
+            self.assert_same(f)
+        return new
+
 
 @pytest.fixture
 def pair(tmp_path: Path) -> Pair:
     return Pair(tmp_path)
+
+
+def load_reference():
+    """reference/badshop.py as a module, for in-process comparisons (a fresh copy on every call)."""
+    spec = importlib.util.spec_from_file_location("reference_badshop", REFERENCE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(scope="session")
+def reference():
+    """The reference module, shared. Tests may monkeypatch its globals; monkeypatch restores them."""
+    return load_reference()

@@ -1,14 +1,13 @@
 """Every reference command and flag must exist in the new CLI."""
 
 import argparse
-import importlib.util
 
 import pytest
 
 from badshop.cli.main import build_parser
 from badshop.tools import REGISTRY
 from badshop.tools.registry import image_fields
-from conftest import REFERENCE
+from conftest import load_reference
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
@@ -18,9 +17,7 @@ def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentP
 
 @pytest.fixture(scope="module")
 def reference_parser() -> argparse.ArgumentParser:
-    spec = importlib.util.spec_from_file_location("reference_badshop", REFERENCE)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = load_reference()
     captured = {}
     original = argparse.ArgumentParser.parse_args
 

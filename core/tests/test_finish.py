@@ -1,5 +1,3 @@
-import importlib.util
-
 import numpy as np
 import pytest
 from PIL import Image, ImageStat
@@ -7,7 +5,7 @@ from PIL import Image, ImageStat
 from badshop.engine.errors import EngineError
 from badshop.engine.finish import deepfry
 from badshop.tools.runner import run_tool
-from conftest import FIXTURES, REFERENCE, assert_same_image
+from conftest import FIXTURES, assert_same_image
 from memstore import MemoryStore
 
 SAVES = [
@@ -19,10 +17,8 @@ SAVES = [
 
 @pytest.mark.parametrize("args", SAVES)
 def test_save_parity(pair, args):
-    assert pair.new("save", "lincoln.png", *args).stdout.replace(str(pair.new_dir), "") == \
-        pair.ref("save", "lincoln.png", *args).stdout.replace(str(pair.ref_dir), "")
     ext = ".gif" if "--gif" in args else ".jpg"
-    pair.assert_same(f"final/s{ext}")
+    pair.check("save", "lincoln.png", *args, files=[f"final/s{ext}"])
 
 
 ANIMS = [
@@ -36,15 +32,33 @@ ANIMS = [
 
 @pytest.mark.parametrize("args", ANIMS, ids=lambda a: a[1])
 def test_animate_parity(pair, args):
-    for side in (pair.ref, pair.new):
-        side("animate", "lincoln.png", "trump.png", *args, "--name", "a")
-    pair.assert_same("final/a.gif")
+    out = pair.check("animate", "lincoln.png", "trump.png", *args, "--name", "a", files=["final/a.gif"])
+    assert out.startswith("animated: <CWD>/final/a.gif\n")
 
 
 def test_animate_out_suffix_parity(pair):
-    for side in (pair.ref, pair.new):
-        side("animate", "lincoln.png", "trump.png", "--effect", "flash", "-o", "anim.png")
-    pair.assert_same("anim.png")
+    pair.check("animate", "lincoln.png", "trump.png", "--effect", "flash", "-o", "anim.png", files=["anim.png"])
+
+
+# Finished files without --name are named after the input, minus a _work or _result suffix.
+DEFAULT_NAMES = [
+    (["save", "{}"], "{}.jpg"),
+    (["save", "{}", "--gif"], "{}.gif"),
+    (["animate", "{}", "trump.png", "--effect", "flash"], "{}_flash.gif"),
+    (["deepfry", "{}", "--level", "2"], "{}_deepfried.jpg"),
+]
+
+
+@pytest.mark.parametrize("image", ["lincoln.png", "badshop_work/lincoln_work.png"])
+@pytest.mark.parametrize("args, name", DEFAULT_NAMES, ids=lambda v: v[0] if isinstance(v, list) else None)
+def test_default_finished_names_parity(pair, image, args, name):
+    if image.startswith("badshop_work/"):
+        pair.check("prep", "lincoln.png", files=["badshop_work/lincoln_work.png"])
+    final = "final/" + name.format("lincoln")
+    fried = args[0] == "deepfry"  # its grain is the intended difference: same name and stdout, other pixels
+    out = pair.check(*[a.format(image) for a in args], files=[] if fried else [final])
+    assert out.split("\n")[0].endswith(f": <CWD>/{final}")
+    assert (pair.ref_dir / final).is_file() and (pair.new_dir / final).is_file()
 
 
 def test_final_names_never_overwrite(pair):
@@ -78,14 +92,6 @@ def test_animate_fry_accepts_a_negative_seed():
     assert len(run.result.outputs[0].frames) == 2
 
 
-@pytest.fixture(scope="module")
-def reference():
-    spec = importlib.util.spec_from_file_location("reference_badshop", REFERENCE)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 @pytest.mark.parametrize("tint", [True, False], ids=["tint", "no_tint"])
 @pytest.mark.parametrize("level", [1, 3, 5])
 def test_deepfry_matches_reference_outside_the_grain(reference, monkeypatch, level, tint):
@@ -106,9 +112,7 @@ def test_deepfry_matches_reference_outside_the_grain(reference, monkeypatch, lev
 
 
 def test_deepfry_stdout_parity(pair):
-    args = ["--level", "5", "--no-tint", "--name", "d"]
-    assert pair.new("deepfry", "lincoln.png", *args).stdout.replace(str(pair.new_dir), "") == \
-        pair.ref("deepfry", "lincoln.png", *args).stdout.replace(str(pair.ref_dir), "")
+    pair.check("deepfry", "lincoln.png", "--level", "5", "--no-tint", "--name", "d")
 
 
 def test_deepfry_level_increases_saturation():
