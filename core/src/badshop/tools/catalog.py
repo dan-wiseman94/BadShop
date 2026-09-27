@@ -1,6 +1,6 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import basic, compose, cutout, faces, text
+from badshop.engine import annotate, basic, compose, cutout, faces, filters, text
 from badshop.tools.registry import ToolSpec, register
 
 register(ToolSpec(
@@ -71,4 +71,47 @@ register(ToolSpec(
                  "height squashes, rotate tilts (counter-clockwise), flip mirrors. repeat=N scatters N random "
                  "copies inside region (emoji rain, crowds). Each paste starts from the base you give it, so "
                  "to fix a placement re-run from the same base."),
+))
+
+register(ToolSpec(
+    name="draw", params=annotate.DrawParams, category="effects",
+    run=lambda p, s: annotate.draw(p, s.load(p.image)),
+    summary="MS Paint annotations: circles, arrows, lines, rectangles",
+    description=("Hand-drawn-looking annotations in the MS Paint tradition: circle=[x,y,r], arrow and line "
+                 "=[x1,y1,x2,y2] (arrowhead at the end), rect=[x1,y1,x2,y2]; each is a list, so give as many "
+                 "as you like. Red by default: 'circled in red' is the joke format."),
+))
+
+register(ToolSpec(
+    name="censor", params=annotate.CensorParams, category="effects",
+    run=lambda p, s: annotate.censor(p, s.load(p.image)),
+    summary="pixelate, black-bar or blur rectangles",
+    description=("Censor rectangles: style pixelate (default), bar (solid black, the classic eye bar: use a "
+                 "box around find's eye points), or blur. block sets pixel size or blur radius."),
+))
+
+register(ToolSpec(
+    name="eyes", params=annotate.EyesParams, category="effects",
+    run=lambda p, s: annotate.eyes(p, s.load(p.image)),
+    summary="laser eyes",
+    description=("Laser beams with glow from each point in `at` (use find's eye points on the current "
+                 "image: run find again after pasting a new head). angle is the beam direction in degrees "
+                 "(0 = right, 90 = up, default 155 = up-left)."),
+))
+
+register(ToolSpec(
+    name="filter", params=filters.FilterParams, category="effects",
+    run=lambda p, s: filters.apply_filters(p, s.load(p.image)),
+    summary="emboss, edges, solarize, posterize, sepia and other filters, in order",
+    description=("The 'found the Filters menu' look: apply named filters in order (emboss, edges, contour, "
+                 "solarize, posterize, invert, grayscale, sepia, blur, sharpen, oilpaint)."),
+))
+
+register(ToolSpec(
+    name="warp", params=filters.WarpParams, category="effects",
+    run=lambda p, s: filters.warp(p, s.load(p.image)),
+    summary="bulge or pinch circular spots (giant eyes, huge nose)",
+    description=("Bulge (strength > 0) or pinch (strength < 0) circles with blocky pixels. Giant eyes: a spot "
+                 "on each find eye point with radius about 0.4x the eye distance. Huge nose: the nose point. "
+                 "Default strength 0.6; 1.0 is enormous."),
 ))
