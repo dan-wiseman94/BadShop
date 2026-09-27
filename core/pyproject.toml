@@ -17,7 +17,7 @@ dependencies = [
 badshop = "badshop.cli.main:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4"]  # jsonschema: the registry's JSON schemas are really checked
 
 [build-system]
 requires = ["hatchling"]
