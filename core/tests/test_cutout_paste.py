@@ -105,3 +105,17 @@ def test_cutout_model_download_offline(monkeypatch, tmp_path):
     with pytest.raises(EngineError) as e:
         run_tool("cutout", {"image": ref}, store)
     assert "internet" in e.value.hint
+
+
+def test_cutout_corrupt_model_download(monkeypatch):
+    # A captive portal answers the first model download with its login page: pooch's hash check fails.
+    import rembg
+
+    def portal(model):
+        raise ValueError(f"MD5 hash of downloaded file ({model}.onnx) does not match the known hash")
+    monkeypatch.setattr(rembg, "new_session", portal)
+    store = MemoryStore()
+    ref = store.add(Image.new("RGB", (50, 50)), "x.png")
+    with pytest.raises(EngineError, match="couldn't download the u2net background-removal model") as e:
+        run_tool("cutout", {"image": ref}, store)
+    assert "internet" in e.value.hint and "does not match" in e.value.message

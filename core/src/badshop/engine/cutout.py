@@ -69,7 +69,10 @@ def cutout(p: CutoutParams, image: Image.Image) -> EngineResult:
                               hint='pip install "rembg[cpu]", or use no_ai') from None
         try:
             session = new_session(p.model)
-        except OSError as e:  # requests' errors are OSErrors: offline, or the first-run model download failed
+        # OSError: offline, or the first-run model download failed (requests' errors are OSErrors).
+        # ValueError: pooch's checksum check failed, e.g. a Wi-Fi login page came back instead of the model.
+        # (new_session's other ValueError, an unknown model, can't happen: RembgModel is a Literal.)
+        except (OSError, ValueError) as e:
             raise EngineError(f"couldn't download the {p.model} background-removal model ({e})",
                               hint="check the internet connection; it is only downloaded once, "
                                    "or use no_ai") from None
