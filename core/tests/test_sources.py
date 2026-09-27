@@ -1,9 +1,10 @@
 import io
+import subprocess
 import urllib.error
 import urllib.parse
 
 import pytest
-from PIL import Image
+from PIL import EpsImagePlugin, Image
 
 from badshop.engine import sources
 from badshop.engine.errors import EngineError
@@ -14,15 +15,27 @@ from memstore import MemoryStore
 API = FIXTURES / "api"
 
 
-def lincoln_jpeg() -> bytes:
+def encode(im: Image.Image, fmt: str, **kw) -> bytes:
     buf = io.BytesIO()
-    Image.open(FIXTURES / "lincoln.png").convert("RGB").save(buf, "JPEG")
+    im.save(buf, fmt, **kw)
     return buf.getvalue()
 
 
-def fake_http(requested: list[str]):
+def lincoln_jpeg() -> bytes:
+    return encode(Image.open(FIXTURES / "lincoln.png").convert("RGB"), "JPEG")
+
+
+def lincoln_sideways_jpeg() -> bytes:
+    """The upright 457x600 fixture stored landscape with EXIF orientation 6, the way phones store photos."""
+    im = Image.open(FIXTURES / "lincoln.png").convert("RGB").transpose(Image.Transpose.ROTATE_90)
+    exif = im.getexif()
+    exif[0x0112] = 6  # rotate 90 degrees clockwise on display
+    return encode(im, "JPEG", exif=exif)
+
+
+def fake_http(requested: list[str], jpeg: bytes | None = None):
     """Serve recorded API JSON by host, the page fixture for .html, and a fixture image for anything else."""
-    def get(url: str, timeout: float = 30):
+    def get(url: str, timeout: float = 30, max_bytes: int | None = None):
         requested.append(url)
         if "commons.wikimedia.org/w/api.php" in url:
             return (API / "commons.json").read_bytes(), "application/json"
@@ -37,7 +50,7 @@ def fake_http(requested: list[str]):
         if "twemoji" in url:
             return (FIXTURES / "emoji_joy.png").read_bytes(), "image/png"
         if urllib.parse.urlparse(url).path.lower().endswith((".jpg", ".jpeg")):
-            return lincoln_jpeg(), "image/jpeg"
+            return jpeg or lincoln_jpeg(), "image/jpeg"
         return (FIXTURES / "lincoln.png").read_bytes(), "image/png"
     return get
 
@@ -174,3 +187,83 @@ def test_clipboard_empty(monkeypatch):
 def test_live_wiki(pair):
     out = pair.new("wiki", "Abraham Lincoln", "-n", "1").stdout
     assert out.startswith("1: badshop_work/fetch/wiki_abraham_lincoln_1")
+
+
+# --- downloads decode with the web formats only (SEC-S1), upright (CO I3) ---
+
+EPS = (b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\n%%EndComments\n"
+       b"newpath 0 0 moveto 10 10 lineto stroke\nshowpage\n%%EOF\n")
+
+
+def test_downloads_never_reach_the_eps_decoder(monkeypatch):
+    # Pretend Ghostscript is installed, so decoding EPS would run it as a subprocess.
+    monkeypatch.setattr(EpsImagePlugin, "gs_binary", "gs")
+    spawned = []
+
+    def no_subprocess(*args, **kwargs):
+        spawned.append(args)
+        raise AssertionError("a download started a subprocess")
+    for name in ("Popen", "run", "call", "check_call", "check_output"):
+        monkeypatch.setattr(subprocess, name, no_subprocess)
+
+    def get(url, timeout=30, max_bytes=None):
+        if url.endswith(".html"):
+            return b'<html><head><meta property="og:image" content="/art.eps"></head></html>', "text/html"
+        return EPS, "application/postscript"
+    monkeypatch.setattr(sources, "http_get", get)
+    with pytest.raises(EngineError, match="isn't an image"):
+        run_tool("fetch", {"query": "https://example.org/page.html"}, MemoryStore())
+    assert spawned == []
+
+
+def test_try_image_decodes_web_formats_only():
+    red = Image.new("RGB", (8, 8), "red")
+    assert sources.try_image(EPS) is None
+    assert sources.try_image(encode(red, "TIFF")) is None
+    assert sources.try_image(encode(red, "BMP")) is None
+    assert sources.try_image(encode(red, "JPEG")).format == "JPEG"
+    mpo = sources.try_image(encode(red, "MPO", save_all=True, append_images=[Image.new("RGB", (8, 8), "blue")]))
+    assert mpo.format == "MPO" and mpo.size == (8, 8)  # JPEG's decoder also opens MPO
+
+
+@pytest.mark.parametrize("fmt", ["PNG", "JPEG", "GIF", "WEBP"])
+def test_try_image_without_orientation_is_unchanged(fmt):
+    data = encode(Image.open(FIXTURES / "lincoln.png").convert("RGB"), fmt)
+    plain = Image.open(io.BytesIO(data))
+    plain.load()
+    im = sources.try_image(data)
+    assert (im.format, im.mode, im.size, im.tobytes()) == (plain.format, plain.mode, plain.size, plain.tobytes())
+
+
+def test_fetched_phone_photos_arrive_upright(monkeypatch):
+    monkeypatch.setattr(sources, "http_get", fake_http([], jpeg=lincoln_sideways_jpeg()))
+    store = MemoryStore()
+    run = run_tool("fetch", {"query": "golden retriever", "source": "commons", "n": 1}, store)
+    out = run.result.outputs[0]
+    assert out.fmt == "JPEG" and out.name_hint.endswith("_1.jpg")
+    assert store.images[run.refs[0]].size == (457, 600) and out.caption.startswith("(457x600) ")
+    run = run_tool("fetch", {"query": "https://example.org/IMG_0001.jpg"}, store)
+    assert store.images[run.refs[0]].size == (457, 600) and run.result.lines == ["size: 457x600"]
+
+
+@pytest.mark.parametrize("tool,listing,chosen", [
+    ("wl-paste", b"text/html\nimage/bmp\nimage/png\nimage/jpeg\n", "image/png"),
+    ("wl-paste", b"image/bmp\nimage/gif\nimage/webp\n", "image/webp"),
+    ("wl-paste", b"text/plain\nimage/bmp\n", "image/bmp"),
+    ("xclip", b"TARGETS\nimage/tiff\nimage/jpeg\nimage/gif\n", "image/jpeg"),
+])
+def test_clipboard_prefers_web_image_types(monkeypatch, tool, listing, chosen):
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setattr(sources.shutil, "which", lambda name: f"/usr/bin/{name}" if name == tool else None)
+    asked = []
+
+    def run(cmd, **kwargs):
+        if "--list-types" in cmd or "TARGETS" in cmd:
+            out = listing
+        else:
+            asked.append(cmd[cmd.index("--type" if tool == "wl-paste" else "-t") + 1])
+            out = b"image bytes"
+        return subprocess.CompletedProcess(cmd, 0, stdout=out)
+    monkeypatch.setattr(sources.subprocess, "run", run)
+    assert sources.read_clipboard() == (b"image bytes", None)
+    assert asked == [chosen]

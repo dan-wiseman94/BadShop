@@ -3,7 +3,6 @@ clipboard, and plain image or page URLs. Ported from reference/badshop.py."""
 
 import difflib
 import http.client
-import io
 import json
 import os
 import re
@@ -21,7 +20,7 @@ from PIL import Image, ImageDraw, ImageOps
 from pydantic import Field
 
 from badshop.engine.assets import http_get  # always called as a module global, so tests can swap it
-from badshop.engine.common import font, has_alpha
+from badshop.engine.common import WEB_FORMATS, font, has_alpha, load_image
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import Params
@@ -122,10 +121,10 @@ def slugify(text):
 
 
 def try_image(data):
+    """Downloaded or pasted bytes as an upright image, or None. Only the web formats are decoded,
+    so a server can never pick Pillow's riskier decoders (EPS runs Ghostscript)."""
     try:
-        im = Image.open(io.BytesIO(data))
-        im.load()
-        return im
+        return load_image(data, formats=WEB_FORMATS)  # rotates in place, so .format survives
     except Exception:
         return None
 
@@ -233,6 +232,15 @@ def fetch_url(url, follow=True) -> EngineResult:
     return EngineResult(outputs=[Output("fetched", _keep(im), name)], lines=[f"size: {im.width}x{im.height}"])
 
 
+CLIPBOARD_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")  # what try_image decodes
+
+
+def _image_type(types: list[str]) -> str | None:
+    """The clipboard type to read: a web image format when one is offered, else the first image/*."""
+    return next((t for t in CLIPBOARD_IMAGE_TYPES if t in types),
+                next((t for t in types if t.startswith("image/")), None))
+
+
 def read_clipboard():
     """(image bytes, text) from the system clipboard; either may be None."""
     def run(cmd):
@@ -243,13 +251,13 @@ def read_clipboard():
 
     if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste"):
         types = run(["wl-paste", "--list-types"]).decode(errors="replace").split()
-        img = next((t for t in types if t.startswith("image/")), None)
+        img = _image_type(types)
         if img:
             return run(["wl-paste", "--no-newline", "--type", img]), None
         return None, run(["wl-paste", "--no-newline"]).decode(errors="replace")
     if shutil.which("xclip"):
         targets = run(["xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"]).decode(errors="replace").split()
-        img = next((t for t in targets if t.startswith("image/")), None)
+        img = _image_type(targets)
         if img:
             return run(["xclip", "-selection", "clipboard", "-t", img, "-o"]), None
         return None, run(["xclip", "-selection", "clipboard", "-o"]).decode(errors="replace")

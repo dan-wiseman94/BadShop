@@ -8,9 +8,16 @@ from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
 from badshop.engine.errors import EngineError
 
 
-def load_image(src: Path | bytes) -> Image.Image:
-    """Open a file or bytes upright (EXIF rotation applied), fully loaded, mode and .format preserved."""
-    im = Image.open(io.BytesIO(src) if isinstance(src, bytes) else src)
+# The decoders for images from the web or the clipboard. Pillow's others include EPS, which runs Ghostscript.
+# JPEG's decoder also opens MPO (phone photos); "MPO" itself is not a decoder name and Image.open rejects it.
+WEB_FORMATS = ("PNG", "JPEG", "GIF", "WEBP")
+
+
+def load_image(src: Path | bytes, formats: tuple[str, ...] | None = None) -> Image.Image:
+    """Open a file or bytes upright (EXIF rotation applied), fully loaded, mode and .format preserved.
+
+    `formats` limits the decoders tried (e.g. WEB_FORMATS); None tries every one Pillow has."""
+    im = Image.open(io.BytesIO(src) if isinstance(src, bytes) else src, formats=formats)
     ImageOps.exif_transpose(im, in_place=True)  # phone photos carry their rotation in EXIF
     im.load()
     return im
