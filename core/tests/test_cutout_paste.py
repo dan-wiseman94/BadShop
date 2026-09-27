@@ -3,6 +3,7 @@ from PIL import Image
 
 from badshop.engine.errors import EngineError
 from badshop.tools.runner import run_tool
+from conftest import assert_same_image
 from memstore import MemoryStore
 
 
@@ -119,3 +120,31 @@ def test_cutout_corrupt_model_download(monkeypatch):
     with pytest.raises(EngineError, match="couldn't download the u2net background-removal model") as e:
         run_tool("cutout", {"image": ref}, store)
     assert "internet" in e.value.hint and "does not match" in e.value.message
+
+
+def _phone_piece(folder):
+    """A piece stored landscape (40x20) with EXIF orientation 6, as phones store photos: upright it is a
+    20x40 portrait, red on top and blue below. Also its upright copy as a plain PNG."""
+    from badshop.engine.common import load_image
+
+    stored = Image.new("RGB", (40, 20), "blue")
+    stored.paste((255, 0, 0), (0, 0, 20, 20))  # the left half is the top once turned 90 degrees clockwise
+    exif = stored.getexif()
+    exif[0x0112] = 6
+    stored.save(folder / "phone.jpg", exif=exif, quality=95)
+    load_image(folder / "phone.jpg").save(folder / "upright.png")
+
+
+def test_exif_rotated_paste_pieces_are_pasted_upright(pair):
+    # An intended change from the reference, which pasted the stored (sideways) pixels: pieces now load
+    # through the store's EXIF-aware loader, like every other image (Review Focus 1).
+    _phone_piece(pair.ref_dir)
+    _phone_piece(pair.new_dir)
+    args = ["paste", "lincoln.png", "phone.jpg", "--at", "10", "10", "--width", "100"]
+    assert "100x50 after scaling" in pair.ref(*args).stdout  # the reference: sideways
+    assert "100x200 after scaling" in pair.new(*args, "-o", "rotated.png").stdout
+    pair.new("paste", "lincoln.png", "upright.png", "--at", "10", "10", "--width", "100", "-o", "plain.png")
+    assert_same_image(pair.new_dir / "rotated.png", pair.new_dir / "plain.png")
+    with Image.open(pair.new_dir / "rotated.png") as im:
+        top, bottom = im.getpixel((60, 30)), im.getpixel((60, 180))
+    assert top[0] > 200 > top[2] and bottom[2] > 200 > bottom[0]  # red on top, blue below
