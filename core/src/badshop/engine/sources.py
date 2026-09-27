@@ -2,6 +2,7 @@
 clipboard, and plain image or page URLs. Ported from reference/badshop.py."""
 
 import difflib
+import functools
 import http.client
 import json
 import os
@@ -20,7 +21,7 @@ from PIL import Image, ImageDraw, ImageOps
 from pydantic import Field
 
 from badshop.engine.assets import http_get  # always called as a module global, so tests can swap it
-from badshop.engine.common import WEB_FORMATS, font, has_alpha, load_image
+from badshop.engine.common import WEB_FORMATS, font, has_alpha, load_image, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import Params
@@ -74,16 +75,51 @@ def _hint(reasons: list[str], advice: str) -> str:
     return "; ".join([*reasons, advice])
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _clean(text: str) -> str:
+    """Control characters (terminal escapes, carriage returns, bells) become spaces."""
+    return _CONTROL.sub(" ", text)
+
+
+def _scrubbed(tool):
+    """Web text (titles, creators, licences, page links, server messages) reaches the lines, captions
+    and error text these tools return. Replace its control characters, so a server can't rewrite the
+    user's terminal (an escape sequence plus a carriage return can erase a line and print a fake one)."""
+    @functools.wraps(tool)
+    def run(p):
+        try:
+            r = tool(p)
+        except EngineError as e:
+            e.message, e.hint = _clean(e.message), e.hint and _clean(e.hint)
+            e.args = (e.message,)
+            raise
+        r.lines = [_clean(l) for l in r.lines]
+        for o in r.outputs:
+            o.caption = _clean(o.caption)
+        return r
+    return run
+
+
+def _bad_link(url: str, e: Exception) -> EngineError:
+    return EngineError(f"{url} isn't a valid link ({e})", hint="copy the full address again")
+
+
 def _web_url(url: str) -> str:
     """`url` if it is an http(s) link; anything else (file:, ftp:, data:) is a clean EngineError."""
-    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+    try:
+        scheme = urllib.parse.urlsplit(url).scheme
+    except ValueError as e:  # e.g. an unclosed IPv6 bracket
+        raise _bad_link(url, e) from None
+    if scheme not in ("http", "https"):
         raise EngineError("only http and https links can be fetched", hint="copy the image's web address")
     return url
 
 
 def _keep(im: Image.Image) -> Image.Image:
-    """Keep transparency (emoji, stickers, logos); flatten everything else to RGB."""
-    return im.convert("RGBA") if has_alpha(im) else im.convert("RGB")
+    """Keep transparency (emoji, stickers, logos); flatten everything else to RGB (16-bit scaled, like files)."""
+    return im.convert("RGBA") if has_alpha(im) else to_rgb(im)
 
 
 def commons_search(query, n):
@@ -179,9 +215,10 @@ def download_candidates(hits, slug, source_line=None) -> EngineResult:
             lines.append(f"{i}: skipped, no usable image")
             continue
         fmt = im.format if im.format in FORMAT_EXT else "PNG"  # read before convert() drops .format
-        panels.append((i, im, h["title"]))
+        kept = _keep(im)
+        panels.append((i, kept, h["title"]))  # the sheet shows what was kept (same pixels as im for 8-bit)
         note = f"  [{h['note']}]" if h.get("note") else ""
-        outputs.append(Output(str(i), _keep(im), f"fetch/{slug}_{i}{FORMAT_EXT[fmt]}", fmt=fmt,
+        outputs.append(Output(str(i), kept, f"fetch/{slug}_{i}{FORMAT_EXT[fmt]}", fmt=fmt,
                               caption=f"({im.width}x{im.height}) {h['title']}{note}"))
     if not panels:
         raise EngineError("every candidate failed to download", hint=_hint(lines, "try other words or another source"))
@@ -234,6 +271,8 @@ def fetch_url(url, follow=True) -> EngineResult:
         data, ctype = http_get(url)
     except urllib.error.HTTPError as e:
         raise EngineError(f"{url} returned HTTP {e.code}") from None
+    except (ValueError, http.client.InvalidURL) as e:  # a space or a bad port: refused before connecting
+        raise _bad_link(url, e) from None
     except NET_ERRORS as e:
         raise EngineError(f"couldn't download {url} ({e})", hint=NET_HINT) from None
     im = try_image(data)
@@ -302,6 +341,7 @@ def fetch_clipboard() -> EngineResult:
     raise EngineError("the clipboard has no image or link", hint="copy an image (or its address) and try again")
 
 
+@_scrubbed
 def fetch(p: FetchParams) -> EngineResult:
     # reference/badshop.py cmd_fetch
     if p.clipboard:
@@ -337,6 +377,7 @@ def fetch(p: FetchParams) -> EngineResult:
     return r
 
 
+@_scrubbed
 def wiki(p: WikiParams) -> EngineResult:
     # reference/badshop.py cmd_wiki
     api = f"https://{p.lang}.wikipedia.org/w/api.php"
@@ -378,6 +419,7 @@ def emoji_code(s) -> str:
     return "-".join(f"{c:x}" for c in cps)
 
 
+@_scrubbed
 def emoji(p: EmojiParams) -> EngineResult:
     # reference/badshop.py cmd_emoji
     suggestion = "try the emoji character itself, or one of: " + ", ".join(sorted(EMOJI_NAMES))
@@ -405,10 +447,12 @@ def emoji(p: EmojiParams) -> EngineResult:
     return EngineResult(outputs=outputs, lines=lines)
 
 
+@_scrubbed
 def template(p: TemplateParams) -> EngineResult:
     # reference/badshop.py cmd_template
-    try:
-        memes = json.loads(http_get(IMGFLIP_API, max_bytes=MAX_TEXT)[0])["data"]["memes"]
+    try:  # every key is read here, so a damaged item is this clean error rather than a KeyError below
+        memes = [{k: m[k] for k in ("name", "url", "width", "height", "box_count")}
+                 for m in json.loads(http_get(IMGFLIP_API, max_bytes=MAX_TEXT)[0])["data"]["memes"]]
     except Exception as e:
         raise EngineError(f"Imgflip template list failed ({e})", hint=NET_HINT) from None
     if p.list_all or not p.name:

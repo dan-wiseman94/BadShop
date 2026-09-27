@@ -1,4 +1,6 @@
 import io
+import json
+import re
 import subprocess
 import urllib.error
 import urllib.parse
@@ -352,3 +354,78 @@ def test_a_huge_original_falls_back_to_its_thumbnail(monkeypatch, web):
     assert [o.key for o in r.outputs] == ["1"] and r.outputs[0].image.size == (457, 600)
     assert r.lines == ["1: https://e.org/original.png failed (that image is too big to fetch "
                        "(Image size (9000x8000) exceeds limit of 64000000 pixels))"]
+
+
+# --- malformed links, damaged Imgflip items, 16-bit images, control characters (TRI T12, CO M5, SEC-S11) ---
+
+@pytest.mark.parametrize("url", ["http://[::1", "http://example.com/a b.png", "http://example.com:port/x.png"])
+def test_malformed_links_are_clean_errors(url):
+    with pytest.raises(EngineError, match=re.escape(f"{url} isn't a valid link")) as e:
+        run_tool("fetch", {"query": url}, MemoryStore())  # urllib refuses these before connecting
+    assert "address" in e.value.hint
+
+
+def test_page_image_skips_a_malformed_link():
+    assert sources.page_image('<meta property="og:image" content="http://[oops/x.png">', "https://e.org/") is None
+
+
+@pytest.mark.parametrize("params", [{"list_all": True}, {"name": "drake"}])
+@pytest.mark.parametrize("key", ["name", "url", "width", "height", "box_count"])
+def test_template_with_a_damaged_item_is_a_clean_error(monkeypatch, params, key):
+    data = json.loads((API / "imgflip.json").read_bytes())
+    del data["data"]["memes"][3][key]
+    monkeypatch.setattr(sources, "http_get", lambda url, *a, **k: (json.dumps(data).encode(), "application/json"))
+    with pytest.raises(EngineError, match="Imgflip template list failed"):
+        run_tool("template", params, MemoryStore())
+
+
+def test_16bit_downloads_are_scaled_like_files(monkeypatch):
+    deep = encode(Image.new("I;16", (4, 4), 32768), "PNG")  # mid-grey in 16 bits
+    served = fake_http([])
+    monkeypatch.setattr(sources, "http_get", lambda url, *a, **k: (deep, "image/png") if "thumb" in url
+                        or url.endswith("deep.png") else served(url, *a, **k))
+    store = MemoryStore()
+    run = run_tool("fetch", {"query": "https://example.org/deep.png"}, store)
+    assert store.images[run.refs[0]].getpixel((0, 0)) == (128, 128, 128)
+    run = run_tool("fetch", {"query": "golden retriever", "source": "commons", "n": 2}, store)
+    first, sheet = (store.images[ref] for ref in (run.refs[0], run.refs[-1]))
+    assert first.getpixel((0, 0)) == (128, 128, 128)
+    assert run.result.outputs[-1].key == "sheet" and sheet.getpixel((150, 150)) == (128, 128, 128)
+
+
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+EVIL = "cat\x1b[2K\rFAKE LINE\x07\x9b"
+
+
+def test_remote_control_characters_never_reach_the_terminal(monkeypatch):
+    openverse = {"results": [{"url": "https://e.org/a.png", "title": EVIL, "license": "by\x1b", "creator": "x\x07"},
+                             {"url": "https://e.org/404.png", "title": EVIL}]}
+    imgflip = {"data": {"memes": [{"name": EVIL, "url": "https://e.org/m.png", "width": 1, "height": 1,
+                                   "box_count": "2\r"}]}}
+
+    def get(url, *args, **kwargs):
+        if "api.openverse.org" in url:
+            return json.dumps(openverse).encode(), "application/json"
+        if "api.imgflip.com" in url:
+            return json.dumps(imgflip).encode(), "application/json"
+        if url.endswith(".html"):
+            name = "404" if "gone" in url else "pic"
+            return f'<meta property="og:image" content="/{name}{EVIL}.png">'.encode(), "text/html"
+        if "404" in url:
+            raise urllib.error.HTTPError(url, 404, "Not\x1b[2KFound", None, None)
+        return (FIXTURES / "lincoln.png").read_bytes(), "image/png"
+    monkeypatch.setattr(sources, "http_get", get)
+    store = MemoryStore()
+    texts = []
+    for params in ({"query": "cats", "source": "openverse", "n": 2}, {"query": "https://e.org/page.html"}):
+        run = run_tool("fetch", params, store)
+        texts += run.result.lines + [o.caption for o in run.result.outputs]
+    texts += run_tool("template", {"list_all": True}, store).result.lines
+    texts += [o.caption for o in run_tool("template", {"name": "cat", "n": 1}, store).result.outputs]
+    for params in ({"query": "https://e.org/gone.html"}, {"query": "gone", "source": "openverse", "n": 1}):
+        openverse["results"] = openverse["results"][1:]  # the second round only has the failing hit
+        with pytest.raises(EngineError) as e:
+            run_tool("fetch", params, store)
+        texts += [e.value.message, e.value.hint or ""]
+    assert "(457x600) cat [2K FAKE LINE    [openverse, BY , by x ]" in texts
+    assert [t for t in texts if CONTROL.search(t)] == []
