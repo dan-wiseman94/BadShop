@@ -1,7 +1,44 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import annotate, basic, compose, cutout, faces, filters, finish, garnish, text
+from badshop.engine import annotate, basic, compose, cutout, faces, filters, finish, garnish, sources, text
 from badshop.tools.registry import ToolSpec, register
+
+register(ToolSpec(
+    name="fetch", params=sources.FetchParams, category="sources", network=True,
+    run=lambda p, s: sources.fetch(p),
+    summary="search Commons + Openverse, download an image or page URL, or grab the clipboard",
+    description=("Get images. Search words are a keyword search: use a short literal description of the "
+                 "picture ('labrador retriever sitting', not 'dog for meme'). Returns numbered candidates and "
+                 "a contact sheet: look at the sheet and pick the one with the part you need at a usable "
+                 "angle. query may also be an image URL or a web page URL (its preview image is used). "
+                 "clipboard=true takes what the user copied. For a named person or thing prefer wiki."),
+))
+
+register(ToolSpec(
+    name="wiki", params=sources.WikiParams, category="sources", network=True,
+    run=lambda p, s: sources.wiki(p),
+    summary="lead images of Wikipedia articles matching a name",
+    description=("The lead image of the best-matching Wikipedia articles. The best first try for any named "
+                 "person, place, building, animal breed or artwork; candidate 1 is almost always the exact "
+                 "article."),
+))
+
+register(ToolSpec(
+    name="emoji", params=sources.EmojiParams, category="sources", network=True,
+    run=lambda p, s: sources.emoji(p),
+    summary="transparent Twemoji PNGs by character, hex code or name",
+    description=("Transparent 72px emoji images (Twemoji). Give characters (😂), hex codes (1f480) or names "
+                 "(joy, rofl, sob, skull, fire, 100, eyes, ok, b, clown, moyai, flag_us, stonks...). Always "
+                 "use this for emoji, never a search. Paste with repeat for emoji rain."),
+))
+
+register(ToolSpec(
+    name="template", params=sources.TemplateParams, category="sources", network=True,
+    run=lambda p, s: sources.template(p),
+    summary="classic meme templates from Imgflip by name",
+    description=("Classic meme templates by name from Imgflip's top 100 (drake, distracted boyfriend, two "
+                 "buttons, change my mind...). Returns the best matches; list_all=true lists them all."),
+))
 
 register(ToolSpec(
     name="info", params=basic.InfoParams, category="inspect", mutates=False, read_only=True,
