@@ -1,6 +1,6 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import annotate, basic, compose, cutout, faces, filters, text
+from badshop.engine import annotate, basic, compose, cutout, faces, filters, garnish, text
 from badshop.tools.registry import ToolSpec, register
 
 register(ToolSpec(
@@ -114,4 +114,27 @@ register(ToolSpec(
     description=("Bulge (strength > 0) or pinch (strength < 0) circles with blocky pixels. Giant eyes: a spot "
                  "on each find eye point with radius about 0.4x the eye distance. Huge nose: the nose point. "
                  "Default strength 0.6; 1.0 is enormous."),
+))
+
+register(ToolSpec(
+    name="flare", params=garnish.FlareParams, category="effects",
+    run=lambda p, s: garnish.flare(p, s.load(p.image)),
+    summary="2004 lens flare",
+    description="A cheesy lens flare: glow, streak, and coloured ghost rings marching through the image center.",
+))
+
+register(ToolSpec(
+    name="sparkle", params=garnish.SparkleParams, category="effects",
+    run=lambda p, s: garnish.sparkle(p, s.load(p.image)),
+    summary="clip-art four-point sparkles",
+    description="Clip-art sparkles with a soft glow, at given points and/or scattered at random (repeat, region).",
+))
+
+register(ToolSpec(
+    name="watermark", params=garnish.WatermarkParams, category="effects",
+    run=lambda p, s: garnish.watermark(p, s.load(p.image)),
+    summary="fake HyperCam, Bandicam, iFunny or Mematic watermarks",
+    description=("Period-accurate fake watermarks, any combination: hypercam ('Unregistered HyperCam 2', "
+                 "top-left), bandicam (top center), ifunny (adds a dark bar under the picture), mematic "
+                 "(bottom center). text adds your own in a corner."),
 ))
