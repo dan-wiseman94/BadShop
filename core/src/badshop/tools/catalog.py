@@ -1,6 +1,6 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import basic, text
+from badshop.engine import basic, compose, cutout, text
 from badshop.tools.registry import ToolSpec, register
 
 register(ToolSpec(
@@ -36,4 +36,27 @@ register(ToolSpec(
                  "auto-sized, at the top; bottom=true for the punchline. style=paint is colored text with a "
                  "hard shadow (looks drawn in MS Paint); style=wordart is a rainbow face with a 3D "
                  "extrusion. at=[x,y] centers the text anywhere. A literal \\n forces a line break."),
+))
+
+register(ToolSpec(
+    name="cutout", params=cutout.CutoutParams, category="cut",
+    run=lambda p, s: cutout.cutout(p, s.load(p.image)),
+    summary="crop a box and remove its background with hard edges",
+    description=("Cut a piece out of an image. box is X1 Y1 X2 Y2; for a head use find's head box, generous "
+                 "and cut across the neck. The background remover keeps the subject with a hard, jagged edge "
+                 "on purpose. model=u2net_human_seg for people, isnet-anime for cartoons. oval=true cuts a "
+                 "hard ellipse instead (face-only swap: use find's oval box). no_ai=true keeps the plain "
+                 "rectangle. sticker=N adds a flat outline. If `opaque` is tiny, the box missed the subject."),
+))
+
+register(ToolSpec(
+    name="paste", params=compose.PasteParams, category="compose",
+    run=lambda p, s: compose.paste(p, s.load(p.base), s.load(p.piece)),
+    summary="paste a cutout onto a base image",
+    description=("Paste a cutout with nearest-neighbor scaling and no blending (the point of a bad "
+                 "photoshop). Easiest: fit_box = the target's head box from find, scale 1.1. Or at + width "
+                 "with an anchor (center for 'over the old head', bottom for 'standing on the ground'). "
+                 "height squashes, rotate tilts (counter-clockwise), flip mirrors. repeat=N scatters N random "
+                 "copies inside region (emoji rain, crowds). Each paste starts from the base you give it, so "
+                 "to fix a placement re-run from the same base."),
 ))
