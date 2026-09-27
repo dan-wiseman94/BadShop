@@ -52,7 +52,10 @@ def _find_font_file(style: str, explicit: str | None, data_dir: str) -> str | No
     for name in names:
         if Path(name).is_file():
             return name
-        for d in _font_dirs(data_dir):
+        # rglob rejects a pattern with a drive or root (NotImplementedError), so a missing absolute
+        # path skips the folder search and falls through to Pillow's search and then the built-in font.
+        dirs = [] if Path(name).anchor else _font_dirs(data_dir)
+        for d in dirs:
             if d.is_dir():
                 hit = next(d.rglob(name), None)
                 if hit:
@@ -74,7 +77,11 @@ def load_font(style: str, size: int, explicit: str | None = None) -> tuple[FreeT
     path = find_font_file(style, explicit)
     if path is None:
         return font(size), "built-in"
-    return ImageFont.truetype(path, size), Path(path).name
+    try:
+        return ImageFont.truetype(path, size), Path(path).name
+    except OSError:
+        raise EngineError(f"{Path(path).name} isn't a font file Pillow can read",
+                          hint="use a .ttf or .otf font file") from None
 
 
 def wrap_text(draw, text, fnt, max_width) -> list[str]:
@@ -165,6 +172,9 @@ def caption(p: TextParams, image: Image.Image) -> EngineResult:
     color = p.color or ("#46147a" if p.style == "wordart" else "red")
     size = p.size or {"impact": W // 9, "wordart": W // 10}.get(p.style, W // 12)
     while True:
+        if size < 1:  # auto-size reached 0: shrinking below 22 px wide, or starting below 9-12 px wide
+            raise EngineError("the image is too small for this caption",
+                              hint="give size, or caption a bigger image")
         fnt, used = load_font(p.style, size, p.font)
         lines = wrap_text(probe, text, fnt, W - 2 * p.margin)
         if p.size or len(lines) <= 3 or size <= W // 22:  # auto-size: shrink until it fits in 3 lines

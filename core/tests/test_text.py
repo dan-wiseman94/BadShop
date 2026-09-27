@@ -1,4 +1,5 @@
 import pytest
+from PIL import Image
 
 CASES = [
     ["problem, liburals??"],
@@ -49,3 +50,30 @@ def test_font_lookup_follows_data_dir(tmp_path, monkeypatch):
     assert find_font_file("impact", name) == str(tmp_path / "b" / "fonts" / name)
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "empty"))
     assert find_font_file("impact", name) is None
+
+
+def test_text_missing_absolute_font_falls_back_to_built_in(pair):
+    missing = pair.new_dir / "no-such-dir" / "Impact.ttf"
+    p = pair.new("text", "lincoln.png", "hi", "--font", str(missing), check=False)
+    assert p.returncode == 0, p.stderr
+    assert "font built-in" in p.stdout
+    assert "Traceback" not in p.stderr
+
+
+def test_text_non_font_file_is_a_clean_error(pair):
+    (pair.new_dir / "notes.txt").write_text("not a font at all\n")
+    p = pair.new("text", "lincoln.png", "hi", "--font", str(pair.new_dir / "notes.txt"), check=False)
+    assert p.returncode == 1
+    assert "notes.txt isn't a font file Pillow can read" in p.stderr
+    assert "hint: use a .ttf or .otf font file" in p.stderr
+    assert "Traceback" not in p.stderr
+
+
+@pytest.mark.parametrize("side", [12, 5])
+def test_text_too_small_image_is_a_clean_error(pair, side):
+    Image.new("RGB", (side, side), "white").save(pair.new_dir / "tiny.png")
+    p = pair.new("text", "tiny.png", "a b c d e f g h", check=False)
+    assert p.returncode == 1
+    assert "the image is too small for this caption" in p.stderr
+    assert "hint: give size, or caption a bigger image" in p.stderr
+    assert "Traceback" not in p.stderr
