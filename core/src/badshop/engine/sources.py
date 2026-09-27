@@ -33,6 +33,8 @@ IMAGE_MIMES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "
 FORMAT_EXT = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
 NET_ERRORS = (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException)
 NET_HINT = "check the internet connection, or use a local file"
+MAX_TEXT = 5 * 2**20  # bytes of an API reply, and of a web page parsed for its preview image
+MAX_WEB_PIXELS = 64_000_000  # a fetched image bigger than this is refused before it is decoded
 
 
 class FetchParams(Params):
@@ -91,7 +93,7 @@ def commons_search(query, n):
         "gsrnamespace": 6, "gsrlimit": n * 2,  # over-fetch; some hits are odd formats
         "prop": "imageinfo", "iiprop": "url|mime|size", "iiurlwidth": 1200,
     }
-    data, _ = http_get(COMMONS_API + "?" + urllib.parse.urlencode(params))
+    data, _ = http_get(COMMONS_API + "?" + urllib.parse.urlencode(params), max_bytes=MAX_TEXT)
     pages = json.loads(data).get("query", {}).get("pages", {})
     hits = []
     for page in sorted(pages.values(), key=lambda p: p.get("index", 0)):
@@ -109,7 +111,7 @@ def commons_search(query, n):
 def openverse_search(query, n):
     """Top-n openly licensed images from Openverse (Flickr, museums, Commons and more)."""
     params = {"q": query, "page_size": min(20, n * 2), "mature": "false"}
-    data, _ = http_get(OPENVERSE_API + "?" + urllib.parse.urlencode(params))
+    data, _ = http_get(OPENVERSE_API + "?" + urllib.parse.urlencode(params), max_bytes=MAX_TEXT)
     hits = []
     for r in json.loads(data).get("results", []):
         if not r.get("url"):
@@ -130,8 +132,11 @@ def slugify(text):
 def try_image(data):
     """Downloaded or pasted bytes as an upright image, or None. Only the web formats are decoded,
     so a server can never pick Pillow's riskier decoders (EPS runs Ghostscript)."""
-    try:
-        return load_image(data, formats=WEB_FORMATS)  # rotates in place, so .format survives
+    try:  # load_image rotates in place, so .format survives
+        return load_image(data, formats=WEB_FORMATS, max_pixels=MAX_WEB_PIXELS)
+    except Image.DecompressionBombError as e:  # ours (over 64 Mpx) or Pillow's own limit
+        raise EngineError(f"that image is too big to fetch ({e})",
+                          hint="use a smaller copy or its thumbnail link") from None
     except Exception:
         return None
 
@@ -233,7 +238,7 @@ def fetch_url(url, follow=True) -> EngineResult:
     im = try_image(data)
     if im is None:
         if follow and ("html" in ctype or data.lstrip()[:1] == b"<"):
-            found = page_image(data.decode("utf-8", "replace"), url)
+            found = page_image(data[:MAX_TEXT].decode("utf-8", "replace"), url)  # og:image sits in <head>
             if found:
                 r = fetch_url(found, follow=False)
                 r.lines.insert(0, f"page image: {found}")
@@ -340,7 +345,7 @@ def wiki(p: WikiParams) -> EngineResult:
         "pithumbsize": 1200, "pilimit": "max",
     }
     try:
-        data, _ = http_get(api + "?" + urllib.parse.urlencode(params))
+        data, _ = http_get(api + "?" + urllib.parse.urlencode(params), max_bytes=MAX_TEXT)
         pages = sorted(json.loads(data).get("query", {}).get("pages", {}).values(), key=lambda q: q.get("index", 0))
         hits = [{"title": q["title"], "url": q["thumbnail"]["source"], "note": "wikipedia lead image"}
                 for q in pages if q.get("thumbnail")][:p.n]
@@ -402,7 +407,7 @@ def emoji(p: EmojiParams) -> EngineResult:
 def template(p: TemplateParams) -> EngineResult:
     # reference/badshop.py cmd_template
     try:
-        memes = json.loads(http_get(IMGFLIP_API)[0])["data"]["memes"]
+        memes = json.loads(http_get(IMGFLIP_API, max_bytes=MAX_TEXT)[0])["data"]["memes"]
     except Exception as e:
         raise EngineError(f"Imgflip template list failed ({e})", hint=NET_HINT) from None
     if p.list_all or not p.name:

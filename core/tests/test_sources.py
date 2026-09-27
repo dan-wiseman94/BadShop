@@ -84,10 +84,10 @@ def test_fetch_keeps_jpeg_format(web):
 def test_fetch_one_source_down_keeps_the_other(monkeypatch, web):
     served = sources.http_get
 
-    def openverse_down(url, timeout=30):
+    def openverse_down(url, *args, **kwargs):
         if "api.openverse.org" in url:
             raise urllib.error.URLError("no route to host")
-        return served(url, timeout)
+        return served(url, *args, **kwargs)
     monkeypatch.setattr(sources, "http_get", openverse_down)
     run = run_tool("fetch", {"query": "golden retriever", "n": 2}, MemoryStore())
     assert [o.key for o in run.result.outputs] == ["1", "2", "sheet"]
@@ -123,7 +123,7 @@ def test_emoji_keeps_transparency(web):
 
 
 def test_emoji_unknown_lists_names(monkeypatch):
-    def missing(url, timeout=30):
+    def missing(url, *args, **kwargs):
         raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
     monkeypatch.setattr(sources, "http_get", missing)
     with pytest.raises(EngineError) as e:
@@ -143,7 +143,7 @@ def test_template_list(web):
 
 
 def test_fetch_offline(monkeypatch):
-    def down(url, timeout=30):
+    def down(url, *args, **kwargs):
         raise urllib.error.URLError("no route to host")
     monkeypatch.setattr(sources, "http_get", down)
     with pytest.raises(EngineError) as e:
@@ -152,7 +152,7 @@ def test_fetch_offline(monkeypatch):
 
 
 def test_fetch_url_offline(monkeypatch):
-    def down(url, timeout=30):
+    def down(url, *args, **kwargs):
         raise TimeoutError("timed out")
     monkeypatch.setattr(sources, "http_get", down)
     with pytest.raises(EngineError) as e:
@@ -311,3 +311,44 @@ def test_candidates_with_non_web_links_fall_back(web):
     assert r.lines[1:] == ["2: ftp://e.org/x.png failed (only http and https links can be fetched)",
                            "2: skipped, no usable image"]
     assert web == ["https://e.org/thumb.png"]
+
+
+# --- size caps (SEC-S3) ---
+
+def test_api_replies_are_capped_at_5_mb(monkeypatch):
+    calls = []
+    served = fake_http([])
+
+    def get(url, timeout=30, max_bytes=None):
+        calls.append((url, max_bytes))
+        return served(url, timeout)
+    monkeypatch.setattr(sources, "http_get", get)
+    run_tool("fetch", {"query": "golden retriever", "n": 1}, MemoryStore())
+    run_tool("wiki", {"title": "Abraham Lincoln", "n": 1}, MemoryStore())
+    run_tool("template", {"name": "drake", "n": 1}, MemoryStore())
+    apis = (sources.COMMONS_API, sources.OPENVERSE_API, sources.IMGFLIP_API, "https://en.wikipedia.org/w/api.php")
+    assert sorted(m for u, m in calls if u.startswith(apis)) == [5 * 2**20] * 4
+    assert {m for u, m in calls if not u.startswith(apis)} == {None}  # images keep http_get's 40 MB default
+
+
+def test_page_links_past_the_first_5_mb_are_not_parsed(monkeypatch):
+    late = b"<!--" + b"x" * (5 * 2**20) + b'--><meta property="og:image" content="/late.png">'
+
+    def get(url, timeout=30, max_bytes=None):
+        return (b"<html><head>" + late + b"</head></html>", "text/html") if url.endswith(".html") else \
+            ((FIXTURES / "lincoln.png").read_bytes(), "image/png")
+    monkeypatch.setattr(sources, "http_get", get)
+    with pytest.raises(EngineError, match="preview image"):
+        sources.fetch_url("https://example.org/huge.html")
+
+
+def test_a_huge_original_falls_back_to_its_thumbnail(monkeypatch, web):
+    from test_downloads import pixel_bomb_png
+    served = sources.http_get
+    monkeypatch.setattr(sources, "http_get", lambda url, *a, **k: (pixel_bomb_png(9000, 8000), "image/png")
+                        if url.endswith("/original.png") else served(url, *a, **k))
+    r = sources.download_candidates([{"title": "big", "url": "https://e.org/original.png",
+                                      "fallback": "https://e.org/thumb.png"}], "x")
+    assert [o.key for o in r.outputs] == ["1"] and r.outputs[0].image.size == (457, 600)
+    assert r.lines == ["1: https://e.org/original.png failed (that image is too big to fetch "
+                       "(Image size (9000x8000) exceeds limit of 64000000 pixels))"]

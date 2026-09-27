@@ -69,6 +69,8 @@ class FileStore:
         except (UnidentifiedImageError, OSError) as e:
             raise EngineError(f"{ref} isn't an image this tool can read ({e})",
                               hint="use a PNG, JPEG, GIF or WebP file") from None
+        except Image.DecompressionBombError as e:  # not an OSError: Pillow refuses ~179+ megapixels
+            raise EngineError(f"{ref} is too big to open ({e})", hint="use a smaller copy of the image") from None
 
     def put(self, output: Output, stem: str) -> str:
         first = self._count == 0

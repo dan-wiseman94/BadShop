@@ -10,10 +10,10 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 
-def response(body: bytes = b"", status: str = "200 OK", headers: dict[str, str] | None = None) -> bytes:
-    """A raw HTTP/1.1 response; Content-Length is the body's unless `headers` gives one."""
+def response(body: bytes = b"", status: str = "200 OK", headers: dict[str, str | None] | None = None) -> bytes:
+    """A raw HTTP/1.1 response; Content-Length is the body's unless `headers` gives one (None drops it)."""
     head = {"Content-Length": str(len(body)), "Connection": "close", **(headers or {})}
-    lines = [f"HTTP/1.1 {status}", *(f"{k}: {v}" for k, v in head.items()), "", ""]
+    lines = [f"HTTP/1.1 {status}", *(f"{k}: {v}" for k, v in head.items() if v is not None), "", ""]
     return "\r\n".join(lines).encode("latin-1") + body
 
 

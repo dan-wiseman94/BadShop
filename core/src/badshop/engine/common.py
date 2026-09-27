@@ -13,11 +13,18 @@ from badshop.engine.errors import EngineError
 WEB_FORMATS = ("PNG", "JPEG", "GIF", "WEBP")
 
 
-def load_image(src: Path | bytes, formats: tuple[str, ...] | None = None) -> Image.Image:
+def load_image(src: Path | bytes, formats: tuple[str, ...] | None = None,
+               max_pixels: int | None = None) -> Image.Image:
     """Open a file or bytes upright (EXIF rotation applied), fully loaded, mode and .format preserved.
 
-    `formats` limits the decoders tried (e.g. WEB_FORMATS); None tries every one Pillow has."""
+    `formats` limits the decoders tried (e.g. WEB_FORMATS); None tries every one Pillow has.
+    `max_pixels` refuses a bigger image before decoding it, with Pillow's DecompressionBombError
+    (which Pillow itself raises above about 179 megapixels)."""
     im = Image.open(io.BytesIO(src) if isinstance(src, bytes) else src, formats=formats)
+    if max_pixels is not None and im.width * im.height > max_pixels:
+        w, h = im.size
+        im.close()
+        raise Image.DecompressionBombError(f"Image size ({w}x{h}) exceeds limit of {max_pixels} pixels")
     ImageOps.exif_transpose(im, in_place=True)  # phone photos carry their rotation in EXIF
     im.load()
     return im
