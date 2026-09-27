@@ -67,7 +67,13 @@ def cutout(p: CutoutParams, image: Image.Image) -> EngineResult:
         except ImportError:
             raise EngineError("rembg is not installed",
                               hint='pip install "rembg[cpu]", or use no_ai') from None
-        mask = remove(piece.convert("RGB"), session=new_session(p.model)).getchannel("A")
+        try:
+            session = new_session(p.model)
+        except OSError as e:  # requests' errors are OSErrors: offline, or the first-run model download failed
+            raise EngineError(f"couldn't download the {p.model} background-removal model ({e})",
+                              hint="check the internet connection; it is only downloaded once, "
+                                   "or use no_ai") from None
+        mask = remove(piece.convert("RGB"), session=session).getchannel("A")
         alpha = mask.point(lambda v: 255 if v >= p.threshold else 0)
         if p.grow:
             alpha = alpha.filter(ImageFilter.MaxFilter(2 * p.grow + 1))

@@ -41,6 +41,8 @@ def paste(p: PasteParams, base_im: Image.Image, piece_im: Image.Image) -> Engine
                           hint="fit_box covers a box; at + width places by a point")
     if not (p.at or p.fit_box or p.repeat):
         raise EngineError("give at (or fit_box, or repeat)", hint="at is where the anchor point goes")
+    if p.repeat and not p.width:  # not in the reference, which crashed here when fit_box stood in for width
+        raise EngineError("repeat needs width", hint="each copy is scaled to 0.5-1.5x width")
 
     def scaled(width, height=None):
         w = max(1, round(width))

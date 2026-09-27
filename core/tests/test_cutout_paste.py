@@ -82,3 +82,26 @@ def test_cutout_rejects_unlisted_model():
     ref = store.add(Image.new("RGB", (50, 50)), "x.png")
     with pytest.raises(EngineError):
         run_tool("cutout", {"image": ref, "model": "bria-rmbg"}, store)
+
+
+def test_paste_repeat_needs_width():
+    store = MemoryStore()
+    base = store.add(Image.new("RGB", (50, 50)), "b.png")
+    piece = store.add(Image.new("RGBA", (10, 10), "red"), "p.png")
+    with pytest.raises(EngineError) as e:
+        run_tool("paste", {"base": base, "piece": piece, "repeat": 3, "fit_box": [0, 0, 20, 20]}, store)
+    assert "width" in e.value.message
+
+
+def test_cutout_model_download_offline(monkeypatch, tmp_path):
+    for k in ("REMBG_HOME", "U2NET_HOME"):
+        monkeypatch.setenv(k, str(tmp_path / "rembg"))
+    for k in ("HTTPS_PROXY", "https_proxy"):
+        monkeypatch.setenv(k, "http://127.0.0.1:9")
+    for k in ("NO_PROXY", "no_proxy"):  # so the dead proxy is always used and nothing is really downloaded
+        monkeypatch.delenv(k, raising=False)
+    store = MemoryStore()
+    ref = store.add(Image.new("RGB", (50, 50)), "x.png")
+    with pytest.raises(EngineError) as e:
+        run_tool("cutout", {"image": ref}, store)
+    assert "internet" in e.value.hint
