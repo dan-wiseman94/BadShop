@@ -40,12 +40,13 @@ def get(name: str) -> ToolSpec:
         raise EngineError(f"unknown tool {name!r}", hint=f"tools: {', '.join(sorted(REGISTRY))}") from None
 
 
+def _format(extra: Any) -> str | None:
+    return extra.get("format") if isinstance(extra, dict) else None  # coordinate types use a schema hook
+
+
 def _is_image(annotation: Any) -> bool:
-    for meta in getattr(annotation, "__metadata__", ()):
-        extra = getattr(meta, "json_schema_extra", None) or {}
-        if extra.get("format") == "badshop-image":
-            return True
-    return False
+    return any(_format(getattr(meta, "json_schema_extra", None)) == "badshop-image"
+               for meta in getattr(annotation, "__metadata__", ()))
 
 
 def image_fields(params_cls: type[Params]) -> dict[str, bool]:
@@ -53,13 +54,15 @@ def image_fields(params_cls: type[Params]) -> dict[str, bool]:
     found = {}
     for name, f in params_cls.model_fields.items():
         # A plain `x: ImageRef` field: pydantic merges the Annotated Field into the FieldInfo itself.
-        if (f.json_schema_extra or {}).get("format") == "badshop-image":
+        if _format(f.json_schema_extra) == "badshop-image":
             found[name] = False
             continue
         # list[ImageRef] / ImageRef | None keep the Annotated wrapper inside the annotation.
         for arg in typing.get_args(f.annotation):  # list[ImageRef], Optional[ImageRef]
             if _is_image(arg):
                 found[name] = typing.get_origin(f.annotation) is list
+            elif typing.get_origin(arg) is list and any(map(_is_image, typing.get_args(arg))):
+                found[name] = True  # Optional[list[ImageRef]]
     return found
 
 

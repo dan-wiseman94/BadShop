@@ -1,8 +1,12 @@
+import typing
+
 import pytest
 from PIL import Image
 
+from badshop.engine.cutout import RembgModel
 from badshop.engine.errors import EngineError
 from badshop.tools.runner import run_tool
+from conftest import assert_same_image
 from memstore import MemoryStore
 
 
@@ -30,9 +34,8 @@ PASTES = [
 
 @pytest.mark.parametrize("args", PASTES)
 def test_paste_parity(pair, args):
-    for side in (pair.ref, pair.new):
-        side("paste", "lincoln.png", "emoji_joy.png", *args)
-    pair.assert_same("badshop_work/result.png")
+    out = pair.check("paste", "lincoln.png", "emoji_joy.png", *args, files=["badshop_work/result.png"])
+    assert "after scaling" in out or "copies" in out
 
 
 def test_paste_keeps_transparency():
@@ -58,15 +61,14 @@ def test_paste_needs_placement():
     store = MemoryStore()
     base = store.add(Image.new("RGB", (50, 50)), "b.png")
     piece = store.add(Image.new("RGBA", (10, 10)), "p.png")
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match=r"give width \(or fit_box\)"):
         run_tool("paste", {"base": base, "piece": piece}, store)
-    assert "width" in e.value.message
 
 
 def test_cutout_box_outside():
     store = MemoryStore()
     ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError):
+    with pytest.raises(EngineError, match="lies outside the 50x50 image"):
         run_tool("cutout", {"image": ref, "box": [100, 100, 200, 200], "no_ai": True}, store)
 
 
@@ -77,20 +79,37 @@ def test_cutout_inverted_box():
     assert store.images[run.refs[0]].size == (30, 30)
 
 
+def test_cutout_and_paste_scale_16bit(tmp_path):
+    # 16-bit inputs are scaled, not clipped to white as the reference did (an intended change).
+    from badshop.engine.common import load_image
+
+    Image.new("I;16", (40, 40), 32768).save(tmp_path / "deep.png")  # mid-grey in 16 bits
+    store = MemoryStore()
+    deep = store.add(load_image(tmp_path / "deep.png"), "deep.png")
+    run = run_tool("cutout", {"image": deep, "no_ai": True}, store)
+    assert store.images[run.refs[0]].getpixel((20, 20)) == (128, 128, 128, 255)
+    base = store.add(Image.new("RGB", (60, 60), "white"), "base.png")
+    run = run_tool("paste", {"base": base, "piece": deep, "at": [10, 10], "width": 40}, store)
+    out = store.images[run.refs[0]]
+    assert out.getpixel((30, 30)) == (128, 128, 128) and out.getpixel((5, 5)) == (255, 255, 255)
+
+
 def test_cutout_rejects_unlisted_model():
+    # Spec 5.1: exactly these four, never rembg's own default bria-rmbg (non-commercial weights).
+    assert typing.get_args(RembgModel) == ("u2net", "u2net_human_seg", "isnet-anime", "birefnet-general")
     store = MemoryStore()
     ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError):
+    with pytest.raises(EngineError, match="bad parameters for cutout") as e:
         run_tool("cutout", {"image": ref, "model": "bria-rmbg"}, store)
+    assert e.value.hint.startswith("model: Input should be 'u2net'")
 
 
 def test_paste_repeat_needs_width():
     store = MemoryStore()
     base = store.add(Image.new("RGB", (50, 50)), "b.png")
     piece = store.add(Image.new("RGBA", (10, 10), "red"), "p.png")
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match="repeat needs width"):
         run_tool("paste", {"base": base, "piece": piece, "repeat": 3, "fit_box": [0, 0, 20, 20]}, store)
-    assert "width" in e.value.message
 
 
 def test_cutout_model_download_offline(monkeypatch, tmp_path):
@@ -102,6 +121,48 @@ def test_cutout_model_download_offline(monkeypatch, tmp_path):
         monkeypatch.delenv(k, raising=False)
     store = MemoryStore()
     ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match="couldn't download the u2net background-removal model") as e:
         run_tool("cutout", {"image": ref}, store)
     assert "internet" in e.value.hint
+
+
+def test_cutout_corrupt_model_download(monkeypatch):
+    # A captive portal answers the first model download with its login page: pooch's hash check fails.
+    import rembg
+
+    def portal(model):
+        raise ValueError(f"MD5 hash of downloaded file ({model}.onnx) does not match the known hash")
+    monkeypatch.setattr(rembg, "new_session", portal)
+    store = MemoryStore()
+    ref = store.add(Image.new("RGB", (50, 50)), "x.png")
+    with pytest.raises(EngineError, match="couldn't download the u2net background-removal model") as e:
+        run_tool("cutout", {"image": ref}, store)
+    assert "internet" in e.value.hint and "does not match" in e.value.message
+
+
+def _phone_piece(folder):
+    """A piece stored landscape (40x20) with EXIF orientation 6, as phones store photos: upright it is a
+    20x40 portrait, red on top and blue below. Also its upright copy as a plain PNG."""
+    from badshop.engine.common import load_image
+
+    stored = Image.new("RGB", (40, 20), "blue")
+    stored.paste((255, 0, 0), (0, 0, 20, 20))  # the left half is the top once turned 90 degrees clockwise
+    exif = stored.getexif()
+    exif[0x0112] = 6
+    stored.save(folder / "phone.jpg", exif=exif, quality=95)
+    load_image(folder / "phone.jpg").save(folder / "upright.png")
+
+
+def test_exif_rotated_paste_pieces_are_pasted_upright(pair):
+    # An intended change from the reference, which pasted the stored (sideways) pixels: pieces now load
+    # through the store's EXIF-aware loader, like every other image (Review Focus 1).
+    _phone_piece(pair.ref_dir)
+    _phone_piece(pair.new_dir)
+    args = ["paste", "lincoln.png", "phone.jpg", "--at", "10", "10", "--width", "100"]
+    assert "100x50 after scaling" in pair.ref(*args).stdout  # the reference: sideways
+    assert "100x200 after scaling" in pair.new(*args, "-o", "rotated.png").stdout
+    pair.new("paste", "lincoln.png", "upright.png", "--at", "10", "10", "--width", "100", "-o", "plain.png")
+    assert_same_image(pair.new_dir / "rotated.png", pair.new_dir / "plain.png")
+    with Image.open(pair.new_dir / "rotated.png") as im:
+        top, bottom = im.getpixel((60, 30)), im.getpixel((60, 180))
+    assert top[0] > 200 > top[2] and bottom[2] > 200 > bottom[0]  # red on top, blue below

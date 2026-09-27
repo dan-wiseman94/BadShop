@@ -1,6 +1,7 @@
 """Image helpers every engine module shares, ported from reference/badshop.py."""
 
 import io
+import itertools
 from pathlib import Path
 
 from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
@@ -8,9 +9,34 @@ from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
 from badshop.engine.errors import EngineError
 
 
-def load_image(src: Path | bytes) -> Image.Image:
-    """Open a file or bytes upright (EXIF rotation applied), fully loaded, mode and .format preserved."""
-    im = Image.open(io.BytesIO(src) if isinstance(src, bytes) else src)
+# The decoders for images from the web or the clipboard. Pillow's others include EPS, which runs Ghostscript.
+# JPEG's decoder also opens MPO (phone photos); "MPO" itself is not a decoder name and Image.open rejects it.
+WEB_FORMATS = ("PNG", "JPEG", "GIF", "WEBP")
+
+# The biggest image a parameter may ask the engine to make (a scaled paste, a caption layer, a sticker
+# border). Field caps bound each number; this bounds their products (fit_box x scale, a thin piece's height).
+MAX_WORK_PIXELS = 50_000_000
+
+
+def check_size(w: int, h: int) -> None:
+    """Refuse, before Pillow tries to allocate it, an image that parameters blew up past the budget."""
+    if w * h > MAX_WORK_PIXELS:
+        raise EngineError(f"that would make a {w}x{h} image, too big to work with",
+                          hint=f"use a smaller size or scale (the limit is {MAX_WORK_PIXELS // 1_000_000} megapixels)")
+
+
+def load_image(src: Path | bytes, formats: tuple[str, ...] | None = None,
+               max_pixels: int | None = None) -> Image.Image:
+    """Open a file or bytes upright (EXIF rotation applied), fully loaded, mode and .format preserved.
+
+    `formats` limits the decoders tried (e.g. WEB_FORMATS); None tries every one Pillow has.
+    `max_pixels` refuses a bigger image before decoding it, with Pillow's DecompressionBombError
+    (which Pillow itself raises above about 179 megapixels)."""
+    im = Image.open(io.BytesIO(src) if isinstance(src, bytes) else src, formats=formats)
+    if max_pixels is not None and im.width * im.height > max_pixels:
+        w, h = im.size
+        im.close()
+        raise Image.DecompressionBombError(f"Image size ({w}x{h}) exceeds limit of {max_pixels} pixels")
     ImageOps.exif_transpose(im, in_place=True)  # phone photos carry their rotation in EXIF
     im.load()
     return im
@@ -33,8 +59,8 @@ def fit(im: Image.Image, longest: int) -> tuple[Image.Image, float]:
     """
     w, h = im.size
     scale = min(1.0, longest / max(w, h))
-    if scale < 1:
-        im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    if scale < 1:  # never 0 px: a 5000x2 strip becomes 1000x1, not a crash
+        im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
     return im, scale
 
 
@@ -52,22 +78,38 @@ def label(draw, xy, text, fnt):
     draw.text((x, y), text, font=fnt, fill=(255, 255, 255))
 
 
-def draw_grid(im, major=100, minor=50) -> Image.Image:
-    """Magenta gridlines every `minor` px, labeled with pixel coords every `major` px."""
+def draw_grid(im, major=100, minor=50, scale=1.0) -> Image.Image:
+    """Magenta gridlines every `minor` px, labeled with pixel coords every `major` px.
+
+    `im` may be a view of a bigger source scaled by `scale`: the lines and labels are then in SOURCE
+    pixels (source line s drawn at s * scale), so a coordinate read off the grid is used as is. When the
+    labels would collide, the steps grow (x2, x5, x10...), and labels stay at multiples of `major`."""
     g = im.copy()
     d = ImageDraw.Draw(g)
     w, h = g.size
     fnt = font(max(11, min(w, h) // 55))
-    for x in range(0, w, minor):
-        is_major = x % major == 0
+    if scale < 1:
+        widest = d.textlength(str(round(max(w, h) / scale)), font=fnt) + 12  # a label and a gap
+        for step in (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000):
+            if major * step * scale >= widest:
+                break
+        major, minor = major * step, minor * step
+    for s in itertools.count(0, minor):
+        x = round(s * scale)
+        if x >= w:
+            break
+        is_major = s % major == 0
         d.line([(x, 0), (x, h)], fill=(255, 0, 255) if is_major else (255, 170, 255), width=1)
         if is_major:
-            label(d, (x + 3, 2), str(x), fnt)
-    for y in range(0, h, minor):
-        is_major = y % major == 0
+            label(d, (x + 3, 2), str(s), fnt)
+    for s in itertools.count(0, minor):
+        y = round(s * scale)
+        if y >= h:
+            break
+        is_major = s % major == 0
         d.line([(0, y), (w, y)], fill=(255, 0, 255) if is_major else (255, 170, 255), width=1)
         if is_major:
-            label(d, (3, y + 2), str(y), fnt)
+            label(d, (3, y + 2), str(s), fnt)
     return g
 
 

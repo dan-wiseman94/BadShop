@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from pydantic import Field
 
 from badshop.engine import assets
-from badshop.engine.common import clamp_box, has_alpha, rgb, to_rgb
+from badshop.engine.common import check_size, clamp_box, has_alpha, rgb, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import Box, Color, ImageRef, Params
@@ -39,10 +39,10 @@ class CutoutParams(Params):
     model: RembgModel = Field("u2net", description="background remover: u2net (default, fast), "
                               "u2net_human_seg (people), isnet-anime (cartoons), birefnet-general (cleaner)")
     threshold: int = Field(128, ge=0, le=255, description="alpha cutoff 0-255")
-    grow: int = Field(0, ge=0, description="dilate the mask N px to drag in a halo of old background")
+    grow: int = Field(0, ge=0, le=50, description="dilate the mask N px to drag in a halo of old background")
     no_ai: bool = Field(False, description="skip background removal; keep the whole rectangle")
     oval: bool = Field(False, description="cut a hard-edged ellipse filling the box instead (face-only swap)")
-    sticker: int | None = Field(None, ge=1, description="add an N px flat outline around the shape")
+    sticker: int | None = Field(None, ge=1, le=100, description="add an N px flat outline around the shape")
     sticker_color: Color = Field("white", description="outline color for sticker")
 
 
@@ -69,7 +69,10 @@ def cutout(p: CutoutParams, image: Image.Image) -> EngineResult:
                               hint='pip install "rembg[cpu]", or use no_ai') from None
         try:
             session = new_session(p.model)
-        except OSError as e:  # requests' errors are OSErrors: offline, or the first-run model download failed
+        # OSError: offline, or the first-run model download failed (requests' errors are OSErrors).
+        # ValueError: pooch's checksum check failed, e.g. a Wi-Fi login page came back instead of the model.
+        # (new_session's other ValueError, an unknown model, can't happen: RembgModel is a Literal.)
+        except (OSError, ValueError) as e:
             raise EngineError(f"couldn't download the {p.model} background-removal model ({e})",
                               hint="check the internet connection; it is only downloaded once, "
                                    "or use no_ai") from None
@@ -90,6 +93,7 @@ def cutout(p: CutoutParams, image: Image.Image) -> EngineResult:
 
     if p.sticker:  # thick flat outline behind the shape, like a sticker-pack cutout
         n = p.sticker
+        check_size(piece.width + 2 * n + 2, piece.height + 2 * n + 2)
         padded = Image.new("RGBA", (piece.width + 2 * n + 2, piece.height + 2 * n + 2), (0, 0, 0, 0))
         padded.paste(piece, (n + 1, n + 1))
         hard = padded.getchannel("A").point(lambda v: 255 if v else 0)

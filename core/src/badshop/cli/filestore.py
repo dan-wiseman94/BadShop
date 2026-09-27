@@ -14,7 +14,13 @@ from badshop.engine.result import Output
 
 
 def final_path(final_dir: Path, stem: str, ext: str) -> Path:
-    """Finished files never overwrite older ones: stem.ext, stem_2.ext, stem_3.ext..."""
+    """Finished files never overwrite older ones: stem.ext, stem_2.ext, stem_3.ext...
+
+    The stem must be a plain file name, so the file lands in final_dir itself. Params already refuse
+    other names; this catches any caller that skipped them (a stem with a folder, a drive, or `..`)."""
+    if stem in ("", ".", "..") or Path(stem).name != stem:  # this OS's separators and drives
+        raise EngineError(f"bad file name {stem!r}: it must not contain folders",
+                          hint="give a plain file name, e.g. lincoln_lasers")
     final_dir.mkdir(parents=True, exist_ok=True)
     p, i = final_dir / f"{stem}{ext}", 2
     while p.exists():
@@ -59,6 +65,16 @@ class FileStore:
     def __init__(self, work_dir: Path, final_dir: Path, out: str | None = None):
         self.work_dir, self.final_dir, self.out = work_dir, final_dir, out
         self._count = 0
+        self._written: set[Path] = set()  # one store serves one run
+
+    def _unused(self, path: Path) -> Path:
+        """One run never writes two outputs to the same path (emoji a b c -o e.png gives every output the key
+        "emoji"): the later ones become x_2.png, x_3.png..."""
+        p, i = path, 2
+        while p in self._written:
+            p, i = path.with_name(f"{path.stem}_{i}{path.suffix}"), i + 1
+        self._written.add(p)
+        return p
 
     def load(self, ref: str) -> Image.Image:
         path = Path(ref)
@@ -69,6 +85,8 @@ class FileStore:
         except (UnidentifiedImageError, OSError) as e:
             raise EngineError(f"{ref} isn't an image this tool can read ({e})",
                               hint="use a PNG, JPEG, GIF or WebP file") from None
+        except Image.DecompressionBombError as e:  # not an OSError: Pillow refuses ~179+ megapixels
+            raise EngineError(f"{ref} is too big to open ({e})", hint="use a smaller copy of the image") from None
 
     def put(self, output: Output, stem: str) -> str:
         first = self._count == 0
@@ -83,6 +101,7 @@ class FileStore:
                 path = final_path(self.final_dir, output.name_hint[6:].replace("{stem}", clean_stem(stem)), output.ext())
         else:
             path = self.work_dir / output.name_hint.replace("{stem}", stem)
+        path = self._unused(path)
         with _writing(path):
             path.parent.mkdir(parents=True, exist_ok=True)
             if self.out and first:
@@ -93,8 +112,7 @@ class FileStore:
 
     def export(self, ref: str, name: str | None) -> str:
         src = Path(ref)
-        if not src.is_file():
-            raise EngineError(f"no such image: {ref}", hint=PATH_HINT)
+        self.load(ref).close()  # only images are exported: anything else is the load's clean error
         with _writing(self.final_dir):
             dest = final_path(self.final_dir, name or clean_stem(src.stem), src.suffix)
         with _writing(dest):

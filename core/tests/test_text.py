@@ -5,6 +5,7 @@ CASES = [
     ["problem, liburals??"],
     ["hand drawn", "--style", "paint", "--at", "300", "400", "--rotate", "10", "--color", "blue"],
     ["Four score and\\nseven covfefes", "--style", "wordart", "--bottom"],
+    ["hand\\ndrawn", "--style", "paint", "--size", "30"],
     ["tiny", "--size", "18", "--margin", "4"],
 ]
 
@@ -77,3 +78,49 @@ def test_text_too_small_image_is_a_clean_error(pair, side):
     assert "the image is too small for this caption" in p.stderr
     assert "hint: give size, or caption a bigger image" in p.stderr
     assert "Traceback" not in p.stderr
+
+
+def test_font_lookup_retries_a_download_that_failed(tmp_path, monkeypatch):
+    from badshop.engine import assets, text
+    from badshop.engine.errors import EngineError
+
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(text, "SYSTEM_FONT_DIRS", [])
+    monkeypatch.setitem(text.FONT_CANDIDATES, "impact", ["BadshopTestDownload.ttf", "BadshopTestFallback.ttf"])
+    monkeypatch.setitem(text.FONT_DOWNLOADS, "BadshopTestDownload.ttf", assets.Pinned("https://e.org/f.ttf", "0" * 64, 1))
+    (tmp_path / "fonts").mkdir()
+    (tmp_path / "fonts" / "BadshopTestFallback.ttf").write_bytes(b"")
+    downloads = []
+
+    def cached(name, url, progress=None, sha256=None, size=None):
+        downloads.append(name)
+        if len(downloads) == 1:
+            raise EngineError(f"couldn't download {name} (offline)")
+        (tmp_path / name).write_bytes(b"")
+        return tmp_path / name
+    monkeypatch.setattr(assets, "cached", cached)
+    assert text.find_font_file("impact") == str(tmp_path / "fonts" / "BadshopTestFallback.ttf")  # offline
+    assert text.find_font_file("impact") == str(tmp_path / "fonts" / "BadshopTestDownload.ttf")  # back online
+    assert text.find_font_file("impact") == str(tmp_path / "fonts" / "BadshopTestDownload.ttf")
+    assert len(downloads) == 2  # a definitive answer is remembered
+
+
+@pytest.mark.parametrize("style", ["impact", "paint", "wordart"])
+@pytest.mark.parametrize("brk", ["\\n", "\n", "\r\n"], ids=["typed", "newline", "crlf"])
+def test_line_breaks_in_every_style(monkeypatch, style, brk):
+    # A typed \n (the CLI) and a real newline (JSON from a model, a UI textarea) both break the line;
+    # Impact used to upper-case the typed one into a literal "\N".
+    from badshop.engine import text
+    from badshop.tools.runner import run_tool
+    from conftest import FIXTURES
+    from memstore import MemoryStore
+
+    seen = []
+    render = text.render_text
+    monkeypatch.setattr(text, "render_text", lambda lines, *a: seen.append(lines) or render(lines, *a))
+    store = MemoryStore()
+    ref = store.add(Image.open(FIXTURES / "lincoln.png").convert("RGB"), "lincoln.png")
+    run = run_tool("text", {"image": ref, "text": f"top line{brk}bottom line", "style": style, "size": 30}, store)
+    words = ["top line", "bottom line"]
+    assert seen == [[w.upper() for w in words] if style == "impact" else words]
+    assert run.result.lines[0].startswith("text: 2 line(s)")

@@ -1,0 +1,831 @@
+{
+ "versions": {
+  "pillow": "12.3.0",
+  "numpy": "2.5.3",
+  "opencv-python-headless": "4.14.0.94",
+  "onnxruntime": "1.30.0"
+ },
+ "cases": {
+  "info": {
+   "lines": [
+    "lincoln.png: 457x600"
+   ],
+   "data": {
+    "width": 457,
+    "height": 600
+   },
+   "files": {}
+  },
+  "prep": {
+   "lines": [
+    "size: 237x300"
+   ],
+   "data": {},
+   "files": {
+    "work/trump_work.png": {
+     "format": "PNG",
+     "size": [
+      237,
+      300
+     ],
+     "sha256": "24bd7d9d63f96d87473d809303e65c7b8d5523f181d938a75acbc309ad02cf11",
+     "frames": [
+      "dcae0cb2c2314c76802d5f875204daed10f9c5cb5c18c204072d70f8fe4ae13b"
+     ]
+    },
+    "work/trump_work_grid.png": {
+     "format": "PNG",
+     "size": [
+      237,
+      300
+     ],
+     "sha256": "22c381a83f37dc9ce463aebb69a89ea1df8d392a502854a86ead5987decb5bc0",
+     "frames": [
+      "be2e987aa6df14f29a035b9f7d79a2351c73c58478287ce1c2a1cb04f6d4dbff"
+     ]
+    }
+   }
+  },
+  "view-grid": {
+   "lines": [
+    "size: 228x300 (scaled 0.500; multiply by 2.000 for source pixels; the grid is labelled in source pixels already)"
+   ],
+   "data": {},
+   "files": {
+    "work/lincoln_view.png": {
+     "format": "PNG",
+     "size": [
+      228,
+      300
+     ],
+     "sha256": "e5f0c41fa126d33f25cc0450ef07577cbcf29bd3919e496c8217815db2a20ce1",
+     "frames": [
+      "ddd2f5155ece3eefcd8dcc613b6668f75e2e51c12cf85e904e75de818cab09f9"
+     ]
+    }
+   }
+  },
+  "view-emoji": {
+   "lines": [
+    "size: 64x64 (scaled 0.889; multiply by 1.125 for source pixels)"
+   ],
+   "data": {},
+   "files": {
+    "work/emoji_joy_view.png": {
+     "format": "PNG",
+     "size": [
+      64,
+      64
+     ],
+     "sha256": "3767a1555688e902af49e56ddd789652bd364c5990a7de29364bb10eb50fecff",
+     "frames": [
+      "484e7d17966cd9c99e2f0e48064fd05d8df552d15e08afb111af83a65f745b66"
+     ]
+    }
+   }
+  },
+  "find-haar": {
+   "lines": [
+    "face 1: box 145 140 341 336 (196x196)",
+    "head 1: box 96 52 390 365   <- hair to neck; use for cutout and --fit-box",
+    "oval 1: box 169 160 317 336   <- brows to chin; `cutout --oval --box` for a face-only swap",
+    "eyes 1: 200 213 274 212",
+    "face 2: box 303 215 404 316 (101x101)",
+    "head 2: box 278 170 429 331   <- hair to neck; use for cutout and --fit-box",
+    "oval 2: box 315 225 392 316   <- brows to chin; `cutout --oval --box` for a face-only swap",
+    "eyes 2 (estimated): 333 255 373 255"
+   ],
+   "data": {
+    "faces": [
+     {
+      "kind": "face",
+      "score": null,
+      "box": [
+       145,
+       140,
+       341,
+       336
+      ],
+      "head": [
+       96,
+       52,
+       390,
+       365
+      ],
+      "oval": [
+       169,
+       160,
+       317,
+       336
+      ],
+      "eyes": [
+       [
+        200,
+        213
+       ],
+       [
+        274,
+        212
+       ]
+      ],
+      "estimated": false
+     },
+     {
+      "kind": "face",
+      "score": null,
+      "box": [
+       303,
+       215,
+       404,
+       316
+      ],
+      "head": [
+       278,
+       170,
+       429,
+       331
+      ],
+      "oval": [
+       315,
+       225,
+       392,
+       316
+      ],
+      "eyes": [
+       [
+        333,
+        255
+       ],
+       [
+        373,
+        255
+       ]
+      ],
+      "estimated": true
+     }
+    ]
+   },
+   "files": {
+    "work/trump_faces.png": {
+     "format": "PNG",
+     "size": [
+      474,
+      600
+     ],
+     "sha256": "1faf0370569bacd5d7b9cb33659b3d7b5fcbe87a996170752bf86260cde03ae2",
+     "frames": [
+      "720d24255b1df12193c423ec7ddc1a13a272f80081a7021b2721357c29a9e2c7"
+     ]
+    }
+   }
+  },
+  "find-yunet": {
+   "lines": [
+    "face 1: box 119 95 286 318 (167x223) score 0.92",
+    "head 1: box 52 0 362 333   <- hair to neck; use for cutout and --fit-box",
+    "oval 1: box 117 123 296 310   <- brows to chin; `cutout --oval --box` for a face-only swap",
+    "eyes 1: 165 182 243 179",
+    "nose 1: 203 228",
+    "mouth 1: 172 258 243 256   (corners)",
+    "chin 1: 210 310",
+    "roll 1: -2.4 deg   (clockwise tilt; paste --rotate <piece roll - target roll> to match)"
+   ],
+   "data": {
+    "faces": [
+     {
+      "kind": "face",
+      "score": 0.921,
+      "box": [
+       119,
+       95,
+       286,
+       318
+      ],
+      "head": [
+       52,
+       0,
+       362,
+       333
+      ],
+      "oval": [
+       117,
+       123,
+       296,
+       310
+      ],
+      "eyes": [
+       [
+        165,
+        182
+       ],
+       [
+        243,
+        179
+       ]
+      ],
+      "estimated": false,
+      "nose": [
+       203,
+       228
+      ],
+      "mouth": [
+       [
+        172,
+        258
+       ],
+       [
+        243,
+        256
+       ]
+      ],
+      "chin": [
+       210,
+       310
+      ],
+      "roll": -2.402
+     }
+    ]
+   },
+   "files": {
+    "work/lincoln_faces.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "1344d32df6d786a2d231121497f03995071cdd9c37d63aa6252ae09cdd88b171",
+     "frames": [
+      "7d1f12d51e669e9d53bd4c903cb803df22054902da75fb903459e9cbc79dbf7a"
+     ]
+    }
+   }
+  },
+  "text-impact": {
+   "lines": [
+    "text: 2 line(s), impact style, font Anton-Regular.ttf, size 50px, at top-left (15, 20)"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "e9e727ad1782cb16688ef020ce9ca50d6bd29b2cb16f62c510b58e6953cb35be",
+     "frames": [
+      "280b39e4d25246510b89a4c8a748c55940f0b0222b76a7fa615e5fde492cc5b9"
+     ]
+    }
+   }
+  },
+  "text-paint": {
+   "lines": [
+    "text: 1 line(s), paint style, font ComicNeue-Bold.ttf, size 38px, at top-left (198, 357)"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "70c9eee3448e9642d7e001610026de45ff76bab55ff32ab5b89c4f36f53f1074",
+     "frames": [
+      "df15b314a9f1171ee8d6aec1001911185f2f2dbc679831ebfd822f239e00ab87"
+     ]
+    }
+   }
+  },
+  "text-wordart": {
+   "lines": [
+    "text: 1 line(s), wordart style, font Anton-Regular.ttf, size 47px, at top-left (129, 492)"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      474,
+      600
+     ],
+     "sha256": "0052d62ead8baacdf325e767dfcbf87eda1d34385e7c0ffdcdc6245587ff2f6e",
+     "frames": [
+      "a262984bcea7f9df9f8354fcbc42892f834e64d9acdef0f66c39b2dc74590b98"
+     ]
+    }
+   }
+  },
+  "cutout-rembg": {
+   "lines": [
+    "size: 354x490",
+    "opaque: 70% of the cutout's bounding box"
+   ],
+   "data": {
+    "coverage": 0.699
+   },
+   "files": {
+    "work/trump_cutout.png": {
+     "format": "PNG",
+     "size": [
+      354,
+      490
+     ],
+     "sha256": "cf999a9eba9ddfaa1f338cafadc53edb49e44ee7582b21a16f287b7476fe161f",
+     "frames": [
+      "c997b301073e96d2ce30b8892ff8ec84df690c8186b8ec75ee14c5e2ff29794c"
+     ]
+    }
+   }
+  },
+  "cutout-oval": {
+   "lines": [
+    "size: 318x318",
+    "opaque: 78% of the cutout's bounding box"
+   ],
+   "data": {
+    "coverage": 0.785
+   },
+   "files": {
+    "work/trump_cutout.png": {
+     "format": "PNG",
+     "size": [
+      318,
+      318
+     ],
+     "sha256": "18f2b34cf72c3e4f2f9991e489582b9d68d5c78dbd854e3c646d632cc6770919",
+     "frames": [
+      "f10bf85c152439b8dc19c52a7c5e7a7e611655e598e82163b51fb524cc4d2b66"
+     ]
+    }
+   }
+  },
+  "cutout-no-ai": {
+   "lines": [
+    "size: 262x262",
+    "opaque: 100% of the cutout's bounding box"
+   ],
+   "data": {
+    "coverage": 1.0
+   },
+   "files": {
+    "work/lincoln_cutout.png": {
+     "format": "PNG",
+     "size": [
+      262,
+      262
+     ],
+     "sha256": "7104980d180b8d9303a553583c440fd06cd3d7d9db5e36d8c9294668c3b7aa31",
+     "frames": [
+      "3d6329da8b38433b490fba89f851cf517ec2c7d691a199fa32fe01d35e687894"
+     ]
+    }
+   }
+  },
+  "paste-fit-box": {
+   "lines": [
+    "size: 457x600",
+    "piece placed with top-left at (48, 23), 405x405 after scaling"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "f31c682eb0ed364ab2265b9bf5e4cf626e39ec113d1ffc313a50cd0eb947c5d7",
+     "frames": [
+      "93ea58d4cf814dd973e472622f4ff9e5eef0a9ac739fa5476632ed846c00d05d"
+     ]
+    }
+   }
+  },
+  "paste-at": {
+   "lines": [
+    "size: 474x600",
+    "piece placed with top-left at (200, 460), 200x120 after scaling"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      474,
+      600
+     ],
+     "sha256": "71d35ae6a8aa7fae0f0f686b6b272c3f68b4ccd8cae64552161a2ab0cdd2f74a",
+     "frames": [
+      "09728ce4fa0ba8e498c7e7c4104ed6ad54ab42f31e012adecad4cc6cefce6387"
+     ]
+    }
+   }
+  },
+  "paste-repeat": {
+   "lines": [
+    "size: 457x600",
+    "12 copies scattered over (0, 300)-(457, 600), seed 4"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "2c664583e59f1937770a470dfc2f1b916cb9f26a96cef343ca8fb2b1af59ad9e",
+     "frames": [
+      "18e9f8fa763785aeeab783ec3f770884a9656aa3e94944e36bf776507fa0281d"
+     ]
+    }
+   }
+  },
+  "draw": {
+   "lines": [
+    "drew 4 shape(s) in lime, 4px"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "080c8c7a5b3a3d47b109f3d68d5cc191e11d5bcb685d062baf955cdc916cb961",
+     "frames": [
+      "73aa1eb670b603ad7a9de23c619e354d27555bb59f1aa186f7e6906a91bbb7a9"
+     ]
+    }
+   }
+  },
+  "censor-pixelate": {
+   "lines": [
+    "censored 1 region(s), style pixelate"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "fb8809fce1cde09156a4eefb34f57ea72848495525585ab4cff9e5ecfd48b596",
+     "frames": [
+      "44e18147f2bbc844fdff8ae5d056871f38515d0381ded8c63a2f19a0ccc63292"
+     ]
+    }
+   }
+  },
+  "censor-bar": {
+   "lines": [
+    "censored 2 region(s), style bar"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "8b4f88d8bb96dbce6d60295a7a3e9386bc75b03da29a47fb4cd798e390ca40fd",
+     "frames": [
+      "8768918dc48b9d275573e4e321d4c1fb0169559afb77c7aad22056d516ffc16d"
+     ]
+    }
+   }
+  },
+  "censor-blur": {
+   "lines": [
+    "censored 1 region(s), style blur"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "8eb43f47c361fb10c889ac3a887602de92ddbe2c35d8ffc7fe06517d13e17c1a",
+     "frames": [
+      "eaf8a24480d5a869c26610c172ee26fa3f21af6cfbee3060d557c2b0edaaa9a6"
+     ]
+    }
+   }
+  },
+  "eyes": {
+   "lines": [
+    "laser eyes at [[165, 182], [243, 179]], angle 30.0, size 9px"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "55e8b31db2c7df0f31be95ee6c3d2aa79f4a5c9c6447b301f70b497c707ddef1",
+     "frames": [
+      "7fd71c3d056df45366f6aa2839767f4edfd3f4ba6566c67c3cb9aaede8876f24"
+     ]
+    }
+   }
+  },
+  "filter": {
+   "lines": [
+    "applied: emboss, edges, contour, solarize, posterize, invert, grayscale, sepia, blur, sharpen, oilpaint"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "45e72c94dd5e61a116d13e4bfa19e86f56ae79c87a1c814a2e2d69613643f6a9",
+     "frames": [
+      "6bd4000a848cfa51b0118acba60eaf0925e7d6144f1c6db18174707c84b1ad4c"
+     ]
+    }
+   }
+  },
+  "warp": {
+   "lines": [
+    "bulged 2 spot(s), strength 0.8"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "2cdd4aa0e46214d1e604b3664cf01067d5662bba5e4b1438191594fad46dc429",
+     "frames": [
+      "056e192561039e8833706c5c45995f120735d93b27e685f4fe34dfbbc87b5237"
+     ]
+    }
+   }
+  },
+  "flare": {
+   "lines": [
+    "lens flare at (400, 90), size 76px"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "da7bba8c18812e1c71df5e52ff816b030db5d400ab4d68c849fbef885dcdbaf6",
+     "frames": [
+      "d5d4609ea72c70fd329e3466ec2e504c15ac13ca41cb28565eb012f2c005a42a"
+     ]
+    }
+   }
+  },
+  "sparkle": {
+   "lines": [
+    "9 sparkle(s), size about 25px"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "668b0b6800ae7e844774a07d14e0043c7055a6e16b90f29c9e6f78316ed6004b",
+     "frames": [
+      "e3fa2ab56ccea06195365b5916602800a825f07dc5b5d8beaf66499e2f83b00a"
+     ]
+    }
+   }
+  },
+  "watermark": {
+   "lines": [
+    "watermarks: hypercam, bandicam, ifunny, mematic, custom"
+   ],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      474,
+      623
+     ],
+     "sha256": "794101b5e98d32cc3af150be1c6c296bbde2d73f3f6b055bb77904946ac50b9f",
+     "frames": [
+      "20e556ccb68380933ad266740c9337a287fac3c41651813b01213363b1ba1b10"
+     ]
+    }
+   }
+  },
+  "save-jpeg": {
+   "lines": [
+    "size: 457x600, jpeg quality 20, 3 pass(es)"
+   ],
+   "data": {},
+   "files": {
+    "final/s.jpg": {
+     "format": "JPEG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "06faa8d0fe06826330056984d1b93d3a1ddff2d8cc6856c1b7bd7b02efdc5635",
+     "frames": [
+      "1ae4b33b2b24457f440dea423d7295ffdcb2949c28f6590a3460fc85fc784913"
+     ]
+    }
+   }
+  },
+  "save-lowres": {
+   "lines": [
+    "size: 457x600, jpeg quality 35, 1 pass(es)"
+   ],
+   "data": {},
+   "files": {
+    "final/lincoln.jpg": {
+     "format": "JPEG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "a74014db8997afb578f6aaf5cf1b0a470647236ed133349b98b4c6929592425d",
+     "frames": [
+      "0aa932af59e5181bd9b1d4f8d3d0b83e2cc35d9436d7248802a98016291515b9"
+     ]
+    }
+   }
+  },
+  "save-gif": {
+   "lines": [
+    "size: 474x600, gif with 32 colors, dithered"
+   ],
+   "data": {},
+   "files": {
+    "final/trump.gif": {
+     "format": "GIF",
+     "size": [
+      474,
+      600
+     ],
+     "sha256": "f848e242c6b23616c0e4470a438866f07acb77e6097d6f51d80abfe03ee98d45",
+     "frames": [
+      "04d1a48836591ec764f46f03db06252211c66ae56ef70404c57748391959d7f2"
+     ]
+    }
+   }
+  },
+  "deepfry": {
+   "lines": [
+    "size: 457x600, level 3"
+   ],
+   "data": {},
+   "files": {
+    "final/lincoln_deepfried.jpg": {
+     "format": "JPEG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "e21567a1e387a5c5aaa8f669458aa439e7ff7282cffc1efbf4c0622dbbbb52dc",
+     "frames": [
+      "c67dca14714da3cdadd404f49213bf8f98e0bf419c0d363ffb7d49c4a2bf935e"
+     ]
+    }
+   }
+  },
+  "deepfry-nuked": {
+   "lines": [
+    "size: 474x600, level 5"
+   ],
+   "data": {},
+   "files": {
+    "final/trump_deepfried.jpg": {
+     "format": "JPEG",
+     "size": [
+      474,
+      600
+     ],
+     "sha256": "2bed40505a9684bb657790b0b462f17375591819d04bb68dcb9215ed37cf3dcb",
+     "frames": [
+      "8d688308635c2e7174eb098c2d29d364577c1139d027972ec6343968925655ea"
+     ]
+    }
+   }
+  },
+  "animate-shake": {
+   "lines": [
+    "size: 457x600, 6 frames at 80ms, effect shake"
+   ],
+   "data": {},
+   "files": {
+    "final/lincoln_shake.gif": {
+     "format": "GIF",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "0930a9600c018f0b6a17a5818743f64c8ab85175d7b13e9d8fe5cd57997acc9a",
+     "frames": [
+      "56033ea896c975aefdf3bb90fa25105ed3e33ff9cc622fead068230be4d2f295",
+      "14ece29a6bd23a8679ec1fcff89176fbd47bf3fd2445b03af2bd1235db5d0d79",
+      "208307dda93e1fd6f0810297bd235d29cb92633afea1981fec0637577d317813",
+      "12eac730be929e8616ab99f7d3761d0c09929771bc8ff7d3eaed2f9a232800d8",
+      "593df41d181c602abf710ecc02b64f43b0c33bde3a2127623f42f48b367108b9",
+      "e7339417f63be49d386211e99e878c286a058ddcc42698f5de46039ebb8300b5"
+     ]
+    }
+   }
+  },
+  "animate-zoom-fry": {
+   "lines": [
+    "size: 457x600, 16 frames at 80ms, effect zoom, fried to level 5"
+   ],
+   "data": {},
+   "files": {
+    "final/lincoln_zoom.gif": {
+     "format": "GIF",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "ff3f91db6ab33d5229c2cb5cd7592a6de13abbbe0153846ac9a7f4f6b1055597",
+     "frames": [
+      "3054ecd43879eeedba6957005171619d981f24ccbcc570586cf90b162a46c6a0",
+      "1f6629c08b2b458f081ba880ef610b3e0d18f52e8310e20de08c61e70853dabb",
+      "798848f90a8fb70ddf75f7ff1665a75f48b952c429f546ef48b4b4419e5f64dc",
+      "cb5686e206f3ea4070871d27948ec6916d333362f4e8baa880e0ee54a64b9930",
+      "3dfde7e8151aaf6906efa8023486e951618a44798927e2f5ff19a58630a3e8ca",
+      "0eaa5dffd86655ea9ee01a32dcd76e56326e6faf5bb0264ae4592ba7a09efd48",
+      "174dfc0620eec5c1f117b443ba15252a50a13e6a4ee888d3d7133762cf91a9f8",
+      "10cd912b05a3b1fea5fd14382a6db2734c75397d4270799f517fba506e23b2ce",
+      "c9c20a3d9e0838f2e765be769a0a64825ad57e91a72cbc6d85abd4cefc0ab8d8",
+      "9f26bff28e3e542ef7539cedf558fd752474557175dc48fd960a9a215510eb75",
+      "d8d043fdee95aac6e56e9be4543d1db4fe0904d6fedd32c6e126adc0771bcd59",
+      "5e7cad67e6562b7aae36d386de984c1ef137745c9af7d1432cef33322b9e0bdb",
+      "942a49442ddf90564bd5353eaa01b42fec62827fd5df960e9c140385adec159c",
+      "6c1a281149f78f9faa74386ac8d8fb85b62171a9504dadce23aa26d24e02e4f6"
+     ]
+    }
+   }
+  },
+  "animate-two": {
+   "lines": [
+    "size: 457x600, 6 frames at 80ms, effect flash"
+   ],
+   "data": {},
+   "files": {
+    "final/lincoln_flash.gif": {
+     "format": "GIF",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "c2094bd1023eb5a157a2a16bbc07235d1835cb86d94af7435fe3a5064356a7b5",
+     "frames": [
+      "7df4b85be17e7936a08a8ba1d7d9c663b72769091e66e9d6e095eb3748adb43b",
+      "9952c64016197e407b1ac9fb889fe0b22d0ffd159336fcd9b6dfecc3e615d6f8",
+      "7df4b85be17e7936a08a8ba1d7d9c663b72769091e66e9d6e095eb3748adb43b",
+      "9952c64016197e407b1ac9fb889fe0b22d0ffd159336fcd9b6dfecc3e615d6f8",
+      "7df4b85be17e7936a08a8ba1d7d9c663b72769091e66e9d6e095eb3748adb43b",
+      "9952c64016197e407b1ac9fb889fe0b22d0ffd159336fcd9b6dfecc3e615d6f8"
+     ]
+    }
+   }
+  },
+  "export": {
+   "lines": [
+    "exported: final/kept.png"
+   ],
+   "data": {},
+   "files": {
+    "final/kept.png": {
+     "format": "PNG",
+     "size": [
+      72,
+      72
+     ],
+     "sha256": "c7a7ef85b26d228db1a4d1dec29fe2a66b9046ab0bd5905d293ca03b0c3e3415",
+     "frames": [
+      "7951b3ea5fee38058ccae6ff8ea00acaf2776a694f39391a8818a7d095bb9f5e"
+     ]
+    }
+   }
+  }
+ }
+}

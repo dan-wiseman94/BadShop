@@ -30,7 +30,7 @@ FilterName = Literal["blur", "contour", "edges", "emboss", "grayscale", "invert"
 class FilterParams(Params):
     POSITIONAL: ClassVar = ("image", "names")
     image: ImageRef = Field(description="image to filter")
-    names: list[FilterName] = Field(min_length=1, description="filters to apply, in order")
+    names: list[FilterName] = Field(min_length=1, max_length=20, description="filters to apply, in order")
 
 
 def apply_filters(p: FilterParams, image: Image.Image) -> EngineResult:
@@ -44,8 +44,8 @@ def apply_filters(p: FilterParams, image: Image.Image) -> EngineResult:
 class WarpParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="image to warp")
-    at: list[Spot] = Field(min_length=1, description="spots as X Y R (center and radius); repeatable")
-    strength: float = Field(0.6, description="positive bulges, negative pinches (1.0 is huge, -0.5 strong pinch)")
+    at: list[Spot] = Field(min_length=1, max_length=20, description="spots as X Y R (center and radius); repeatable")
+    strength: float = Field(0.6, ge=-10, le=10, description="positive bulges, negative pinches (1.0 is huge, -0.5 strong pinch)")
 
 
 def warp(p: WarpParams, image: Image.Image) -> EngineResult:

@@ -15,12 +15,12 @@ from badshop.engine.types import Box, Color, ImageRef, Params, Point, Spot
 class DrawParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="image to draw on")
-    circle: list[Spot] = Field(default_factory=list, description="circles as X Y R; repeatable")
-    arrow: list[Box] = Field(default_factory=list, description="arrows from X1 Y1 to X2 Y2 (head at the end)")
-    line: list[Box] = Field(default_factory=list, description="lines X1 Y1 X2 Y2")
-    rect: list[Box] = Field(default_factory=list, description="rectangles X1 Y1 X2 Y2")
+    circle: list[Spot] = Field(default_factory=list, max_length=100, description="circles as X Y R; repeatable")
+    arrow: list[Box] = Field(default_factory=list, max_length=100, description="arrows from X1 Y1 to X2 Y2 (head at the end)")
+    line: list[Box] = Field(default_factory=list, max_length=100, description="lines X1 Y1 X2 Y2")
+    rect: list[Box] = Field(default_factory=list, max_length=100, description="rectangles X1 Y1 X2 Y2")
     color: Color = Field("red", description="stroke color")
-    width: int = Field(6, ge=1, description="stroke width in px")
+    width: int = Field(6, ge=1, le=1000, description="stroke width in px")
 
 
 def draw(p: DrawParams, image: Image.Image) -> EngineResult:
@@ -54,9 +54,9 @@ def draw(p: DrawParams, image: Image.Image) -> EngineResult:
 class CensorParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="image to censor")
-    box: list[Box] = Field(min_length=1, description="rectangles to censor; repeatable")
+    box: list[Box] = Field(min_length=1, max_length=50, description="rectangles to censor; repeatable")
     style: Literal["pixelate", "bar", "blur"] = Field("pixelate", description="pixelate, black bar, or blur")
-    block: int = Field(16, ge=1, description="pixel size for pixelate, blur radius for blur")
+    block: int = Field(16, ge=1, le=1000, description="pixel size for pixelate, blur radius for blur")
 
 
 def censor(p: CensorParams, image: Image.Image) -> EngineResult:
@@ -81,9 +81,9 @@ def censor(p: CensorParams, image: Image.Image) -> EngineResult:
 class EyesParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="image with the face")
-    at: list[Point] = Field(min_length=1, description="eye positions (use find's eye points); repeatable")
+    at: list[Point] = Field(min_length=1, max_length=20, description="eye positions (use find's eye points); repeatable")
     angle: float = Field(155, description="beam direction in degrees, 0 = right, 90 = up")
-    size: int | None = Field(None, ge=1, description="beam thickness in px (default: scaled to the image)")
+    size: int | None = Field(None, ge=1, le=10_000, description="beam thickness in px (default: scaled to the image)")
     color: Color = Field("red", description="beam color")
 
 

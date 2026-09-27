@@ -13,18 +13,36 @@ from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import ImageRef, Params
 
-YUNET_URL = ("https://github.com/opencv/opencv_zoo/raw/main/models/"
-             "face_detection_yunet/face_detection_yunet_2023mar.onnx")
+YUNET = assets.Pinned(  # opencv_zoo commit f12e127 ("update yunet to v2"), the file's latest version
+    "https://github.com/opencv/opencv_zoo/raw/f12e12798e8314f7c074a6656816c048dcc95b7a/models/"
+    "face_detection_yunet/face_detection_yunet_2023mar.onnx",
+    sha256="8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4", size=232589)
+
+
+def _plausible(r, W, H) -> bool:
+    """YuNet sometimes returns junk rows (inf, nan, 1e32, a box off the image), mostly on tiny or blank
+    images; the reference crashed drawing them. A real face has a size, and its box and landmarks lie
+    on or near the image: inside it grown by its own size on every side."""
+    if not all(math.isfinite(v) for v in r[:15]) or r[2] <= 0 or r[3] <= 0:
+        return False
+    xs, ys = [r[0], r[0] + r[2], *r[4:14:2]], [r[1], r[1] + r[3], *r[5:14:2]]
+    return all(-W <= v <= 2 * W for v in xs) and all(-H <= v <= 2 * H for v in ys)
 
 
 def yunet_faces(cv2, bgr, min_score):
     """Faces with five landmarks each, from OpenCV's small YuNet CNN."""
-    model = assets.cached("face_detection_yunet_2023mar.onnx", YUNET_URL)
+    model = assets.cached("face_detection_yunet_2023mar.onnx", YUNET.url, sha256=YUNET.sha256, size=YUNET.size)
     H, W = bgr.shape[:2]
     det = cv2.FaceDetectorYN.create(str(model), "", (W, H), min_score, 0.3, 5000)
     _, rows = det.detect(bgr)
+
+    def point(px, py):  # rounded, and never further out than _plausible allows (the chin is extrapolated)
+        return min(max(round(px), -W), 2 * W), min(max(round(py), -H), 2 * H)
+
     faces = []
     for r in ([] if rows is None else rows.tolist()):
+        if not _plausible(r, W, H):
+            continue
         x, y, w, h = r[:4]
         eyes = sorted([(r[4], r[5]), (r[6], r[7])])  # left to right in the image
         mouth = sorted([(r[10], r[11]), (r[12], r[13])])
@@ -37,17 +55,20 @@ def yunet_faces(cv2, bgr, min_score):
         top, bottom = ec[1] - 2.5 * em, chin[1] + 0.3 * em  # hair above, a strip of neck below
         cx = (ec[0] + chin[0]) / 2
         half = max(0.45 * (bottom - top), 1.6 * ed)
-        faces.append({
+        face = {
             "kind": "face", "score": r[14],
             "box": int_box((x, y, x + w, y + h), W, H),
             "head": int_box((cx - half, top, cx + half, bottom), W, H),
             "oval": int_box((cx - 1.15 * ed, ec[1] - 0.75 * em, cx + 1.15 * ed, chin[1]), W, H),
-            "eyes": [tuple(round(v) for v in e) for e in eyes], "estimated": False,
-            "nose": (round(r[8]), round(r[9])),
-            "mouth": [tuple(round(v) for v in m) for m in mouth],
-            "chin": (round(chin[0]), round(chin[1])),
+            "eyes": [point(*e) for e in eyes], "estimated": False,
+            "nose": point(r[8], r[9]),
+            "mouth": [point(*m) for m in mouth],
+            "chin": point(*chin),
             "roll": math.degrees(math.atan2(eyes[1][1] - eyes[0][1], eyes[1][0] - eyes[0][0])),
-        })
+        }
+        # a box clamped to nothing (x2 < x1 or y2 < y1) lies off the image: junk, not a face
+        if all(b[2] >= b[0] and b[3] >= b[1] for b in (face["box"], face["head"], face["oval"])):
+            faces.append(face)
     return faces
 
 

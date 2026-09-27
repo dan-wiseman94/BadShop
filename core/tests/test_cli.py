@@ -27,18 +27,10 @@ def test_prep_parity(pair):
     pair.assert_same("badshop_work/lincoln_work_grid.png")
 
 
-def test_prep_out_parity(pair):
-    pair.ref("prep", "trump.png", "--max", "300", "-o", "small.png")
-    pair.new("prep", "trump.png", "--max", "300", "-o", "small.png")
-    pair.assert_same("small.png")
-    pair.assert_same("small_grid.png")
-
-
-def test_prep_out_jpg_parity(pair):
-    pair.ref("prep", "trump.png", "--max", "300", "-o", "small.jpg")
-    pair.new("prep", "trump.png", "--max", "300", "-o", "small.jpg")
-    pair.assert_same("small.jpg")
-    pair.assert_same("small_grid.png")
+@pytest.mark.parametrize("out", ["small.png", "small.jpg"])
+def test_prep_out_parity(pair, out):
+    stdout = pair.check("prep", "trump.png", "--max", "300", "-o", out, files=[out, "small_grid.png"])
+    assert stdout == f"work: {out}\ngrid: small_grid.png\nsize: 237x300\n"
 
 
 def test_prep_huge_image(pair):
@@ -159,8 +151,9 @@ def test_generated_parser_edge_cases(capsys):
     with pytest.raises(SystemExit) as e:  # a required flag is an argparse usage error, like the reference
         _fake_parser().parse_args(["fake", "x.png"])
     assert e.value.code == 2 and "--box" in capsys.readouterr().err
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as e:
         _fake_parser().parse_args(["fake", "--help"])
+    assert e.value.code == 0
     out = capsys.readouterr().out
     assert "30% too big" in out and "-o OUT" in out
     assert "100% fake" in _fake_parser().format_help()
@@ -172,3 +165,31 @@ def test_every_tool_renders_help(name, capsys):
         cli.build_parser().parse_args([name, "--help"])
     assert e.value.code == 0
     assert capsys.readouterr().out.startswith(f"usage: badshop {name}")
+
+
+def _colour(i: int) -> Output:
+    return Output("emoji", Image.new("RGBA", (4, 4), ("red", "lime", "blue")[i]), "fetch/emoji_1f602.png")
+
+
+def test_out_with_repeated_keys_keeps_every_output(tmp_path):
+    # emoji a b c -o e.png: every output has the key "emoji", so the secondary names collided.
+    store = FileStore(tmp_path / "w", tmp_path / "f", str(tmp_path / "e.png"))
+    paths = [store.put(_colour(i), "x") for i in range(3)]
+    assert paths == [str(tmp_path / n) for n in ("e.png", "e_emoji.png", "e_emoji_2.png")]
+    for path, rgb in zip(paths, [(255, 0, 0), (0, 255, 0), (0, 0, 255)]):
+        with Image.open(path) as im:
+            assert im.convert("RGB").getpixel((0, 0)) == rgb
+
+
+def test_one_run_never_writes_a_path_twice(tmp_path):
+    store = FileStore(tmp_path / "w", tmp_path / "f")
+    paths = [store.put(_colour(i), "x") for i in range(3)]
+    assert paths == [str(tmp_path / "w/fetch" / n) for n in ("emoji_1f602.png", "emoji_1f602_2.png", "emoji_1f602_3.png")]
+    # a new run (a new store) writes the usual name again, as the reference does
+    assert FileStore(tmp_path / "w", tmp_path / "f").put(_colour(0), "x") == paths[0]
+
+
+def test_unique_secondary_names_are_unchanged(tmp_path):
+    store = FileStore(tmp_path / "w", tmp_path / "f", str(tmp_path / "small.png"))
+    store.put(Output("work", Image.new("RGB", (4, 4)), "{stem}_work.png"), "x")
+    assert store.put(Output("grid", Image.new("RGB", (4, 4)), "{stem}_work_grid.png"), "x") == str(tmp_path / "small_grid.png")

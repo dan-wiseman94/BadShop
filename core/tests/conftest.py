@@ -1,5 +1,6 @@
 """Shared fixtures. The `pair` fixture runs the reference CLI and the new CLI side by side."""
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -41,18 +42,29 @@ def _run(cmd: list[str], cwd: Path, check: bool) -> subprocess.CompletedProcess:
     return p
 
 
-def frames(path: Path) -> tuple[list[bytes], tuple[int, int]]:
-    im = Image.open(path)
-    return [f.convert("RGBA").tobytes() for f in ImageSequence.Iterator(im)], im.size
+def frames(path: Path) -> tuple[list[bytes], tuple[int, int], list[int | None], int | None]:
+    """Each frame's RGBA bytes, the size, each frame's duration, and the loop count."""
+    with Image.open(path) as im:
+        loop = im.info.get("loop")  # read before seeking: later frames may not carry it
+        pixels, durations = [], []
+        for f in ImageSequence.Iterator(im):
+            pixels.append(f.convert("RGBA").tobytes())
+            durations.append(f.info.get("duration"))
+        return pixels, im.size, durations, loop
 
 
 def assert_same_image(a: Path, b: Path) -> None:
-    fa, sa = frames(a)
-    fb, sb = frames(b)
+    with Image.open(a) as ia, Image.open(b) as ib:
+        assert ia.format == ib.format, f"format {ia.format} != {ib.format} ({a} vs {b})"
+        assert ia.mode == ib.mode, f"mode {ia.mode} != {ib.mode} ({a} vs {b})"
+    fa, sa, da, la = frames(a)
+    fb, sb, db, lb = frames(b)
     assert sa == sb, f"size {sa} != {sb} ({a} vs {b})"
     assert len(fa) == len(fb), f"{len(fa)} frames != {len(fb)}"
     for i, (x, y) in enumerate(zip(fa, fb)):
         assert x == y, f"frame {i} pixels differ: {a} vs {b}"
+    assert da == db, f"frame durations {da} != {db} ({a} vs {b})"
+    assert la == lb, f"loop {la} != {lb} ({a} vs {b})"
 
 
 class Pair:
@@ -72,7 +84,32 @@ class Pair:
     def assert_same(self, rel_ref: str, rel_new: str | None = None) -> None:
         assert_same_image(self.ref_dir / rel_ref, self.new_dir / (rel_new or rel_ref))
 
+    def check(self, *args: str, files: tuple[str, ...] | list[str] = ()) -> str:
+        """Run one command on both sides. Stdout must match, with each side's folder written as <CWD>,
+        and so must every listed file (pixels, frames, durations, loop, format and mode).
+        Returns the normalised stdout."""
+        ref = self.ref(*args).stdout.replace(str(self.ref_dir), "<CWD>")
+        new = self.new(*args).stdout.replace(str(self.new_dir), "<CWD>")
+        assert new == ref
+        for f in files:
+            self.assert_same(f)
+        return new
+
 
 @pytest.fixture
 def pair(tmp_path: Path) -> Pair:
     return Pair(tmp_path)
+
+
+def load_reference():
+    """reference/badshop.py as a module, for in-process comparisons (a fresh copy on every call)."""
+    spec = importlib.util.spec_from_file_location("reference_badshop", REFERENCE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(scope="session")
+def reference():
+    """The reference module, shared. Tests may monkeypatch its globals; monkeypatch restores them."""
+    return load_reference()

@@ -6,10 +6,10 @@ from typing import ClassVar, Literal
 from PIL import Image, ImageOps
 from pydantic import Field
 
-from badshop.engine.common import clamp_box, has_alpha, to_rgb
+from badshop.engine.common import check_size, clamp_box, has_alpha, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
-from badshop.engine.types import Box, ImageRef, Params, Point
+from badshop.engine.types import Box, ImageRef, Params, Point, Seed
 
 
 class PasteParams(Params):
@@ -19,15 +19,15 @@ class PasteParams(Params):
     at: Point | None = Field(None, description="where the anchor goes, pixel coords")
     anchor: Literal["topleft", "center", "bottom"] = Field(
         "topleft", description="which point of the piece `at` refers to (bottom = bottom-center)")
-    width: float | None = Field(None, gt=0, description="width to scale the piece to")
-    height: float | None = Field(None, gt=0, description="height; omit to keep the aspect ratio")
+    width: float | None = Field(None, gt=0, le=10_000, description="width to scale the piece to")
+    height: float | None = Field(None, gt=0, le=10_000, description="height; omit to keep the aspect ratio")
     fit_box: Box | None = Field(None, description="instead of at/width: scale and center the piece to cover this box")
-    scale: float = Field(1.0, gt=0, description="with fit_box, oversize factor (1.3 = 30% too big)")
+    scale: float = Field(1.0, gt=0, le=20, description="with fit_box, oversize factor (1.3 = 30% too big)")
     rotate: float = Field(0, description="degrees counter-clockwise")
     flip: bool = Field(False, description="mirror the piece horizontally")
-    repeat: int | None = Field(None, ge=1, description="scatter this many random copies (0.5-1.5x width) instead")
+    repeat: int | None = Field(None, ge=1, le=1000, description="scatter this many random copies (0.5-1.5x width) instead")
     region: Box | None = Field(None, description="with repeat, only scatter inside this box")
-    seed: int = Field(1, description="with repeat, change for a different scatter")
+    seed: Seed = Field(1, description="with repeat, change for a different scatter")
 
 
 def paste(p: PasteParams, base_im: Image.Image, piece_im: Image.Image) -> EngineResult:
@@ -47,6 +47,7 @@ def paste(p: PasteParams, base_im: Image.Image, piece_im: Image.Image) -> Engine
     def scaled(width, height=None):
         w = max(1, round(width))
         h = max(1, round(height if height else piece.height * w / piece.width))
+        check_size(w, h)
         return piece.resize((w, h), Image.NEAREST)
 
     if p.repeat:
