@@ -15,7 +15,7 @@ import urllib.error
 import urllib.parse
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import Field
@@ -42,7 +42,7 @@ MAX_WEB_PIXELS = 64_000_000  # a fetched image bigger than this is refused befor
 class FetchParams(Params):
     POSITIONAL: ClassVar = ("query",)
     FLAGS: ClassVar = {"n": "-n"}
-    query: str | None = Field(None, description='search words like "labrador retriever sitting", or an image or web page URL')
+    query: str | None = Field(None, max_length=4096, description='search words like "labrador retriever sitting", or an image or web page URL')
     source: Literal["all", "commons", "openverse"] = Field("all", description="where to search (all interleaves Commons and Openverse)")
     n: int = Field(6, ge=1, le=12, description="how many candidates to download")
     clipboard: bool = Field(False, description="use the image (or image link) on the clipboard")
@@ -51,21 +51,21 @@ class FetchParams(Params):
 class WikiParams(Params):
     POSITIONAL: ClassVar = ("title",)
     FLAGS: ClassVar = {"n": "-n"}
-    title: str = Field(description='a person, place or thing, e.g. "Abraham Lincoln"')
+    title: str = Field(max_length=300, description='a person, place or thing, e.g. "Abraham Lincoln"')
     n: int = Field(4, ge=1, le=8, description="how many matching articles (the first is usually the exact one)")
     lang: str = Field("en", pattern=r"^[a-z-]{2,12}$", description="Wikipedia language code")
 
 
 class EmojiParams(Params):
     POSITIONAL: ClassVar = ("emoji",)
-    emoji: list[str] = Field(min_length=1, description="emoji characters, hex codes (1f480) or names (skull, joy, fire...)")
+    emoji: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=20, description="emoji characters, hex codes (1f480) or names (skull, joy, fire...)")
     size: int | None = Field(None, ge=8, le=1024, description="nearest-neighbor upscale to this many px")
 
 
 class TemplateParams(Params):
     POSITIONAL: ClassVar = ("name",)
     FLAGS: ClassVar = {"n": "-n", "list_all": "--list"}
-    name: str | None = Field(None, description='template name, e.g. "drake", "distracted boyfriend"')
+    name: str | None = Field(None, max_length=200, description='template name, e.g. "drake", "distracted boyfriend"')
     n: int = Field(3, ge=1, le=8, description="how many best matches to download")
     list_all: bool = Field(False, description="list every template name instead")
 

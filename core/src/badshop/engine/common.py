@@ -12,6 +12,17 @@ from badshop.engine.errors import EngineError
 # JPEG's decoder also opens MPO (phone photos); "MPO" itself is not a decoder name and Image.open rejects it.
 WEB_FORMATS = ("PNG", "JPEG", "GIF", "WEBP")
 
+# The biggest image a parameter may ask the engine to make (a scaled paste, a caption layer, a sticker
+# border). Field caps bound each number; this bounds their products (fit_box x scale, a thin piece's height).
+MAX_WORK_PIXELS = 50_000_000
+
+
+def check_size(w: int, h: int) -> None:
+    """Refuse, before Pillow tries to allocate it, an image that parameters blew up past the budget."""
+    if w * h > MAX_WORK_PIXELS:
+        raise EngineError(f"that would make a {w}x{h} image, too big to work with",
+                          hint=f"use a smaller size or scale (the limit is {MAX_WORK_PIXELS // 1_000_000} megapixels)")
+
 
 def load_image(src: Path | bytes, formats: tuple[str, ...] | None = None,
                max_pixels: int | None = None) -> Image.Image:

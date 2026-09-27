@@ -99,13 +99,13 @@ def deepfry_tool(p: DeepfryParams, image: Image.Image) -> EngineResult:
 
 class AnimateParams(Params):
     POSITIONAL: ClassVar = ("images",)
-    images: list[ImageRef] = Field(min_length=1, description="frames cycle through these (e.g. with and without laser eyes)")
+    images: list[ImageRef] = Field(min_length=1, max_length=32, description="frames cycle through these (e.g. with and without laser eyes)")
     effect: Literal["none", "shake", "flash", "zoom", "spin"] = Field("none", description="motion effect")
     frames: int | None = Field(None, ge=1, le=120, description="frame count (default depends on the effect)")
-    delay: int = Field(80, ge=10, description="ms per frame")
-    amount: float | None = Field(None, gt=0, description="shake: max px offset; zoom: final zoom factor (default 3)")
+    delay: int = Field(80, ge=10, le=10_000, description="ms per frame")
+    amount: float | None = Field(None, gt=0, le=100, description="shake: max px offset; zoom: final zoom factor (default 3)")
     at: Point | None = Field(None, description="zoom target (default: the center)")
-    hold: int = Field(6, ge=0, description="zoom: repeat the last frame this many times")
+    hold: int = Field(6, ge=0, le=100, description="zoom: repeat the last frame this many times")
     fry: int | None = Field(None, ge=1, le=5, description="deep-fry every frame at this level (zoom ramps up to it)")
     colors: int = Field(128, ge=2, le=256, description="palette size per frame")
     seed: int = Field(1, description="picks the shake pattern and the fry grain; same seed, same result")

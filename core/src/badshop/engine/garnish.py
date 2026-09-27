@@ -17,7 +17,7 @@ class FlareParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="image to add a lens flare to")
     at: Point = Field(description="where the light is")
-    size: int | None = Field(None, ge=2, description="glow radius in px (default: a sixth of the short side)")
+    size: int | None = Field(None, ge=2, le=20_000, description="glow radius in px (default: a sixth of the short side)")
 
 
 def flare(p: FlareParams, image: Image.Image) -> EngineResult:
@@ -53,10 +53,10 @@ def flare(p: FlareParams, image: Image.Image) -> EngineResult:
 class SparkleParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="image to sparkle")
-    at: list[Point] = Field(default_factory=list, description="sparkle positions; repeatable")
-    repeat: int | None = Field(None, ge=1, description="scatter this many at random (as well as any `at`)")
+    at: list[Point] = Field(default_factory=list, max_length=200, description="sparkle positions; repeatable")
+    repeat: int | None = Field(None, ge=1, le=1000, description="scatter this many at random (as well as any `at`)")
     region: Box | None = Field(None, description="with repeat, only scatter inside this box")
-    size: int | None = Field(None, ge=2, description="sparkle radius in px (default: scaled to the image)")
+    size: int | None = Field(None, ge=2, le=20_000, description="sparkle radius in px (default: scaled to the image)")
     color: Color = Field("#fff27a", description="glow color")
     seed: int = Field(1, description="change for a different scatter")
 
@@ -96,8 +96,8 @@ class WatermarkParams(Params):
     POSITIONAL: ClassVar = ("image", "names")
     image: ImageRef = Field(description="image to watermark")
     names: list[Literal["hypercam", "bandicam", "ifunny", "mematic"]] = Field(
-        default_factory=list, description="fake watermarks to add")
-    text: str | None = Field(None, description="your own watermark text as well")
+        default_factory=list, max_length=20, description="fake watermarks to add")
+    text: str | None = Field(None, max_length=200, description="your own watermark text as well")
     corner: Literal["tl", "tr", "bl", "br"] = Field("br", description="corner for text")
 
 

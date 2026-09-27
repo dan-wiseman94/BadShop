@@ -8,7 +8,7 @@ from PIL.ImageFont import FreeTypeFont
 from pydantic import Field
 
 from badshop.engine import assets
-from badshop.engine.common import font, rgb, to_rgb
+from badshop.engine.common import check_size, font, rgb, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import Color, ImageRef, Params, Point
@@ -134,6 +134,7 @@ def render_text(lines, fnt, style, color) -> Image.Image:
     lh = ascent + descent
     W = int(max(widths)) + 2 * stroke + off + 4
     H = lh * len(lines) + 2 * stroke + off + 4
+    check_size(W, H)
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     if style == "wordart":
@@ -162,18 +163,18 @@ def render_text(lines, fnt, style, color) -> Image.Image:
 class TextParams(Params):
     POSITIONAL: ClassVar = ("image", "text")
     image: ImageRef = Field(description="image to caption")
-    text: str = Field(description="the words; a literal \\n forces a line break")
+    text: str = Field(max_length=1000, description="the words; a literal \\n forces a line break")
     style: Literal["impact", "paint", "wordart"] = Field(
         "impact", description="impact: white, black outline, uppercase; paint: colored with a hard "
                               "shadow; wordart: rainbow face with a 3D extrusion")
     bottom: bool = Field(False, description="bottom caption (default is top)")
     at: Point | None = Field(None, description="center the text on this point instead")
-    size: int | None = Field(None, ge=4, description="font size in px (default: fits the image width)")
+    size: int | None = Field(None, ge=4, le=4096, description="font size in px (default: fits the image width)")
     color: Color | None = Field(
         None, description="paint text color (default red), or wordart extrusion color (default purple)")
     rotate: float = Field(0, description="degrees counter-clockwise")
-    margin: int = Field(20, ge=0, description="gap from the edge in px")
-    font: str | None = Field(None, description="path or name of a font file to use instead")
+    margin: int = Field(20, ge=0, le=10_000, description="gap from the edge in px")
+    font: str | None = Field(None, max_length=1024, description="path or name of a font file to use instead")
 
 
 def caption(p: TextParams, image: Image.Image) -> EngineResult:
