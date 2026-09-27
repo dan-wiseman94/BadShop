@@ -77,3 +77,28 @@ def test_text_too_small_image_is_a_clean_error(pair, side):
     assert "the image is too small for this caption" in p.stderr
     assert "hint: give size, or caption a bigger image" in p.stderr
     assert "Traceback" not in p.stderr
+
+
+def test_font_lookup_retries_a_download_that_failed(tmp_path, monkeypatch):
+    from badshop.engine import assets, text
+    from badshop.engine.errors import EngineError
+
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(text, "SYSTEM_FONT_DIRS", [])
+    monkeypatch.setitem(text.FONT_CANDIDATES, "impact", ["BadshopTestDownload.ttf", "BadshopTestFallback.ttf"])
+    monkeypatch.setitem(text.FONT_DOWNLOADS, "BadshopTestDownload.ttf", assets.Pinned("https://e.org/f.ttf", "0" * 64, 1))
+    (tmp_path / "fonts").mkdir()
+    (tmp_path / "fonts" / "BadshopTestFallback.ttf").write_bytes(b"")
+    downloads = []
+
+    def cached(name, url, progress=None, sha256=None, size=None):
+        downloads.append(name)
+        if len(downloads) == 1:
+            raise EngineError(f"couldn't download {name} (offline)")
+        (tmp_path / name).write_bytes(b"")
+        return tmp_path / name
+    monkeypatch.setattr(assets, "cached", cached)
+    assert text.find_font_file("impact") == str(tmp_path / "fonts" / "BadshopTestFallback.ttf")  # offline
+    assert text.find_font_file("impact") == str(tmp_path / "fonts" / "BadshopTestDownload.ttf")  # back online
+    assert text.find_font_file("impact") == str(tmp_path / "fonts" / "BadshopTestDownload.ttf")
+    assert len(downloads) == 2  # a definitive answer is remembered

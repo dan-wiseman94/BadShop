@@ -1,6 +1,5 @@
 """Captions: Impact meme text, MS Paint text and WordArt, ported from reference/badshop.py."""
 
-import functools
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -46,18 +45,27 @@ def _font_dirs(data_dir: str) -> list[Path]:
     return [*SYSTEM_FONT_DIRS, Path(data_dir) / "fonts"]
 
 
+_font_cache: dict[tuple[str, str | None, str], str | None] = {}
+
+
 def find_font_file(style: str, explicit: str | None = None) -> str | None:
     """Path (or Pillow-searchable name) of the best font for a style, or None for the built-in one."""
-    return _find_font_file(style, explicit, str(assets.data_dir()))
+    key = (style, explicit, str(assets.data_dir()))  # a changed BADSHOP_DATA_DIR is searched afresh
+    if key in _font_cache:
+        return _font_cache[key]
+    found, definitive = _find_font_file(*key)
+    if definitive:  # not after a failed download: a moment offline must not pin a fallback for good
+        _font_cache[key] = found
+    return found
 
 
-@functools.lru_cache(maxsize=None)
-def _find_font_file(style: str, explicit: str | None, data_dir: str) -> str | None:
-    # data_dir is part of the cache key, so a changed BADSHOP_DATA_DIR is searched afresh.
+def _find_font_file(style: str, explicit: str | None, data_dir: str) -> tuple[str | None, bool]:
+    """The font, and whether that answer is definitive (no font download failed on the way)."""
     names = [explicit] if explicit else FONT_CANDIDATES[style]
+    definitive = True
     for name in names:
         if Path(name).is_file():
-            return name
+            return name, definitive
         # rglob rejects a pattern with a drive or root (NotImplementedError), so a missing absolute
         # path skips the folder search and falls through to Pillow's search and then the built-in font.
         dirs = [] if Path(name).anchor else _font_dirs(data_dir)
@@ -65,19 +73,19 @@ def _find_font_file(style: str, explicit: str | None, data_dir: str) -> str | No
             if d.is_dir():
                 hit = next(d.rglob(name), None)
                 if hit:
-                    return str(hit)
+                    return str(hit), definitive
         try:  # Pillow does its own platform search too
             ImageFont.truetype(name, 10)
-            return name
+            return name, definitive
         except OSError:
             pass
         if name in FONT_DOWNLOADS and not explicit:
             try:
                 pin = FONT_DOWNLOADS[name]
-                return str(assets.cached(f"fonts/{name}", pin.url, sha256=pin.sha256, size=pin.size))
+                return str(assets.cached(f"fonts/{name}", pin.url, sha256=pin.sha256, size=pin.size)), definitive
             except EngineError:
-                pass  # offline: keep going down the list
-    return None
+                definitive = False  # offline: keep going down the list, and try the download again next time
+    return None, definitive
 
 
 def load_font(style: str, size: int, explicit: str | None = None) -> tuple[FreeTypeFont, str]:
