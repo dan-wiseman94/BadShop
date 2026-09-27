@@ -35,6 +35,14 @@ def test_draw_needs_a_shape():
         run_tool("draw", {"image": ref}, store)
 
 
+def test_draw_negative_radius_is_a_clean_error():
+    # the reference crashes in PIL here (x1 must be greater than or equal to x0)
+    store = MemoryStore()
+    ref = store.add(Image.new("RGB", (20, 20)), "x.png")
+    with pytest.raises(EngineError, match="radius -5"):
+        run_tool("draw", {"image": ref, "circle": [[10, 10, -5]]}, store)
+
+
 def test_censor_needs_a_box():
     store = MemoryStore()
     ref = store.add(Image.new("RGB", (20, 20)), "x.png")

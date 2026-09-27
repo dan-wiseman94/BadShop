@@ -29,6 +29,8 @@ def draw(p: DrawParams, image: Image.Image) -> EngineResult:
     d = ImageDraw.Draw(im)
     color, width, n = rgb(p.color), p.width, 0
     for (x, y, r) in p.circle:
+        if r < 0:  # not in the reference, which crashed in PIL here
+            raise EngineError(f"circle radius {r} is negative", hint="circles are X Y R with R >= 0 in pixels")
         d.ellipse([x - r, y - r, x + r, y + r], outline=color, width=width)
         n += 1
     for (x1, y1, x2, y2) in p.rect:
