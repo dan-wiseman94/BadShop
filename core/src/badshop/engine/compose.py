@@ -9,7 +9,7 @@ from pydantic import Field
 from badshop.engine.common import check_size, clamp_box, has_alpha, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
-from badshop.engine.types import Box, ImageRef, Params, Point
+from badshop.engine.types import Box, ImageRef, Params, Point, Seed
 
 
 class PasteParams(Params):
@@ -27,7 +27,7 @@ class PasteParams(Params):
     flip: bool = Field(False, description="mirror the piece horizontally")
     repeat: int | None = Field(None, ge=1, le=1000, description="scatter this many random copies (0.5-1.5x width) instead")
     region: Box | None = Field(None, description="with repeat, only scatter inside this box")
-    seed: int = Field(1, description="with repeat, change for a different scatter")
+    seed: Seed = Field(1, description="with repeat, change for a different scatter")
 
 
 def paste(p: PasteParams, base_im: Image.Image, piece_im: Image.Image) -> EngineResult:

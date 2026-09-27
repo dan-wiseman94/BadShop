@@ -159,14 +159,18 @@ register(ToolSpec(
     name="flare", params=garnish.FlareParams, category="effects",
     run=lambda p, s: garnish.flare(p, s.load(p.image)),
     summary="2004 lens flare",
-    description="A cheesy lens flare: glow, streak, and coloured ghost rings marching through the image center.",
+    description=("A cheesy lens flare: glow, streak, and coloured ghost rings marching through the image center. "
+                 "Use it for the 2004 'epic' look: put at on the sun, a lamp, a headlight or a glinting eye; "
+                 "one per picture is plenty."),
 ))
 
 register(ToolSpec(
     name="sparkle", params=garnish.SparkleParams, category="effects",
     run=lambda p, s: garnish.sparkle(p, s.load(p.image)),
     summary="clip-art four-point sparkles",
-    description="Clip-art sparkles with a soft glow, at given points and/or scattered at random (repeat, region).",
+    description=("Clip-art sparkles with a soft glow, at given points and/or scattered at random (repeat, region). "
+                 "Use it when something should look shiny, magical or fabulous: bling on jewellery, teeth or a "
+                 "new car, a glow-up, a dream come true."),
 ))
 
 register(ToolSpec(
@@ -175,7 +179,9 @@ register(ToolSpec(
     summary="fake HyperCam, Bandicam, iFunny or Mematic watermarks",
     description=("Period-accurate fake watermarks, any combination: hypercam ('Unregistered HyperCam 2', "
                  "top-left), bandicam (top center), ifunny (adds a dark bar under the picture), mematic "
-                 "(bottom center). text adds your own in a corner."),
+                 "(bottom center). text adds your own in a corner. Use it near the end to fake where the meme "
+                 "came from: hypercam or bandicam for 'recorded on a 2005 PC', ifunny or mematic for 'reposted "
+                 "from a meme app'."),
 ))
 
 register(ToolSpec(

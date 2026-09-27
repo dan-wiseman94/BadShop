@@ -9,7 +9,7 @@ from pydantic import Field
 from badshop.engine.common import jpeg_cycle, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
-from badshop.engine.types import FileName, ImageRef, Params, Point
+from badshop.engine.types import FileName, ImageRef, Params, Point, Seed
 
 
 def dithered(im: Image.Image, colors: int) -> Image.Image:
@@ -94,7 +94,7 @@ class DeepfryParams(Params):
     image: ImageRef = Field(description="image to deep-fry")
     level: int = Field(3, ge=1, le=5, description="1 = lightly toasted, 3 = default, 5 = nuked")
     no_tint: bool = Field(False, description="skip the red/yellow color cast")
-    seed: int = Field(1, description="grain pattern; same seed, same result")
+    seed: Seed = Field(1, description="grain pattern; same seed, same result")
     name: FileName | None = Field(None, description="file name without extension")
 
 
@@ -117,7 +117,7 @@ class AnimateParams(Params):
     hold: int = Field(6, ge=0, le=100, description="zoom: repeat the last frame this many times")
     fry: int | None = Field(None, ge=1, le=5, description="deep-fry every frame at this level (zoom ramps up to it)")
     colors: int = Field(128, ge=2, le=256, description="palette size per frame")
-    seed: int = Field(1, description="picks the shake pattern and the fry grain; same seed, same result")
+    seed: Seed = Field(1, description="picks the shake pattern and the fry grain; same seed, same result")
     name: FileName | None = Field(None, description="file name without extension")
 
 

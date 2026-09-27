@@ -196,3 +196,56 @@ class _MaybeImages(Params):
 
 def test_image_fields_optional_list():
     assert registry.image_fields(_MaybeImages) == {"frames": True, "base": False}
+
+
+def _subschemas(schema: dict):
+    """A property's schema and every schema nested in it (anyOf branches, list items)."""
+    yield schema
+    for s in schema.get("anyOf", []):
+        yield from _subschemas(s)
+    if isinstance(schema.get("items"), dict):
+        yield from _subschemas(schema["items"])
+
+
+CONVENTION = {"badshop-point": "X Y", "badshop-box": "X1 Y1 X2 Y2", "badshop-spot": "X Y R"}
+
+
+def test_every_coordinate_says_where_zero_is():
+    # Spec 5.2: each schema carries the coordinate convention, so a model never guesses the origin or axes.
+    seen = set()
+    for spec in registry.REGISTRY.values():
+        for name, prop in registry.llm_schema(spec)["properties"].items():
+            for s in _subschemas(prop):
+                if s.get("format") in CONVENTION:
+                    seen.add(s["format"])
+                    text = s.get("description", "")
+                    assert CONVENTION[s["format"]] in text, (spec.name, name, text)
+                    assert "pixels of the image being edited" in text and "top-left" in text, (spec.name, name)
+                    assert "y grows downward" in text, (spec.name, name)
+    assert seen == set(CONVENTION)
+
+
+def test_coordinate_fields_keep_their_own_description():
+    props = registry.llm_schema(registry.get("flare"))["properties"]
+    assert props["at"]["description"].startswith("where the light is. ")
+
+
+def test_seeds_are_marked_for_a_reroll_control():
+    seeds = {(spec.name, name) for spec in registry.REGISTRY.values()
+             for name, prop in registry.llm_schema(spec)["properties"].items() if name == "seed"}
+    assert seeds == {("paste", "seed"), ("sparkle", "seed"), ("deepfry", "seed"), ("animate", "seed")}
+    for tool, name in seeds:
+        prop = registry.llm_schema(registry.get(tool))["properties"][name]
+        assert prop["format"] == "badshop-seed" and prop["type"] == "integer", tool
+
+
+def test_seeds_are_still_plain_ints_on_the_cli():
+    from badshop.cli.main import build_parser
+
+    a = build_parser().parse_args(["paste", "b.png", "p.png", "--repeat", "3", "--width", "9", "--seed", "-4"])
+    assert a.seed == -4
+
+
+@pytest.mark.parametrize("tool", ["flare", "sparkle", "watermark"])
+def test_garnish_says_when_to_use_it(tool):
+    assert " Use it " in registry.get(tool).description

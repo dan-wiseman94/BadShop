@@ -10,7 +10,7 @@ from badshop.engine.common import clamp_box, rgb, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.text import load_font
-from badshop.engine.types import Box, Color, ImageRef, Params, Point
+from badshop.engine.types import Box, Color, ImageRef, Params, Point, Seed
 
 
 class FlareParams(Params):
@@ -58,7 +58,7 @@ class SparkleParams(Params):
     region: Box | None = Field(None, description="with repeat, only scatter inside this box")
     size: int | None = Field(None, ge=2, le=20_000, description="sparkle radius in px (default: scaled to the image)")
     color: Color = Field("#fff27a", description="glow color")
-    seed: int = Field(1, description="change for a different scatter")
+    seed: Seed = Field(1, description="change for a different scatter")
 
 
 def sparkle(p: SparkleParams, image: Image.Image) -> EngineResult:
