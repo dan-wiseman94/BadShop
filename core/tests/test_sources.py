@@ -81,9 +81,15 @@ def web(monkeypatch):
 
 
 def test_fetch_interleaves_and_dedupes(monkeypatch):
-    # Openverse's first hit is Commons' first hit again: it is dropped, and Openverse's second hit
-    # takes its turn in the interleave (commons, openverse, commons, openverse...).
     requested: list[str] = []
+    monkeypatch.setattr(sources, "http_get", fake_http(requested))
+    run = run_tool("fetch", {"query": "golden retriever", "n": 4}, MemoryStore())
+    notes = [o.caption for o in run.result.outputs[:4]]
+    assert ["[commons]" in n for n in notes] == [True, False, True, False]  # commons, openverse, ...
+    assert "[openverse" in notes[1] and "[openverse" in notes[3]
+    # Now Openverse's first hit is Commons' first hit again: it is dropped, and Openverse's second
+    # hit takes its turn in the interleave.
+    requested.clear()
     monkeypatch.setattr(sources, "http_get", fake_http(requested, duplicate=True))
     store = MemoryStore()
     run = run_tool("fetch", {"query": "golden retriever", "n": 4}, store)
