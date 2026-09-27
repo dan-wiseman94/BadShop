@@ -7,7 +7,7 @@ from pydantic import Field
 
 from badshop.engine.common import draw_grid, fit, has_alpha, to_rgb
 from badshop.engine.result import EngineResult, Output
-from badshop.engine.types import ImageRef, Params
+from badshop.engine.types import FileName, ImageRef, Params
 
 
 class InfoParams(Params):
@@ -53,4 +53,4 @@ def view(p: ViewParams, image: Image.Image) -> EngineResult:
 class ExportParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="finished image to hand to the user")
-    name: str | None = Field(None, description="file name without extension")
+    name: FileName | None = Field(None, description="file name without extension")

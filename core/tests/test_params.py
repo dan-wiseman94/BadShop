@@ -145,3 +145,79 @@ def test_budget_leaves_normal_work_alone():
     store, (base, piece) = _store_with(Image.new("RGB", (600, 400)), Image.new("RGBA", (40, 40), "red"))
     run = run_tool("paste", {"base": base, "piece": piece, "fit_box": [100, 50, 400, 400], "scale": 1.1}, store)
     assert run.result.lines[-1].endswith("385x385 after scaling")
+
+
+# --- file names: finished files land in the output folder and nowhere else ---
+
+FINISHERS = ["save", "deepfry", "animate", "export"]
+BAD_NAMES = ["../x", "/tmp/x", "a/b", "..", "C:x", "a\\b", "", ".", "...", " . ", "x\x07y", "tab\tname", "n" * 101]
+
+
+@pytest.mark.parametrize("name", BAD_NAMES, ids=repr)
+@pytest.mark.parametrize("tool", FINISHERS)
+def test_names_must_be_plain_file_names(tool, name):
+    e = _bad(tool, name=name)
+    assert "name" in e.hint
+
+
+@pytest.mark.parametrize("name", ["lincoln_lasers", "mona cage é", "v1.2 final", ".hidden", "n" * 100])
+@pytest.mark.parametrize("tool", FINISHERS)
+def test_plain_names_still_work(tool, name):
+    assert REGISTRY[tool].params.model_validate({**BASE[tool], "name": name}).name == name
+
+
+@pytest.mark.parametrize("stem", ["../x", "a/b", "/abs/x", "", ".", ".."])
+def test_final_path_refuses_anything_but_a_plain_stem(tmp_path, stem):
+    from badshop.cli.filestore import final_path
+
+    with pytest.raises(EngineError, match="bad file name"):
+        final_path(tmp_path / "final", stem, ".png")
+    assert not (tmp_path / "x.png").exists()
+
+
+def test_final_path_keeps_plain_stems(tmp_path):
+    from badshop.cli.filestore import final_path
+
+    assert final_path(tmp_path, "old photo é_deepfried", ".jpg") == tmp_path / "old photo é_deepfried.jpg"
+
+
+def test_export_copies_images_only(tmp_path):
+    from badshop.cli.filestore import FileStore
+
+    notes = tmp_path / "notes.txt"
+    notes.write_text("not an image")
+    store = FileStore(tmp_path / "w", tmp_path / "final")
+    with pytest.raises(EngineError, match="isn't an image"):
+        store.export(str(notes), None)
+    assert not (tmp_path / "final").exists() or not any((tmp_path / "final").iterdir())
+    pic = tmp_path / "pic.gif"
+    Image.new("RGB", (8, 8), "red").save(pic)
+    out = store.export(str(pic), "kept")
+    assert out == str(tmp_path / "final" / "kept.gif") and (tmp_path / "final/kept.gif").read_bytes() == pic.read_bytes()
+
+
+# --- text.font: a font file name or path, never a folder walk ---
+
+@pytest.mark.parametrize("font", ["*.ttf", "Dejavu?.ttf", "x[1].ttf", "../../etc/x.ttf", "fonts/../../x.ttf",
+                                  "..\\x.ttf", "/usr/share/fonts/../../x.ttf", "**"])
+def test_font_rejects_wildcards_and_parent_folders(font):
+    assert "font" in _bad("text", font=font).hint
+
+
+@pytest.mark.parametrize("font", ["Impact.ttf", "DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/x.ttf", "Comic Sans MS.ttf",
+                                  "my..font.ttf"])
+def test_font_accepts_names_and_paths(font):
+    assert REGISTRY["text"].params.model_validate({**BASE["text"], "font": font}).font == font
+
+
+def test_font_lookup_matches_names_literally(tmp_path, monkeypatch):
+    # Even called directly (no validation), the folder search treats a name as a file name, not a pattern.
+    from badshop.engine import text
+
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(text, "SYSTEM_FONT_DIRS", [])
+    (tmp_path / "fonts").mkdir()
+    (tmp_path / "fonts" / "xa.ttf").write_bytes(b"")
+    (tmp_path / "fonts" / "y[1].ttf").write_bytes(b"")
+    assert text.find_font_file("impact", "x[ab].ttf") is None
+    assert text.find_font_file("impact", "y[1].ttf") == str(tmp_path / "fonts" / "y[1].ttf")

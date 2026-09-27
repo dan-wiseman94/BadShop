@@ -1,11 +1,13 @@
 """Captions: Impact meme text, MS Paint text and WordArt, ported from reference/badshop.py."""
 
+import glob
+import re
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 from PIL.ImageFont import FreeTypeFont
-from pydantic import Field
+from pydantic import AfterValidator, Field
 
 from badshop.engine import assets
 from badshop.engine.common import check_size, font, rgb, to_rgb
@@ -71,7 +73,7 @@ def _find_font_file(style: str, explicit: str | None, data_dir: str) -> tuple[st
         dirs = [] if Path(name).anchor else _font_dirs(data_dir)
         for d in dirs:
             if d.is_dir():
-                hit = next(d.rglob(name), None)
+                hit = next(d.rglob(glob.escape(name)), None)  # a file name, never a pattern
                 if hit:
                     return str(hit), definitive
         try:  # Pillow does its own platform search too
@@ -160,6 +162,16 @@ def render_text(lines, fnt, style, color) -> Image.Image:
     return layer
 
 
+def _font_ref(v: str) -> str:
+    # The name is searched for under the font folders: no wildcards, and no `..` to climb out of them.
+    if re.search(r"[*?\[\]]", v) or ".." in re.split(r"[\\/]", v):
+        raise ValueError("give a font file name or path, without wildcards (* ? [ ]) or '..'")
+    return v
+
+
+FontRef = Annotated[str, AfterValidator(_font_ref), Field(max_length=1024)]
+
+
 class TextParams(Params):
     POSITIONAL: ClassVar = ("image", "text")
     image: ImageRef = Field(description="image to caption")
@@ -174,7 +186,7 @@ class TextParams(Params):
         None, description="paint text color (default red), or wordart extrusion color (default purple)")
     rotate: float = Field(0, description="degrees counter-clockwise")
     margin: int = Field(20, ge=0, le=10_000, description="gap from the edge in px")
-    font: str | None = Field(None, max_length=1024, description="path or name of a font file to use instead")
+    font: FontRef | None = Field(None, description="path or name of a font file to use instead")
 
 
 def caption(p: TextParams, image: Image.Image) -> EngineResult:

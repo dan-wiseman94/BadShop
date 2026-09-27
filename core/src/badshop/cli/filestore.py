@@ -14,7 +14,13 @@ from badshop.engine.result import Output
 
 
 def final_path(final_dir: Path, stem: str, ext: str) -> Path:
-    """Finished files never overwrite older ones: stem.ext, stem_2.ext, stem_3.ext..."""
+    """Finished files never overwrite older ones: stem.ext, stem_2.ext, stem_3.ext...
+
+    The stem must be a plain file name, so the file lands in final_dir itself. Params already refuse
+    other names; this catches any caller that skipped them (a stem with a folder, a drive, or `..`)."""
+    if stem in ("", ".", "..") or Path(stem).name != stem:  # this OS's separators and drives
+        raise EngineError(f"bad file name {stem!r}: it must not contain folders",
+                          hint="give a plain file name, e.g. lincoln_lasers")
     final_dir.mkdir(parents=True, exist_ok=True)
     p, i = final_dir / f"{stem}{ext}", 2
     while p.exists():
@@ -95,8 +101,7 @@ class FileStore:
 
     def export(self, ref: str, name: str | None) -> str:
         src = Path(ref)
-        if not src.is_file():
-            raise EngineError(f"no such image: {ref}", hint=PATH_HINT)
+        self.load(ref).close()  # only images are exported: anything else is the load's clean error
         with _writing(self.final_dir):
             dest = final_path(self.final_dir, name or clean_stem(src.stem), src.suffix)
         with _writing(dest):

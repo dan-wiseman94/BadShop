@@ -1,8 +1,21 @@
 """Parameter types shared by every tool. The JSON-schema `format` drives UI widgets and CLI nargs."""
 
+import re
 from typing import Annotated, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+
+_NOT_IN_NAMES = re.compile(r"[/\\:\x00-\x1f\x7f-\x9f]")  # folders, drives, control characters
+
+
+def _plain_name(v: str) -> str:
+    if not v.strip(" .") or _NOT_IN_NAMES.search(v):
+        raise ValueError("give a plain file name with no folders, e.g. lincoln_lasers")
+    return v
+
+
+# A finished file's name (no extension): it always lands inside the output folder, whoever picks it.
+FileName = Annotated[str, AfterValidator(_plain_name), Field(max_length=100)]
 
 # Far off-canvas is fine (it clamps or misses); past this a coordinate is a typo, and C-level drawing overflows.
 Coord = Annotated[int, Field(ge=-100_000, le=100_000)]
