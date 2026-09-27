@@ -1,6 +1,6 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import basic, compose, cutout, text
+from badshop.engine import basic, compose, cutout, faces, text
 from badshop.tools.registry import ToolSpec, register
 
 register(ToolSpec(
@@ -26,6 +26,18 @@ register(ToolSpec(
     description=("Return an image so you can see it. Set grid=true to overlay labeled pixel gridlines "
                  "(every 50 px, labels every 100) when you need to read coordinates. Views larger than "
                  "`max` are scaled down and say so; convert coordinates back before using them."),
+))
+
+register(ToolSpec(
+    name="find", params=faces.FindParams, category="inspect", mutates=False, read_only=True,
+    run=lambda p, s: faces.find(p, s.load(p.image)),
+    summary="locate faces: head, face-oval, eyes, nose, mouth, chin and tilt",
+    description=("Find faces and get exact coordinates instead of guessing: the head box (hair to neck; use "
+                 "it to cut a head and as paste's fit_box on the target), the oval box (brows to chin; for "
+                 "cutout oval=true), both eye points (for eyes, warp, censor), nose, mouth corners, chin, and "
+                 "roll (tilt in degrees; paste rotate = piece roll - target roll to match). Faces are numbered "
+                 "left to right. Returns an annotated image; check it when there is more than one face. "
+                 "what=cats for cat faces. Finds nothing on cartoons and side views: use view with grid then."),
 ))
 
 register(ToolSpec(
