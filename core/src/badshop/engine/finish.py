@@ -12,6 +12,15 @@ from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import FileName, ImageRef, Params, Point
 
 
+def dithered(im: Image.Image, colors: int) -> Image.Image:
+    """The palette image for a GIF frame. Not in the reference, which crashed here: convert("RGB") (to_rgb)
+    turns a transparent index or tRNS key into an RGB tuple in info, quantize() copies it, and the GIF
+    writer can't take a tuple. The frame shows the RGB picture, as the JPEG does, so the key goes."""
+    q = im.quantize(colors=colors, dither=Image.Dither.FLOYDSTEINBERG)
+    q.info.pop("transparency", None)
+    return q
+
+
 class SaveParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="finished image")
@@ -34,7 +43,7 @@ def save(p: SaveParams, image: Image.Image) -> EngineResult:
         im = jpeg_cycle(im, p.quality)
     hint = f"final:{p.name}" if p.name else "final:{stem}"
     if p.gif:
-        out = Output("saved", im.quantize(colors=p.colors, dither=Image.Dither.FLOYDSTEINBERG), hint, fmt="GIF")
+        out = Output("saved", dithered(im, p.colors), hint, fmt="GIF")
         return EngineResult(outputs=[out], lines=[f"size: {im.width}x{im.height}, gif with {p.colors} colors, dithered"])
     out = Output("saved", im, hint, fmt="JPEG", quality=p.quality)
     return EngineResult(outputs=[out], lines=[f"size: {im.width}x{im.height}, jpeg quality {p.quality}, {p.passes} pass(es)"])
@@ -145,7 +154,7 @@ def animate(p: AnimateParams, images: list[Image.Image]) -> EngineResult:
         if p.fry:  # zoom ramps the frying up as it closes in; everything else fries at a constant level
             # seed + k: identically fried frames would be merged by the GIF writer
             f, _ = deepfry(f, 1 + round(t * (p.fry - 1)) if p.effect == "zoom" else p.fry, seed=p.seed + k)
-        frames.append(f.quantize(colors=p.colors, dither=Image.Dither.FLOYDSTEINBERG))
+        frames.append(dithered(f, p.colors))
     if p.effect == "zoom" and p.hold:
         frames += [frames[-1]] * p.hold
     hint = f"final:{p.name}" if p.name else f"final:{{stem}}_{p.effect}"
