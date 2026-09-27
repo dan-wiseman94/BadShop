@@ -267,3 +267,47 @@ def test_clipboard_prefers_web_image_types(monkeypatch, tool, listing, chosen):
     monkeypatch.setattr(sources.subprocess, "run", run)
     assert sources.read_clipboard() == (b"image bytes", None)
     assert asked == [chosen]
+
+
+# --- only http(s) links are fetched (SEC-S2) ---
+
+def test_og_image_pointing_at_a_local_file_is_never_fetched(monkeypatch):
+    requested = []
+    served = fake_http(requested)
+
+    def get(url, timeout=30, max_bytes=None):
+        if url.endswith(".html"):
+            requested.append(url)
+            return b'<html><head><meta property="og:image" content="file:///etc/hostname"></head></html>', "text/html"
+        return served(url, timeout)
+    monkeypatch.setattr(sources, "http_get", get)
+    with pytest.raises(EngineError, match="preview image"):
+        run_tool("fetch", {"query": "https://example.org/page.html"}, MemoryStore())
+    assert requested == ["https://example.org/page.html"]
+
+
+def test_page_image_skips_non_web_links():
+    html = ('<meta property="og:image" content="file:///etc/x.png">'
+            '<meta property="og:image:url" content="http://[oops/x.png">'
+            '<meta name="twitter:image" content="javascript:alert(1)">'
+            '<link rel="image_src" href="/pics/real.png">')
+    assert sources.page_image(html, "https://e.org/a/b.html") == "https://e.org/pics/real.png"
+    assert sources.page_image('<meta property="og:image" content="data:image/png;base64,AAAA">', "https://e.org/") is None
+
+
+def test_fetch_url_refuses_non_web_links(web):
+    for url in ("file:///etc/hostname", "ftp://e.org/x.png", "data:image/png;base64,AAAA"):
+        with pytest.raises(EngineError, match="only http and https"):
+            sources.fetch_url(url)
+    assert web == []
+
+
+def test_candidates_with_non_web_links_fall_back(web):
+    hits = [{"title": "sneaky", "url": "file:///etc/hostname", "fallback": "https://e.org/thumb.png"},
+            {"title": "sneakier", "url": "ftp://e.org/x.png"}]
+    r = sources.download_candidates(hits, "x")
+    assert [o.key for o in r.outputs] == ["1"]
+    assert r.lines[0].startswith("1: file:///etc/hostname failed (only http and https")
+    assert r.lines[1:] == ["2: ftp://e.org/x.png failed (only http and https links can be fetched)",
+                           "2: skipped, no usable image"]
+    assert web == ["https://e.org/thumb.png"]

@@ -71,6 +71,13 @@ def _hint(reasons: list[str], advice: str) -> str:
     return "; ".join([*reasons, advice])
 
 
+def _web_url(url: str) -> str:
+    """`url` if it is an http(s) link; anything else (file:, ftp:, data:) is a clean EngineError."""
+    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+        raise EngineError("only http and https links can be fetched", hint="copy the image's web address")
+    return url
+
+
 def _keep(im: Image.Image) -> Image.Image:
     """Keep transparency (emoji, stickers, logos); flatten everything else to RGB."""
     return im.convert("RGBA") if has_alpha(im) else im.convert("RGB")
@@ -157,7 +164,7 @@ def download_candidates(hits, slug, source_line=None) -> EngineResult:
             if not url:
                 continue
             try:
-                im = try_image(http_get(url)[0])
+                im = try_image(http_get(_web_url(url))[0])
             except Exception as e:
                 lines.append(f"{i}: {url[:60]} failed ({e})")
             if im is not None:
@@ -205,12 +212,18 @@ def page_image(html, base):
         pass
     for key in (*_PageImage.KEYS, "image_src"):
         if key in p.found:
-            return urllib.parse.urljoin(base, p.found[key])
+            try:
+                url = urllib.parse.urljoin(base, p.found[key])
+                if urllib.parse.urlsplit(url).scheme in ("http", "https"):  # never a local file: link
+                    return url
+            except ValueError:  # a malformed link, e.g. an unclosed IPv6 bracket: try the next key
+                pass
     return None
 
 
 def fetch_url(url, follow=True) -> EngineResult:
     # reference/badshop.py fetch_url
+    _web_url(url)
     try:
         data, ctype = http_get(url)
     except urllib.error.HTTPError as e:
