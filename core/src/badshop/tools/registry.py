@@ -60,6 +60,8 @@ def image_fields(params_cls: type[Params]) -> dict[str, bool]:
         for arg in typing.get_args(f.annotation):  # list[ImageRef], Optional[ImageRef]
             if _is_image(arg):
                 found[name] = typing.get_origin(f.annotation) is list
+            elif typing.get_origin(arg) is list and any(map(_is_image, typing.get_args(arg))):
+                found[name] = True  # Optional[list[ImageRef]]
     return found
 
 

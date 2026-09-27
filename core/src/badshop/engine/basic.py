@@ -44,9 +44,10 @@ class ViewParams(Params):
 
 def view(p: ViewParams, image: Image.Image) -> EngineResult:
     im, scale = fit(image.convert("RGBA") if has_alpha(image) else to_rgb(image), p.max)
-    if p.grid:
-        im = draw_grid(im)  # on RGBA too: opaque lines and labels, transparent areas stay transparent
-    note = "" if scale == 1 else f" (scaled {scale:.3f}; multiply by {1 / scale:.3f} for source pixels)"
+    if p.grid:  # on RGBA too: opaque lines and labels, transparent areas stay transparent
+        im = draw_grid(im, scale=scale)  # labelled in source pixels even when scaled down
+    note = "" if scale == 1 else f" (scaled {scale:.3f}; multiply by {1 / scale:.3f} for source pixels" + (
+        "; the grid is labelled in source pixels already)" if p.grid else ")")
     return EngineResult(outputs=[Output("view", im, "{stem}_view.png")], lines=[f"size: {im.width}x{im.height}{note}"])
 
 

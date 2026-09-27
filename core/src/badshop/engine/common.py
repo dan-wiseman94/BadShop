@@ -1,6 +1,7 @@
 """Image helpers every engine module shares, ported from reference/badshop.py."""
 
 import io
+import itertools
 from pathlib import Path
 
 from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
@@ -58,8 +59,8 @@ def fit(im: Image.Image, longest: int) -> tuple[Image.Image, float]:
     """
     w, h = im.size
     scale = min(1.0, longest / max(w, h))
-    if scale < 1:
-        im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    if scale < 1:  # never 0 px: a 5000x2 strip becomes 1000x1, not a crash
+        im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
     return im, scale
 
 
@@ -77,22 +78,38 @@ def label(draw, xy, text, fnt):
     draw.text((x, y), text, font=fnt, fill=(255, 255, 255))
 
 
-def draw_grid(im, major=100, minor=50) -> Image.Image:
-    """Magenta gridlines every `minor` px, labeled with pixel coords every `major` px."""
+def draw_grid(im, major=100, minor=50, scale=1.0) -> Image.Image:
+    """Magenta gridlines every `minor` px, labeled with pixel coords every `major` px.
+
+    `im` may be a view of a bigger source scaled by `scale`: the lines and labels are then in SOURCE
+    pixels (source line s drawn at s * scale), so a coordinate read off the grid is used as is. When the
+    labels would collide, the steps grow (x2, x5, x10...), and labels stay at multiples of `major`."""
     g = im.copy()
     d = ImageDraw.Draw(g)
     w, h = g.size
     fnt = font(max(11, min(w, h) // 55))
-    for x in range(0, w, minor):
-        is_major = x % major == 0
+    if scale < 1:
+        widest = d.textlength(str(round(max(w, h) / scale)), font=fnt) + 12  # a label and a gap
+        for step in (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000):
+            if major * step * scale >= widest:
+                break
+        major, minor = major * step, minor * step
+    for s in itertools.count(0, minor):
+        x = round(s * scale)
+        if x >= w:
+            break
+        is_major = s % major == 0
         d.line([(x, 0), (x, h)], fill=(255, 0, 255) if is_major else (255, 170, 255), width=1)
         if is_major:
-            label(d, (x + 3, 2), str(x), fnt)
-    for y in range(0, h, minor):
-        is_major = y % major == 0
+            label(d, (x + 3, 2), str(s), fnt)
+    for s in itertools.count(0, minor):
+        y = round(s * scale)
+        if y >= h:
+            break
+        is_major = s % major == 0
         d.line([(0, y), (w, y)], fill=(255, 0, 255) if is_major else (255, 170, 255), width=1)
         if is_major:
-            label(d, (3, y + 2), str(y), fnt)
+            label(d, (3, y + 2), str(s), fnt)
     return g
 
 

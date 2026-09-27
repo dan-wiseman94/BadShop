@@ -63,7 +63,8 @@ register(ToolSpec(
     summary="look at an image, optionally with a coordinate grid",
     description=("Return an image so you can see it. Set grid=true to overlay labeled pixel gridlines "
                  "(every 50 px, labels every 100) when you need to read coordinates. Views larger than "
-                 "`max` are scaled down and say so; convert coordinates back before using them."),
+                 "`max` are scaled down and say so: grid labels are still source pixels, so use them as "
+                 "they are; multiply anything else you measure on the view back up."),
 ))
 
 register(ToolSpec(
