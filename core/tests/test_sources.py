@@ -4,6 +4,7 @@ import re
 import subprocess
 import urllib.error
 import urllib.parse
+import zlib
 
 import pytest
 from PIL import EpsImagePlugin, Image
@@ -35,14 +36,29 @@ def lincoln_sideways_jpeg() -> bytes:
     return encode(im, "JPEG", exif=exif)
 
 
-def fake_http(requested: list[str], jpeg: bytes | None = None):
+def first_commons_url() -> str:
+    pages = json.loads((API / "commons.json").read_bytes())["query"]["pages"]
+    info = min(pages.values(), key=lambda p: p.get("index", 0))["imageinfo"][0]
+    return info.get("thumburl") or info["url"]
+
+
+def openverse_reply(duplicate: bool = False) -> bytes:
+    """The recorded Openverse reply; with duplicate=True its first hit is Commons' first hit again (the
+    same file indexed by both services), which the interleave must drop."""
+    data = json.loads((API / "openverse.json").read_bytes())
+    if duplicate:
+        data["results"][0]["url"] = first_commons_url()
+    return json.dumps(data).encode()
+
+
+def fake_http(requested: list[str], jpeg: bytes | None = None, duplicate: bool = False):
     """Serve recorded API JSON by host, the page fixture for .html, and a fixture image for anything else."""
     def get(url: str, timeout: float = 30, max_bytes: int | None = None):
         requested.append(url)
         if "commons.wikimedia.org/w/api.php" in url:
             return (API / "commons.json").read_bytes(), "application/json"
         if "api.openverse.org" in url:
-            return (API / "openverse.json").read_bytes(), "application/json"
+            return openverse_reply(duplicate), "application/json"
         if "wikipedia.org/w/api.php" in url:
             return (API / "wiki.json").read_bytes(), "application/json"
         if "api.imgflip.com" in url:
@@ -64,13 +80,19 @@ def web(monkeypatch):
     return requested
 
 
-def test_fetch_interleaves_and_dedupes(web):
+def test_fetch_interleaves_and_dedupes(monkeypatch):
+    # Openverse's first hit is Commons' first hit again: it is dropped, and Openverse's second hit
+    # takes its turn in the interleave (commons, openverse, commons, openverse...).
+    requested: list[str] = []
+    monkeypatch.setattr(sources, "http_get", fake_http(requested, duplicate=True))
     store = MemoryStore()
     run = run_tool("fetch", {"query": "golden retriever", "n": 4}, store)
     keys = [o.key for o in run.result.outputs]
     assert keys == ["1", "2", "3", "4", "sheet"]
     notes = [o.caption for o in run.result.outputs[:4]]
-    assert "[commons]" in notes[0] and "[openverse" in notes[1]
+    assert ["[commons]" in n for n in notes] == [True, True, False, True]
+    assert notes[2].startswith("(457x600) Golden Retriever Puppy Swimming  [openverse, ")
+    assert requested.count(first_commons_url()) == 1
     assert run.result.outputs[0].name_hint.startswith("fetch/golden_retriever_1")
 
 
@@ -429,3 +451,100 @@ def test_remote_control_characters_never_reach_the_terminal(monkeypatch):
         texts += [e.value.message, e.value.hint or ""]
     assert "(457x600) cat [2K FAKE LINE    [openverse, BY , by x ]" in texts
     assert [t for t in texts if CONTROL.search(t)] == []
+
+
+# --- offline parity with the reference: both CLIs in-process, on one fake web ---
+
+def _parity_images() -> dict[str, bytes]:
+    lincoln = Image.open(FIXTURES / "lincoln.png").convert("RGB")
+    trump = Image.open(FIXTURES / "trump.png").convert("RGB")
+    joy = Image.open(FIXTURES / "emoji_joy.png")
+    return {"lincoln.jpg": encode(lincoln, "JPEG"), "trump.jpg": encode(trump, "JPEG"),
+            "lincoln.png": (FIXTURES / "lincoln.png").read_bytes(),
+            "1f602": (FIXTURES / "emoji_joy.png").read_bytes(),
+            "1f480": encode(joy.transpose(Image.Transpose.FLIP_TOP_BOTTOM), "PNG")}
+
+
+def parity_web():
+    """A fake web for both CLIs: the recorded API replies (Openverse repeating one Commons hit, so the
+    interleave dedupes), the page fixture, Twemoji with two known emoji (anything else is a 404), one
+    Openverse original that is gone (its thumbnail stands in), and a fixture picture for any other link:
+    Lincoln or Trump by the link's checksum, so the candidates differ, as JPEG for .jpg links."""
+    images = _parity_images()
+    gone = json.loads((API / "openverse.json").read_bytes())["results"][1]["url"]
+
+    def get(url: str, timeout: float = 30, max_bytes: int | None = None):
+        if "commons.wikimedia.org/w/api.php" in url:
+            return (API / "commons.json").read_bytes(), "application/json"
+        if "api.openverse.org/v1/images/?" in url:
+            return openverse_reply(duplicate=True), "application/json"
+        if "wikipedia.org/w/api.php" in url:
+            return (API / "wiki.json").read_bytes(), "application/json"
+        if "api.imgflip.com" in url:
+            return (API / "imgflip.json").read_bytes(), "application/json"
+        if url.endswith(".html"):
+            return (API / "page.html").read_bytes(), "text/html"
+        if "twemoji" in url:
+            code = url.rsplit("/", 1)[1].removesuffix(".png")
+            if code not in images:
+                raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+            return images[code], "image/png"
+        if url == gone:
+            raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+        path = urllib.parse.urlsplit(url).path.lower()
+        if path.endswith((".jpg", ".jpeg")):
+            return images[("lincoln.jpg", "trump.jpg")[zlib.crc32(url.encode()) % 2]], "image/jpeg"
+        return images["lincoln.png"], "image/png"
+    return get
+
+
+# (argv, whether the port prints the same lines in another order: ruling 5.8 puts a tool's outputs
+# first, so a page link, a clipboard link, a failed candidate or a missing emoji moves its line)
+SOURCE_PARITY = [
+    (["fetch", "golden retriever", "-n", "4"], True),  # a duplicate dropped, a gone original, a thumbnail
+    (["fetch", "golden retriever", "--source", "commons", "-n", "2"], False),
+    (["fetch", "golden retriever", "--source", "openverse", "-n", "3"], True),
+    (["fetch", "https://example.org/article.html"], True),
+    (["fetch", "https://example.org/pic.png"], False),
+    (["fetch", "https://example.org/photo.jpg", "-o", "mine.png"], False),
+    (["fetch", "--clipboard"], False),
+    (["wiki", "Abraham Lincoln"], False),
+    (["wiki", "Abraham Lincoln", "-n", "2"], False),
+    (["emoji", "😂", "skull", "--size", "144"], False),
+    (["emoji", "joy", "notanemoji", "1f480"], True),
+    (["template", "distracted", "-n", "2"], False),
+    (["template", "drake"], False),
+    (["template", "--list"], False),
+]
+
+
+def _files(root) -> dict[str, bytes]:
+    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+@pytest.mark.parametrize("argv, reordered", SOURCE_PARITY, ids=lambda v: " ".join(v) if isinstance(v, list) else None)
+def test_sources_match_the_reference_offline(reference, monkeypatch, tmp_path, capsys, argv, reordered):
+    import time
+
+    from badshop.cli import main as cli
+
+    web = parity_web()
+    monkeypatch.setattr(sources, "http_get", web)
+    monkeypatch.setattr(reference, "http_get", web)
+    clipboard = lambda: ((FIXTURES / "trump.png").read_bytes(), None)  # noqa: E731
+    monkeypatch.setattr(sources, "read_clipboard", clipboard)
+    monkeypatch.setattr(reference, "read_clipboard", clipboard)
+    monkeypatch.setattr(time, "strftime", lambda fmt, *a: "120000")  # the clipboard file's name
+    out = {}
+    for side, main in (("ref", reference.main), ("new", cli.main)):
+        (tmp_path / side).mkdir()
+        monkeypatch.chdir(tmp_path / side)
+        assert main(list(argv)) in (None, 0)
+        out[side] = capsys.readouterr().out
+    ref, new = out["ref"].splitlines(), out["new"].splitlines()
+    assert (sorted(new) == sorted(ref)) if reordered else (new == ref)
+    assert new != [] and not any(CONTROL.search(l) for l in new)
+    ref_files, new_files = _files(tmp_path / "ref"), _files(tmp_path / "new")
+    assert list(new_files) == list(ref_files)
+    for name in ref_files:
+        assert new_files[name] == ref_files[name], name
