@@ -62,7 +62,7 @@ def deepfry(im, level, tint=True, seed=1) -> tuple[Image.Image, int]:
 
     import numpy as np
     w, h = im.size
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(seed % 2**64)  # numpy rejects negative seeds; folding keeps any int repeatable
     grain = rng.normal(128.0, lerp(6, 34), size=(h, w)).clip(0, 255).astype(np.uint8)
     noise = Image.fromarray(grain, "L").convert("RGB")  # same gaussian grain, now reproducible
     im = ImageChops.add(im, noise, scale=1.0, offset=-128)
@@ -108,7 +108,7 @@ class AnimateParams(Params):
     hold: int = Field(6, ge=0, description="zoom: repeat the last frame this many times")
     fry: int | None = Field(None, ge=1, le=5, description="deep-fry every frame at this level (zoom ramps up to it)")
     colors: int = Field(128, ge=2, le=256, description="palette size per frame")
-    seed: int = Field(1, description="shake pattern")
+    seed: int = Field(1, description="picks the shake pattern and the fry grain; same seed, same result")
     name: str | None = Field(None, description="file name without extension")
 
 
