@@ -41,18 +41,26 @@ def _run(cmd: list[str], cwd: Path, check: bool) -> subprocess.CompletedProcess:
     return p
 
 
-def frames(path: Path) -> tuple[list[bytes], tuple[int, int]]:
-    im = Image.open(path)
-    return [f.convert("RGBA").tobytes() for f in ImageSequence.Iterator(im)], im.size
+def frames(path: Path) -> tuple[list[bytes], tuple[int, int], list[int | None], int | None]:
+    """Each frame's RGBA bytes, the size, each frame's duration, and the loop count."""
+    with Image.open(path) as im:
+        loop = im.info.get("loop")  # read before seeking: later frames may not carry it
+        pixels, durations = [], []
+        for f in ImageSequence.Iterator(im):
+            pixels.append(f.convert("RGBA").tobytes())
+            durations.append(f.info.get("duration"))
+        return pixels, im.size, durations, loop
 
 
 def assert_same_image(a: Path, b: Path) -> None:
-    fa, sa = frames(a)
-    fb, sb = frames(b)
+    fa, sa, da, la = frames(a)
+    fb, sb, db, lb = frames(b)
     assert sa == sb, f"size {sa} != {sb} ({a} vs {b})"
     assert len(fa) == len(fb), f"{len(fa)} frames != {len(fb)}"
     for i, (x, y) in enumerate(zip(fa, fb)):
         assert x == y, f"frame {i} pixels differ: {a} vs {b}"
+    assert da == db, f"frame durations {da} != {db} ({a} vs {b})"
+    assert la == lb, f"loop {la} != {lb} ({a} vs {b})"
 
 
 class Pair:

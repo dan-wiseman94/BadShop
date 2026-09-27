@@ -1,6 +1,6 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import annotate, basic, compose, cutout, faces, filters, garnish, text
+from badshop.engine import annotate, basic, compose, cutout, faces, filters, finish, garnish, text
 from badshop.tools.registry import ToolSpec, register
 
 register(ToolSpec(
@@ -137,4 +137,30 @@ register(ToolSpec(
     description=("Period-accurate fake watermarks, any combination: hypercam ('Unregistered HyperCam 2', "
                  "top-left), bandicam (top center), ifunny (adds a dark bar under the picture), mematic "
                  "(bottom center). text adds your own in a corner."),
+))
+
+register(ToolSpec(
+    name="save", params=finish.SaveParams, category="finish",
+    run=lambda p, s: finish.save(p, s.load(p.image)),
+    summary="write a crunchy low-quality JPEG, or a dithered GIF",
+    description=("Finish as a low-quality JPEG (quality, passes to recompress, lowres for potato quality) or a "
+                 "dithered GIF. Saved to the user's output folder; give a descriptive name."),
+))
+
+register(ToolSpec(
+    name="deepfry", params=finish.DeepfryParams, category="finish",
+    run=lambda p, s: finish.deepfry_tool(p, s.load(p.image)),
+    summary="deep-fried meme treatment, written as a JPEG",
+    description=("Deep-fry: red/yellow cast, blown-out saturation and contrast, oversharpened halos, grain, "
+                 "rounds of low-quality JPEG. level 1-5 from how strongly the user put it (fried=3, "
+                 "nuked=5). Replaces save. Give a descriptive name."),
+))
+
+register(ToolSpec(
+    name="animate", params=finish.AnimateParams, category="finish",
+    run=lambda p, s: finish.animate(p, [s.load(r) for r in p.images]),
+    summary="animated GIF: flip between images, shake, flash, zoom, spin",
+    description=("Make an animated GIF. Several images alternate (e.g. with and without lasers for flashing "
+                 "laser eyes). effect shake/flash/zoom/spin; zoom with at=[x,y] and fry=5 is the classic "
+                 "zoom-and-deep-fry. Give a descriptive name."),
 ))
