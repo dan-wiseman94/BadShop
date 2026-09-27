@@ -65,6 +65,16 @@ class FileStore:
     def __init__(self, work_dir: Path, final_dir: Path, out: str | None = None):
         self.work_dir, self.final_dir, self.out = work_dir, final_dir, out
         self._count = 0
+        self._written: set[Path] = set()  # one store serves one run
+
+    def _unused(self, path: Path) -> Path:
+        """One run never writes two outputs to the same path (emoji a b c -o e.png gives every output the key
+        "emoji"): the later ones become x_2.png, x_3.png..."""
+        p, i = path, 2
+        while p in self._written:
+            p, i = path.with_name(f"{path.stem}_{i}{path.suffix}"), i + 1
+        self._written.add(p)
+        return p
 
     def load(self, ref: str) -> Image.Image:
         path = Path(ref)
@@ -91,6 +101,7 @@ class FileStore:
                 path = final_path(self.final_dir, output.name_hint[6:].replace("{stem}", clean_stem(stem)), output.ext())
         else:
             path = self.work_dir / output.name_hint.replace("{stem}", stem)
+        path = self._unused(path)
         with _writing(path):
             path.parent.mkdir(parents=True, exist_ok=True)
             if self.out and first:
