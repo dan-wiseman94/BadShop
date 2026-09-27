@@ -85,7 +85,7 @@ register(ToolSpec(
     description=("Write a caption. Default: Impact meme style, white with black outline, uppercase, "
                  "auto-sized, at the top; bottom=true for the punchline. style=paint is colored text with a "
                  "hard shadow (looks drawn in MS Paint); style=wordart is a rainbow face with a 3D "
-                 "extrusion. at=[x,y] centers the text anywhere. A literal \\n forces a line break."),
+                 "extrusion. at=[x,y] centers the text anywhere. A new line (or a typed \\n) forces a line break."),
 ))
 
 register(ToolSpec(

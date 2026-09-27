@@ -101,9 +101,12 @@ def load_font(style: str, size: int, explicit: str | None = None) -> tuple[FreeT
                           hint="use a .ttf or .otf font file") from None
 
 
+LINE_BREAK = re.compile(r"\\n|\r\n|\r|\n")  # a typed \n (the CLI) or a real newline (JSON, a text box)
+
+
 def wrap_text(draw, text, fnt, max_width) -> list[str]:
     lines = []
-    for para in text.split("\\n"):
+    for para in LINE_BREAK.split(text):
         cur = ""
         for word in para.split():
             trial = (cur + " " + word).strip()
@@ -175,7 +178,7 @@ FontRef = Annotated[str, AfterValidator(_font_ref), Field(max_length=1024)]
 class TextParams(Params):
     POSITIONAL: ClassVar = ("image", "text")
     image: ImageRef = Field(description="image to caption")
-    text: str = Field(max_length=1000, description="the words; a literal \\n forces a line break")
+    text: str = Field(max_length=1000, description="the words; a new line (or a typed \\n) forces a line break")
     style: Literal["impact", "paint", "wordart"] = Field(
         "impact", description="impact: white, black outline, uppercase; paint: colored with a hard "
                               "shadow; wordart: rainbow face with a 3D extrusion")
@@ -193,7 +196,8 @@ def caption(p: TextParams, image: Image.Image) -> EngineResult:
     # reference/badshop.py cmd_text
     im = to_rgb(image)
     W, H = im.size
-    text = p.text.upper() if p.style == "impact" else p.text
+    # split before upper-casing: Impact would turn a typed \n into \N, which no longer breaks the line
+    text = "\n".join(s.upper() for s in LINE_BREAK.split(p.text)) if p.style == "impact" else p.text
     probe = ImageDraw.Draw(im)
     if p.color:
         rgb(p.color)  # a clean error up front: the paint style hands the color straight to PIL
