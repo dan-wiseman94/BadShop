@@ -1,6 +1,7 @@
 """Every tool, registered once, with the description an LLM sees."""
 
 from badshop.engine import annotate, basic, compose, cutout, faces, filters, finish, garnish, sources, text
+from badshop.engine.result import EngineResult
 from badshop.tools.registry import ToolSpec, register
 
 register(ToolSpec(
@@ -200,4 +201,13 @@ register(ToolSpec(
     description=("Make an animated GIF. Several images alternate (e.g. with and without lasers for flashing "
                  "laser eyes). effect shake/flash/zoom/spin; zoom with at=[x,y] and fry=5 is the classic "
                  "zoom-and-deep-fry. Give a descriptive name."),
+))
+
+register(ToolSpec(
+    name="export", params=basic.ExportParams, category="finish", mutates=False,
+    run=lambda p, s: EngineResult(lines=[f"exported: {s.export(p.image, p.name)}"]),
+    summary="copy a finished image into the output folder",
+    description=("Copy a finished image, unchanged (animation included), into the user's output folder "
+                 "under a descriptive name, never overwriting. save and deepfry already do this; use export "
+                 "for anything else the user wants to keep."),
 ))

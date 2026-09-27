@@ -1,0 +1,126 @@
+"""CLI-only `recipe` and `run`: turn the command history into a replayable recipe, and replay it.
+
+Ported from reference/badshop.py (the recipes section).
+"""
+
+import argparse
+import json
+import re
+import shlex
+import sys
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+from badshop.tools import REGISTRY
+
+HISTORY = Path("badshop_work") / "history.jsonl"
+RECIPE_COMMANDS = {"recipe", "run"}
+REPLAYING = False  # `run` turns this on so replays don't re-log themselves
+
+
+def output_of(argv: list[str]) -> str | None:
+    for flag in ("-o", "--out"):
+        if flag in argv and argv.index(flag) + 1 < len(argv):
+            return argv[argv.index(flag) + 1]
+    return None
+
+
+def record(argv: list[str]) -> None:
+    """Log a successful editing command. Looking (read_only) and fetching (network) tools are not logged."""
+    if REPLAYING or argv[0] in RECIPE_COMMANDS:
+        return
+    spec = REGISTRY.get(argv[0])  # None for `badshop -- text ...`, which argparse accepts
+    if spec is None or spec.read_only or spec.network:
+        return
+    HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    with HISTORY.open("a") as fh:
+        fh.write(json.dumps({"argv": argv, "time": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")
+
+
+def cmd_recipe(a: argparse.Namespace) -> int:
+    if a.clear:
+        HISTORY.unlink(missing_ok=True)
+        print(f"cleared: {HISTORY}")
+        return 0
+    entries = [json.loads(l) for l in HISTORY.read_text().splitlines() if l.strip()] if HISTORY.exists() else []
+    if a.last:
+        entries = entries[-a.last:]
+    if not entries:
+        print(f"no history in {HISTORY} yet; run some editing commands first", file=sys.stderr)
+        return 1
+    # A re-run that writes the same -o file replaces the earlier attempt but keeps its place in line,
+    # so the corrections made along the way collapse into one clean pipeline.
+    slots, order = {}, []
+    for i, e in enumerate(entries):
+        key = output_of(e["argv"]) or f"#{i}"
+        if key not in slots:
+            order.append(key)
+        slots[key] = e["argv"]
+    steps = [slots[k] for k in order]
+    out = Path(a.out) if a.out else HISTORY.parent / "recipe.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"vars": {}, "steps": steps}, indent=2, ensure_ascii=False) + "\n",
+                   encoding="utf-8")
+    print(f"recipe: {out}")
+    print(f"{len(steps)} step(s) from {len(entries)} logged command(s)")
+    for i, s in enumerate(steps, 1):
+        print(f"  {i}. {shlex.join(s)}")
+    print('to parametrize: put "{name}" in any argument and add name to "vars", then `run --set name=value`')
+    return 0
+
+
+def cmd_run(a: argparse.Namespace, main: Callable[[list[str]], int]) -> int:
+    global REPLAYING
+    try:
+        data = json.loads(Path(a.recipe).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"can't read recipe {a.recipe} ({e})", file=sys.stderr)
+        return 1
+    variables = {k: str(v) for k, v in data.get("vars", {}).items()}
+    for s in a.set or []:
+        k, sep, v = s.partition("=")
+        if not sep:
+            print(f"--set wants name=value, got {s!r}", file=sys.stderr)
+            return 1
+        variables[k] = v
+    steps = data["steps"]
+
+    def fill(arg):
+        return re.sub(r"\{(\w+)\}", lambda m: variables.get(m.group(1), m.group(0)), str(arg))
+
+    previous, REPLAYING = REPLAYING, True
+    try:
+        for i, argv in enumerate(steps, 1):
+            if i < a.from_step:
+                continue
+            argv = [fill(x) for x in argv]
+            print(f"== step {i}/{len(steps)}: {shlex.join(argv)}")
+            try:
+                rc = main(argv)
+            except SystemExit as e:  # an argparse error (or --help) inside a replayed step
+                rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+            if rc != 0:
+                print(f"step {i} failed", file=sys.stderr)
+                return rc
+    finally:
+        REPLAYING = previous
+    return 0
+
+
+def add_parsers(sub: argparse._SubParsersAction) -> None:
+    s = sub.add_parser("recipe", help="write the logged editing commands as a replayable recipe")
+    s.add_argument("--last", type=int, help="only use the last N logged commands")
+    s.add_argument("--clear", action="store_true", help="forget the history (do this before starting a new meme)")
+    s.add_argument("-o", "--out", help="default badshop_work/recipe.json")
+    s.set_defaults(_recipe=lambda a, main: cmd_recipe(a))
+
+    s = sub.add_parser("run", help="replay a recipe")
+    s.add_argument("recipe")
+    s.add_argument("--set", action="append", metavar="NAME=VALUE", help='fill "{NAME}" in the recipe; repeatable')
+    s.add_argument("--from", dest="from_step", type=int, default=1, help="start at this step number")
+    s.set_defaults(_recipe=cmd_run)
+
+
+def run_command(a: argparse.Namespace, main: Callable[[list[str]], int]) -> int:
+    return a._recipe(a, main)

@@ -48,3 +48,9 @@ def view(p: ViewParams, image: Image.Image) -> EngineResult:
         im = draw_grid(im)  # on RGBA too: opaque lines and labels, transparent areas stay transparent
     note = "" if scale == 1 else f" (scaled {scale:.3f}; multiply by {1 / scale:.3f} for source pixels)"
     return EngineResult(outputs=[Output("view", im, "{stem}_view.png")], lines=[f"size: {im.width}x{im.height}{note}"])
+
+
+class ExportParams(Params):
+    POSITIONAL: ClassVar = ("image",)
+    image: ImageRef = Field(description="finished image to hand to the user")
+    name: str | None = Field(None, description="file name without extension")
