@@ -1,7 +1,10 @@
 """assets.http_get and assets.cached against a real (local) web server: schemes, redirects, caps."""
 
+import hashlib
 import http.client
+import re
 import socket
+import stat
 import struct
 import time
 import urllib.error
@@ -10,7 +13,7 @@ import zlib
 import pytest
 
 from badshop.cli.filestore import FileStore
-from badshop.engine import assets, sources
+from badshop.engine import assets, faces, sources, text
 from badshop.engine.errors import EngineError
 from localweb import canned, response, serve, trickle
 
@@ -125,3 +128,77 @@ def test_filestore_load_refuses_a_pixel_bomb(tmp_path):
     (tmp_path / "bomb.png").write_bytes(pixel_bomb_png(20000, 10000))
     with pytest.raises(EngineError, match="bomb.png is too big to open"):
         FileStore(tmp_path / "work", tmp_path / "final").load(str(tmp_path / "bomb.png"))
+
+
+# --- asset downloads: complete, the pinned bytes, readable (SEC-S6, TRI M1) ---
+
+@pytest.fixture
+def data(monkeypatch, tmp_path):
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "d"))
+    return tmp_path / "d"
+
+
+def test_cached_rejects_a_cut_short_download(data):
+    with serve(canned(response(b"x" * 5000, headers={"Content-Length": "100000"}))) as base:
+        with pytest.raises(EngineError, match=r"couldn't download fonts/A.ttf \(cut short at 5000 of 100000") as e:
+            assets.cached("fonts/A.ttf", base + "/A.ttf")
+    assert "internet" in e.value.hint
+    assert not any(data.rglob("*.ttf*"))
+
+
+def test_cached_tolerates_a_garbage_content_length(data):
+    with serve(canned(response(b"x" * 50, headers={"Content-Length": "abc"}))) as base:
+        assert assets.cached("fonts/A.ttf", base + "/A.ttf").read_bytes() == b"x" * 50
+
+
+def test_cached_rejects_a_bad_checksum(data, tmp_path):
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"x" * 10)
+    with pytest.raises(EngineError, match="failed its checksum") as e:
+        assets.cached("m.bin", src.as_uri(), sha256="0" * 64, size=10)
+    assert "upstream file changed" in e.value.hint
+    assert not data.exists() or list(data.iterdir()) == []
+    good = hashlib.sha256(b"x" * 10).hexdigest()
+    assert assets.cached("m.bin", src.as_uri(), sha256=good, size=10).read_bytes() == b"x" * 10
+
+
+@pytest.mark.parametrize("served", [5, 30])  # too short; longer than pinned (stops reading past the size)
+def test_cached_rejects_the_wrong_size(data, tmp_path, served):
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"x" * served)
+    with pytest.raises(EngineError, match="expected 20 bytes"):
+        assets.cached("m.bin", src.as_uri(), size=20)
+    assert not data.exists() or list(data.iterdir()) == []
+
+
+def test_cached_heals_a_short_file(data, tmp_path):
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"x" * 10)
+    (data / "fonts").mkdir(parents=True)
+    (data / "fonts" / "A.ttf").write_bytes(b"xxxxx")  # cut short by an earlier version
+    assert assets.cached("fonts/A.ttf", src.as_uri(), size=10).read_bytes() == b"x" * 10
+    src.unlink()  # now the right size: a cache hit, no download
+    assert assets.cached("fonts/A.ttf", src.as_uri(), size=10).read_bytes() == b"x" * 10
+
+
+def test_cached_files_are_readable_by_everyone(data, tmp_path):
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"x")
+    assert stat.S_IMODE(assets.cached("m.bin", src.as_uri()).stat().st_mode) == 0o644
+
+
+def test_asset_urls_are_pinned():
+    for pin in (faces.YUNET, *text.FONT_DOWNLOADS.values()):
+        assert re.search(r"/raw/[0-9a-f]{40}/", pin.url), pin.url  # one upstream commit, not a branch
+        assert re.fullmatch(r"[0-9a-f]{64}", pin.sha256) and pin.size > 0
+    assert "@latest" not in sources.TWEMOJI_URL and re.search(r"@\d+\.\d+\.\d+/", sources.TWEMOJI_URL)
+
+
+@pytest.mark.models
+def test_pinned_assets_have_their_pinned_bytes():
+    # A cache hit here (core/.test-cache has them); a real, verified download on a fresh checkout.
+    pins = [("face_detection_yunet_2023mar.onnx", faces.YUNET),
+            *((f"fonts/{name}", pin) for name, pin in text.FONT_DOWNLOADS.items())]
+    for name, pin in pins:
+        path = assets.cached(name, pin.url, sha256=pin.sha256, size=pin.size)
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == pin.sha256, name

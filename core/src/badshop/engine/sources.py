@@ -28,7 +28,8 @@ from badshop.engine.types import Params
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 OPENVERSE_API = "https://api.openverse.org/v1/images/"
 IMGFLIP_API = "https://api.imgflip.com/get_memes"
-TWEMOJI_URL = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72/{}.png"
+# The release @latest resolved to on 2026-09-27 (tag v17.0.3); pinned so replays fetch the same pixels.
+TWEMOJI_URL = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/72x72/{}.png"
 IMAGE_MIMES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
 FORMAT_EXT = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
 NET_ERRORS = (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException)

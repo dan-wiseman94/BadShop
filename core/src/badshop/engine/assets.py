@@ -1,5 +1,6 @@
 """Where downloaded assets live, and how they get there."""
 
+import hashlib
 import http.client
 import os
 import tempfile
@@ -9,6 +10,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 import platformdirs
 
@@ -96,27 +98,60 @@ def http_get(url: str, timeout: float = 30, max_bytes: int = MAX_DOWNLOAD) -> tu
         return bytes(body), r.headers.get("Content-Type", "") or ""
 
 
-def cached(name: str, url: str, progress: Callable[[int, int | None], None] | None = None) -> Path:
-    """Download `url` once into data_dir()/name and reuse it. Raises EngineError when offline.
+class Pinned(NamedTuple):
+    """An asset pinned to one upstream commit, with the bytes it must have."""
+    url: str
+    sha256: str
+    size: int
+
+
+OFFLINE_HINT = "check the internet connection; it is only downloaded once"
+
+
+def _not_pinned(name: str, why: str) -> EngineError:
+    return EngineError(f"couldn't download {name} ({why})",
+                       hint="check the internet connection and try again; "
+                            "if it keeps failing, the upstream file changed")
+
+
+def cached(name: str, url: str, progress: Callable[[int, int | None], None] | None = None,
+           sha256: str | None = None, size: int | None = None) -> Path:
+    """Download `url` once into data_dir()/name and reuse it. Raises EngineError when offline, when
+    the download is cut short, or when it isn't the pinned file (`size` bytes hashing to `sha256`);
+    nothing is kept then. A cached file of the wrong size (cut short by an older version) is
+    downloaded again.
 
     Each call streams into its own temp file and renames it into place, so concurrent
     downloads of one name (threads or processes) never share a partial file."""
     path = data_dir() / name
-    if path.is_file():
+    if path.is_file() and (size is None or path.stat().st_size == size):
         return path
     tmp = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with _open(url, timeout=60) as r:  # url is a constant: no scheme check, so tests can use file:
             fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".part")
+            digest = hashlib.sha256()
             with os.fdopen(fd, "wb") as fh:
-                total = int(r.headers.get("Content-Length") or 0) or None
+                total = _content_length(r.headers)
                 done = 0
-                while chunk := r.read(CHUNK):
+                # read1 returns what one recv brings, so the 60 s socket timeout means "no progress for 60 s"
+                while chunk := r.read1(CHUNK):
                     fh.write(chunk)
+                    digest.update(chunk)
                     done += len(chunk)
+                    if size is not None and done > size:
+                        raise _not_pinned(name, f"it is bigger than the expected {size} bytes")
                     if progress:
                         progress(done, total)
+            if total is not None and done != total:  # a connection that ends early reads as b"", no error
+                raise EngineError(f"couldn't download {name} (cut short at {done} of {total} bytes)",
+                                  hint=OFFLINE_HINT)
+            if size is not None and done != size:
+                raise _not_pinned(name, f"{done} bytes, expected {size} bytes")
+            if sha256 is not None and digest.hexdigest() != sha256:
+                raise _not_pinned(name, "it failed its checksum")
+        os.chmod(tmp, 0o644)  # mkstemp makes the file private; set the mode before it becomes visible
         try:
             os.replace(tmp, path)  # atomic; the last complete writer wins
         except OSError:
@@ -127,8 +162,7 @@ def cached(name: str, url: str, progress: Callable[[int, int | None], None] | No
         if tmp:
             Path(tmp).unlink(missing_ok=True)
         if isinstance(e, (urllib.error.URLError, OSError, TimeoutError, http.client.HTTPException)):
-            raise EngineError(f"couldn't download {name} ({e})",
-                              hint="check the internet connection; it is only downloaded once") from e
+            raise EngineError(f"couldn't download {name} ({e})", hint=OFFLINE_HINT) from e
         raise
     return path
 

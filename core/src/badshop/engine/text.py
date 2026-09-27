@@ -29,9 +29,15 @@ FONT_CANDIDATES = {  # first hit wins; the real thing on Windows/macOS, a free l
     "bold": ["arialbd.ttf", "Arial Bold.ttf", "LiberationSans-Bold.ttf", "DejaVuSans-Bold.ttf"],
 }
 FONT_CANDIDATES["wordart"] = FONT_CANDIDATES["impact"]
-FONT_DOWNLOADS = {  # SIL Open Font License lookalikes, fetched once when nothing better is installed
-    "Anton-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
-    "ComicNeue-Bold.ttf": "https://github.com/google/fonts/raw/main/ofl/comicneue/ComicNeue-Bold.ttf",
+FONT_DOWNLOADS = {  # SIL Open Font License lookalikes, fetched once when nothing better is installed,
+    # pinned to the google/fonts commits that last changed them
+    "Anton-Regular.ttf": assets.Pinned(
+        "https://github.com/google/fonts/raw/e0a8124cf36bb7c32ca68e5d46d6acdbc3df866a/ofl/anton/Anton-Regular.ttf",
+        sha256="a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab", size=170812),
+    "ComicNeue-Bold.ttf": assets.Pinned(
+        "https://github.com/google/fonts/raw/23bf052eb5d01205102d72cba29580df2a38c422/"
+        "ofl/comicneue/ComicNeue-Bold.ttf",
+        sha256="3e7e5fccfd7e0788f317b43312151c1bd5cf058c9697a8d83eac3939050bd61e", size=55716),
 }
 
 
@@ -67,7 +73,8 @@ def _find_font_file(style: str, explicit: str | None, data_dir: str) -> str | No
             pass
         if name in FONT_DOWNLOADS and not explicit:
             try:
-                return str(assets.cached(f"fonts/{name}", FONT_DOWNLOADS[name]))
+                pin = FONT_DOWNLOADS[name]
+                return str(assets.cached(f"fonts/{name}", pin.url, sha256=pin.sha256, size=pin.size))
             except EngineError:
                 pass  # offline: keep going down the list
     return None

@@ -13,13 +13,15 @@ from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import ImageRef, Params
 
-YUNET_URL = ("https://github.com/opencv/opencv_zoo/raw/main/models/"
-             "face_detection_yunet/face_detection_yunet_2023mar.onnx")
+YUNET = assets.Pinned(  # opencv_zoo commit f12e127 ("update yunet to v2"), the file's latest version
+    "https://github.com/opencv/opencv_zoo/raw/f12e12798e8314f7c074a6656816c048dcc95b7a/models/"
+    "face_detection_yunet/face_detection_yunet_2023mar.onnx",
+    sha256="8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4", size=232589)
 
 
 def yunet_faces(cv2, bgr, min_score):
     """Faces with five landmarks each, from OpenCV's small YuNet CNN."""
-    model = assets.cached("face_detection_yunet_2023mar.onnx", YUNET_URL)
+    model = assets.cached("face_detection_yunet_2023mar.onnx", YUNET.url, sha256=YUNET.sha256, size=YUNET.size)
     H, W = bgr.shape[:2]
     det = cv2.FaceDetectorYN.create(str(model), "", (W, H), min_score, 0.3, 5000)
     _, rows = det.detect(bgr)
