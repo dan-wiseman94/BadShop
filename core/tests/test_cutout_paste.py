@@ -1,6 +1,9 @@
+import typing
+
 import pytest
 from PIL import Image
 
+from badshop.engine.cutout import RembgModel
 from badshop.engine.errors import EngineError
 from badshop.tools.runner import run_tool
 from conftest import assert_same_image
@@ -58,15 +61,14 @@ def test_paste_needs_placement():
     store = MemoryStore()
     base = store.add(Image.new("RGB", (50, 50)), "b.png")
     piece = store.add(Image.new("RGBA", (10, 10)), "p.png")
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match=r"give width \(or fit_box\)"):
         run_tool("paste", {"base": base, "piece": piece}, store)
-    assert "width" in e.value.message
 
 
 def test_cutout_box_outside():
     store = MemoryStore()
     ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError):
+    with pytest.raises(EngineError, match="lies outside the 50x50 image"):
         run_tool("cutout", {"image": ref, "box": [100, 100, 200, 200], "no_ai": True}, store)
 
 
@@ -77,20 +79,37 @@ def test_cutout_inverted_box():
     assert store.images[run.refs[0]].size == (30, 30)
 
 
+def test_cutout_and_paste_scale_16bit(tmp_path):
+    # 16-bit inputs are scaled, not clipped to white as the reference did (an intended change).
+    from badshop.engine.common import load_image
+
+    Image.new("I;16", (40, 40), 32768).save(tmp_path / "deep.png")  # mid-grey in 16 bits
+    store = MemoryStore()
+    deep = store.add(load_image(tmp_path / "deep.png"), "deep.png")
+    run = run_tool("cutout", {"image": deep, "no_ai": True}, store)
+    assert store.images[run.refs[0]].getpixel((20, 20)) == (128, 128, 128, 255)
+    base = store.add(Image.new("RGB", (60, 60), "white"), "base.png")
+    run = run_tool("paste", {"base": base, "piece": deep, "at": [10, 10], "width": 40}, store)
+    out = store.images[run.refs[0]]
+    assert out.getpixel((30, 30)) == (128, 128, 128) and out.getpixel((5, 5)) == (255, 255, 255)
+
+
 def test_cutout_rejects_unlisted_model():
+    # Spec 5.1: exactly these four, never rembg's own default bria-rmbg (non-commercial weights).
+    assert typing.get_args(RembgModel) == ("u2net", "u2net_human_seg", "isnet-anime", "birefnet-general")
     store = MemoryStore()
     ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError):
+    with pytest.raises(EngineError, match="bad parameters for cutout") as e:
         run_tool("cutout", {"image": ref, "model": "bria-rmbg"}, store)
+    assert e.value.hint.startswith("model: Input should be 'u2net'")
 
 
 def test_paste_repeat_needs_width():
     store = MemoryStore()
     base = store.add(Image.new("RGB", (50, 50)), "b.png")
     piece = store.add(Image.new("RGBA", (10, 10), "red"), "p.png")
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match="repeat needs width"):
         run_tool("paste", {"base": base, "piece": piece, "repeat": 3, "fit_box": [0, 0, 20, 20]}, store)
-    assert "width" in e.value.message
 
 
 def test_cutout_model_download_offline(monkeypatch, tmp_path):
@@ -102,7 +121,7 @@ def test_cutout_model_download_offline(monkeypatch, tmp_path):
         monkeypatch.delenv(k, raising=False)
     store = MemoryStore()
     ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match="couldn't download the u2net background-removal model") as e:
         run_tool("cutout", {"image": ref}, store)
     assert "internet" in e.value.hint
 

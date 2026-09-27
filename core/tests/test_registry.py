@@ -20,14 +20,14 @@ def test_basic_tools_registered():
 
 
 def test_unknown_tool():
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match="unknown tool 'nope'") as e:
         registry.get("nope")
     assert e.value.hint == "tools: " + ", ".join(sorted(registry.REGISTRY))
     assert all(name in e.value.hint for name in ("info", "prep", "view"))
 
 
 def test_duplicate_registration_rejected():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="tool 'info' is already registered"):
         registry.register(registry.get("info"))
 
 
@@ -119,11 +119,12 @@ def test_view_opaque_palette_stays_rgb(store):
 
 def test_bad_params_become_engine_error_with_hint(store):
     ref = store.add(Image.new("RGB", (10, 10)))
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match="bad parameters for prep") as e:
         run_tool("prep", {"image": ref, "max": "big"}, store)
     assert "max" in e.value.hint
-    with pytest.raises(EngineError):
+    with pytest.raises(EngineError, match="bad parameters for prep") as e:
         run_tool("prep", {"image": ref, "unknown_option": 1}, store)
+    assert e.value.hint == "unknown_option: Extra inputs are not permitted"
 
 
 @pytest.mark.parametrize("tool, longest", [("prep", 1000), ("view", 1024)])

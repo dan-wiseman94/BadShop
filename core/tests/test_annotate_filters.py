@@ -1,9 +1,14 @@
+import typing
+
 import pytest
+from PIL import Image
 
 from badshop.engine.errors import EngineError
+from badshop.engine.filters import FILTERS, FilterName
+from badshop.engine.garnish import WATERMARKS, WatermarkParams
 from badshop.tools.runner import run_tool
+from conftest import FIXTURES
 from memstore import MemoryStore
-from PIL import Image
 
 CASES = [
     ["draw", "lincoln.png", "--circle", "300", "250", "80", "--arrow", "550", "550", "350", "350",
@@ -48,3 +53,17 @@ def test_censor_needs_a_box():
     ref = store.add(Image.new("RGB", (20, 20)), "x.png")
     with pytest.raises(EngineError, match="bad parameters"):
         run_tool("censor", {"image": ref, "box": []}, store)
+
+
+def test_every_filter_matches_the_reference(reference):
+    # The CLI parity CASES chain five filters; this runs all eleven, alone, against the reference's own.
+    assert set(reference.FILTERS) == set(FILTERS) == set(typing.get_args(FilterName))
+    with Image.open(FIXTURES / "lincoln.png") as src:
+        im = src.convert("RGB")
+    for name in FILTERS:
+        assert FILTERS[name](im).tobytes() == reference.FILTERS[name](im).tobytes(), name
+
+
+def test_watermark_names_match_the_watermarks(reference):
+    (names,) = typing.get_args(WatermarkParams.model_fields["names"].annotation)  # list[Literal[...]]
+    assert typing.get_args(names) == WATERMARKS == reference.WATERMARKS

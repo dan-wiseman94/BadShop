@@ -170,7 +170,8 @@ def test_fetch_offline(monkeypatch):
     def down(url, *args, **kwargs):
         raise urllib.error.URLError("no route to host")
     monkeypatch.setattr(sources, "http_get", down)
-    with pytest.raises(EngineError) as e:
+    with pytest.raises(EngineError, match=r"commons search failed \(<urlopen error no route to host>\); "
+                                          r"openverse search failed") as e:
         run_tool("fetch", {"query": "golden retriever"}, MemoryStore())
     assert e.value.hint and "internet" in e.value.hint
 
@@ -190,7 +191,8 @@ def test_clipboard_image(monkeypatch):
     store = MemoryStore()
     run = run_tool("fetch", {"clipboard": True}, store)
     out = run.result.outputs[0]
-    w, h = Image.open(FIXTURES / "lincoln.png").size
+    with Image.open(FIXTURES / "lincoln.png") as im:
+        w, h = im.size
     assert out.key == "fetched" and out.name_hint.startswith("fetch/clipboard_") and out.name_hint.endswith(".png")
     assert store.images[run.refs[0]].size == (w, h) and run.result.lines == [f"size: {w}x{h}"]
 
@@ -203,8 +205,9 @@ def test_clipboard_link(monkeypatch, web):
 
 def test_clipboard_empty(monkeypatch):
     monkeypatch.setattr(sources, "read_clipboard", lambda: (None, "just some words"))
-    with pytest.raises(EngineError):
+    with pytest.raises(EngineError, match="the clipboard has no image or link") as e:
         run_tool("fetch", {"clipboard": True}, MemoryStore())
+    assert e.value.hint == "copy an image (or its address) and try again"
 
 
 @pytest.mark.network

@@ -151,8 +151,9 @@ def test_generated_parser_edge_cases(capsys):
     with pytest.raises(SystemExit) as e:  # a required flag is an argparse usage error, like the reference
         _fake_parser().parse_args(["fake", "x.png"])
     assert e.value.code == 2 and "--box" in capsys.readouterr().err
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as e:
         _fake_parser().parse_args(["fake", "--help"])
+    assert e.value.code == 0
     out = capsys.readouterr().out
     assert "30% too big" in out and "-o OUT" in out
     assert "100% fake" in _fake_parser().format_help()

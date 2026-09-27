@@ -109,7 +109,7 @@ def test_http_get_gives_up_on_a_trickle_at_the_deadline():
 
 def test_http_get_reports_a_cut_short_body():
     with serve(canned(response(b"x" * 10, headers={"Content-Length": "100"}))) as base:
-        with pytest.raises(http.client.IncompleteRead):
+        with pytest.raises(http.client.IncompleteRead, match="10 bytes read, 90 more expected"):
             assets.http_get(base + "/x")
 
 
