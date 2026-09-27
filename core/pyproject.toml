@@ -29,7 +29,7 @@ packages = ["src/badshop"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "models: needs downloaded ML models (rembg, YuNet); cached in core/.test-cache",
+    "models: needs downloaded models or fonts (rembg, YuNet, Anton, Comic Neue); cached in core/.test-cache",
     "network: talks to real internet services",
 ]
 addopts = "-m 'not network'"
