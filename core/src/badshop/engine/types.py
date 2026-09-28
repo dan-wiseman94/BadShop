@@ -42,6 +42,12 @@ Spot = Annotated[tuple[Coord, Coord, Coord], Field(json_schema_extra=_coordinate
 Color = Annotated[str, Field(max_length=100, json_schema_extra={"format": "color"})]  # Pillow refuses longer
 Seed = Annotated[int, Field(json_schema_extra={"format": "badshop-seed"})]  # same seed, same pixels: a reroll knob
 
+# Marks a field only the user may set (`Field(..., json_schema_extra={USER_ONLY: True})`), such as reading
+# their clipboard: the schema a model sees leaves it out, and any other actor is refused unless it keeps
+# the default. It lives here, beside the other schema markers, so engine modules can use it without
+# importing badshop.tools (which imports them: a cycle). tools.registry re-exports it.
+USER_ONLY = "x-badshop-user-only"
+
 
 class Params(BaseModel):
     """Base for every tool's parameters. ClassVars are CLI metadata and never appear in the schema.

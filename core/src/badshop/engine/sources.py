@@ -24,7 +24,7 @@ from badshop.engine.assets import http_get  # always called as a module global, 
 from badshop.engine.common import WEB_FORMATS, font, has_alpha, load_image, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EXT, EngineResult, Output
-from badshop.engine.types import Params
+from badshop.engine.types import USER_ONLY, Params
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 OPENVERSE_API = "https://api.openverse.org/v1/images/"
@@ -44,7 +44,9 @@ class FetchParams(Params):
     query: str | None = Field(None, max_length=4096, description='search words like "labrador retriever sitting", or an image or web page URL')
     source: Literal["all", "commons", "openverse"] = Field("all", description="where to search (all interleaves Commons and Openverse)")
     n: int = Field(6, ge=1, le=12, description="how many candidates to download")
-    clipboard: bool = Field(False, description="use the image (or image link) on the clipboard")
+    # The clipboard is the user's input: a model could read a password-manager screenshot or a login link.
+    clipboard: bool = Field(False, description="use the image (or image link) on the clipboard",
+                            json_schema_extra={USER_ONLY: True})
 
 
 class WikiParams(Params):

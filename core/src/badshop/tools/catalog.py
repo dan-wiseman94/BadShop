@@ -12,7 +12,8 @@ register(ToolSpec(
                  "picture ('labrador retriever sitting', not 'dog for meme'). Returns numbered candidates and "
                  "a contact sheet: look at the sheet and pick the one with the part you need at a usable "
                  "angle. query may also be an image URL or a web page URL (its preview image is used). "
-                 "clipboard=true takes what the user copied. For a named person or thing prefer wiki."),
+                 "To use an image the user copied, ask them to paste it into the chat. For a named person "
+                 "or thing prefer wiki."),
 ))
 
 register(ToolSpec(
@@ -211,7 +212,7 @@ register(ToolSpec(
 ))
 
 register(ToolSpec(
-    name="export", params=basic.ExportParams, category="finish", mutates=False,
+    name="export", params=basic.ExportParams, category="finish", mutates=False, writes_files=True,
     run=lambda p, s: EngineResult(lines=[f"exported: {s.export(p.image, p.name)}"]),
     summary="copy a finished image into the output folder",
     description=("Copy a finished image, unchanged (animation included), into the user's output folder "

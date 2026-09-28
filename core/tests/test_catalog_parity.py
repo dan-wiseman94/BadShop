@@ -9,7 +9,7 @@ import pytest
 
 from badshop.cli.main import build_parser
 from badshop.tools import REGISTRY
-from badshop.tools.registry import image_fields, llm_schema
+from badshop.tools.registry import image_fields, llm_schema, ui_schema, user_only_fields
 from conftest import REFERENCE, load_reference
 from test_params import BASE
 
@@ -66,25 +66,31 @@ def test_registry_is_complete_and_described():
 
 @pytest.mark.parametrize("name", sorted(REGISTRY))
 def test_every_schema_is_valid_json_schema(name):
-    # Spec 11: the schema a model (or a UI form) receives must be a real JSON Schema, not merely one
-    # pydantic can print. Pydantic writes draft 2020-12.
-    schema = llm_schema(REGISTRY[name])
-    jsonschema.Draft202012Validator.check_schema(schema)
-    jsonschema.Draft202012Validator(schema).validate(REGISTRY[name].params.model_validate(BASE[name]).model_dump(mode="json"))
+    # Spec 11: the schemas a UI form and a model receive must be real JSON Schemas, not merely ones
+    # pydantic can print. Pydantic writes draft 2020-12. The model's schema has no user-only fields.
+    spec = REGISTRY[name]
+    dumped = spec.params.model_validate(BASE[name]).model_dump(mode="json")
+    hidden = user_only_fields(spec.params)
+    for schema, params in ((ui_schema(spec), dumped),
+                           (llm_schema(spec), {k: v for k, v in dumped.items() if k not in hidden})):
+        jsonschema.Draft202012Validator.check_schema(schema)
+        jsonschema.Draft202012Validator(schema).validate(params)
 
 
-# (mutates, network, read_only): the approval gate (spec 7) and the recipe log rely on these.
+# (mutates, network, read_only, writes_files): the approval gate (spec 7), the recipe log and the
+# session's in-process export rely on these.
 FLAGS = {
-    **{n: (True, True, False) for n in ("fetch", "wiki", "emoji", "template")},
-    **{n: (False, False, True) for n in ("info", "view", "find")},
-    "export": (False, False, False),
-    **{n: (True, False, False) for n in ("prep", "text", "cutout", "paste", "draw", "censor", "eyes", "filter",
-                                         "warp", "flare", "sparkle", "watermark", "save", "deepfry", "animate")},
+    **{n: (True, True, False, False) for n in ("fetch", "wiki", "emoji", "template")},
+    **{n: (False, False, True, False) for n in ("info", "view", "find")},
+    "export": (False, False, False, True),
+    **{n: (True, False, False, False) for n in ("prep", "text", "cutout", "paste", "draw", "censor", "eyes",
+                                                "filter", "warp", "flare", "sparkle", "watermark", "save",
+                                                "deepfry", "animate")},
 }
 
 
 def test_tool_flags_are_pinned():
-    assert {n: (s.mutates, s.network, s.read_only) for n, s in REGISTRY.items()} == FLAGS
+    assert {n: (s.mutates, s.network, s.read_only, s.writes_files) for n, s in REGISTRY.items()} == FLAGS
 
 
 # The fields sessions resolve as images (and whether they hold a list); Plan 2 remaps them on replay.
