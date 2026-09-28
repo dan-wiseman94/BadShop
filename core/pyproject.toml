@@ -8,7 +8,7 @@ dependencies = [
     "pillow>=10.1",
     "numpy>=1.26",
     "opencv-python-headless>=4.8,<5",  # 5.x dropped the Haar cascades used for cat faces
-    "rembg[cpu]",
+    "rembg[cpu]>=2.0.85",  # manifest.asset_path relies on BaseSession.model_dir() and models/<name>
     "pydantic>=2.7,<3",
     "platformdirs>=4",
 ]

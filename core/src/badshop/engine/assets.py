@@ -26,6 +26,11 @@ MAX_DOWNLOAD = 40 * 2**20  # bytes in any one http_get: a big photo fits, an end
 # to refuse one. The CLI leaves it unset; the app installs a policy that refuses private addresses.
 URL_POLICY: Callable[[str], None] | None = None
 
+# Called by cached() after every chunk of every download, as (name, bytes so far, total or None), on
+# whichever thread is downloading; it must not raise (that aborts the download). The CLI leaves it
+# unset; the app forwards it to clients as asset.progress events.
+PROGRESS: Callable[[str, int, int | None], None] | None = None
+
 
 def _check_hop(url: str) -> None:
     if URL_POLICY is not None:
@@ -115,15 +120,17 @@ def _not_pinned(name: str, why: str) -> EngineError:
 
 
 def cached(name: str, url: str, progress: Callable[[int, int | None], None] | None = None,
-           sha256: str | None = None, size: int | None = None) -> Path:
-    """Download `url` once into data_dir()/name and reuse it. Raises EngineError when offline, when
-    the download is cut short, or when it isn't the pinned file (`size` bytes hashing to `sha256`);
-    nothing is kept then. A cached file of the wrong size (cut short by an older version) is
-    downloaded again.
+           sha256: str | None = None, size: int | None = None, md5: str | None = None,
+           dest: Path | None = None) -> Path:
+    """Download `url` once into `dest` (an absolute path; default data_dir()/name) and reuse it. Raises
+    EngineError when offline, when the download is cut short, or when it isn't the pinned file (`size`
+    bytes hashing to `sha256` and/or `md5`); nothing is kept then. A cached file of the wrong size (cut
+    short by an older version) is downloaded again. `progress(done, total)` and the process-wide
+    PROGRESS(name, done, total) hear about every chunk.
 
     Each call streams into its own temp file and renames it into place, so concurrent
     downloads of one name (threads or processes) never share a partial file."""
-    path = data_dir() / name
+    path = dest if dest is not None else data_dir() / name
     if path.is_file() and (size is None or path.stat().st_size == size):
         return path
     tmp = None
@@ -132,6 +139,7 @@ def cached(name: str, url: str, progress: Callable[[int, int | None], None] | No
         with _open(url, timeout=60) as r:  # url is a constant: no scheme check, so tests can use file:
             fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".part")
             digest = hashlib.sha256()
+            md5_digest = hashlib.md5(usedforsecurity=False) if md5 is not None else None  # rembg pins md5
             with os.fdopen(fd, "wb") as fh:
                 total = _content_length(r.headers)
                 done = 0
@@ -139,17 +147,23 @@ def cached(name: str, url: str, progress: Callable[[int, int | None], None] | No
                 while chunk := r.read1(CHUNK):
                     fh.write(chunk)
                     digest.update(chunk)
+                    if md5_digest is not None:
+                        md5_digest.update(chunk)
                     done += len(chunk)
                     if size is not None and done > size:
                         raise _not_pinned(name, f"it is bigger than the expected {size} bytes")
                     if progress:
                         progress(done, total)
+                    if PROGRESS is not None:
+                        PROGRESS(name, done, total)
             if total is not None and done != total:  # a connection that ends early reads as b"", no error
                 raise EngineError(f"couldn't download {name} (cut short at {done} of {total} bytes)",
                                   hint=OFFLINE_HINT)
             if size is not None and done != size:
                 raise _not_pinned(name, f"{done} bytes, expected {size} bytes")
             if sha256 is not None and digest.hexdigest() != sha256:
+                raise _not_pinned(name, "it failed its checksum")
+            if md5_digest is not None and md5_digest.hexdigest() != md5:
                 raise _not_pinned(name, "it failed its checksum")
         os.chmod(tmp, 0o644)  # mkstemp makes the file private; set the mode before it becomes visible
         try:

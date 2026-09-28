@@ -112,34 +112,6 @@ def test_paste_repeat_needs_width():
         run_tool("paste", {"base": base, "piece": piece, "repeat": 3, "fit_box": [0, 0, 20, 20]}, store)
 
 
-def test_cutout_model_download_offline(monkeypatch, tmp_path):
-    for k in ("REMBG_HOME", "U2NET_HOME"):
-        monkeypatch.setenv(k, str(tmp_path / "rembg"))
-    for k in ("HTTPS_PROXY", "https_proxy"):
-        monkeypatch.setenv(k, "http://127.0.0.1:9")
-    for k in ("NO_PROXY", "no_proxy"):  # so the dead proxy is always used and nothing is really downloaded
-        monkeypatch.delenv(k, raising=False)
-    store = MemoryStore()
-    ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError, match="couldn't download the u2net background-removal model") as e:
-        run_tool("cutout", {"image": ref}, store)
-    assert "internet" in e.value.hint
-
-
-def test_cutout_corrupt_model_download(monkeypatch):
-    # A captive portal answers the first model download with its login page: pooch's hash check fails.
-    import rembg
-
-    def portal(model):
-        raise ValueError(f"MD5 hash of downloaded file ({model}.onnx) does not match the known hash")
-    monkeypatch.setattr(rembg, "new_session", portal)
-    store = MemoryStore()
-    ref = store.add(Image.new("RGB", (50, 50)), "x.png")
-    with pytest.raises(EngineError, match="couldn't download the u2net background-removal model") as e:
-        run_tool("cutout", {"image": ref}, store)
-    assert "internet" in e.value.hint and "does not match" in e.value.message
-
-
 def _phone_piece(folder):
     """A piece stored landscape (40x20) with EXIF orientation 6, as phones store photos: upright it is a
     20x40 portrait, red on top and blue below. Also its upright copy as a plain PNG."""

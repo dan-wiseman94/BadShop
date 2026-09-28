@@ -47,7 +47,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.1" },
     { name = "platformdirs", specifier = ">=4" },
     { name = "pydantic", specifier = ">=2.7,<3" },
-    { name = "rembg", extras = ["cpu"] },
+    { name = "rembg", extras = ["cpu"], specifier = ">=2.0.85" },
 ]
 
 [package.metadata.requires-dev]
