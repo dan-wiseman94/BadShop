@@ -70,6 +70,18 @@ def _frames(im: Image.Image, name: str) -> int:
         raise _refused(name, e) from None
 
 
+def _working_copy(im: Image.Image, name: str) -> bytes:
+    """An opened image's working copy as PNG bytes: at most WORKING_MAX px, transparency kept. Converting
+    can meet damage the decode let through (a tRNS chunk longer than the palette): refused the same way."""
+    try:
+        work, _ = fit(im.convert("RGBA") if has_alpha(im) else to_rgb(im), WORKING_MAX)
+        buf = io.BytesIO()
+        work.save(buf, "PNG")
+        return buf.getvalue()
+    except Exception as e:
+        raise _refused(name, e) from None
+
+
 class ArtifactStore:
     """Artifact bytes and metadata. An id is always the sha256 of the bytes, computed here, never trusted."""
 
@@ -140,12 +152,9 @@ class ArtifactStore:
         kept for provenance. Labels: "<name>_work" and "<name>" from the slugified file name stem.
         `produced_by` is the step that brought the picture in (a source tool's step), on every artifact
         this stores; None for the user's own import."""
-        name = _label(label)
-        with _decode(data, label or "the pasted data") as im:
-            work, _ = fit(im.convert("RGBA") if has_alpha(im) else to_rgb(im), WORKING_MAX)
-        buf = io.BytesIO()
-        work.save(buf, "PNG")
-        work_bytes = buf.getvalue()
+        name, shown = _label(label), label or "the pasted data"
+        with _decode(data, shown) as im:
+            work_bytes = _working_copy(im, shown)
         if work_bytes == data:  # a small upright PNG from badshop is its own working copy: stored once
             meta = self.add(data, f"{name}_work", produced_by=produced_by, source=source)
             return meta, meta

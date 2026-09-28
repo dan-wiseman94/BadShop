@@ -7,6 +7,7 @@ import struct
 import subprocess
 import sys
 import typing
+import zlib
 from pathlib import Path
 
 import pytest
@@ -364,4 +365,29 @@ def test_import_refuses_bad_bytes_cleanly_and_stores_nothing(monkeypatch):
     with pytest.raises(EngineError, match="too big") as e:
         store.import_image(encode(Image.new("RGB", (20, 20))), "")
     assert e.value.message.startswith("the pasted data is too big") and "megapixels" in e.value.hint
+    assert store.ids() == []
+
+
+def palette_png_with_a_long_trns() -> bytes:
+    """A 4x4 palette PNG with 2 palette entries but a 300-byte tRNS chunk: it decodes, but converting it to
+    RGBA looks up alpha for palette indexes that do not exist."""
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    rows = b"".join(b"\0" + bytes([0, 1, 0, 1]) for _ in range(4))  # filter 0, then indexes 0 and 1
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 4, 8, 3, 0, 0, 0))
+            + chunk(b"PLTE", bytes([255, 0, 0, 0, 0, 255])) + chunk(b"tRNS", bytes(300))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def test_import_refuses_a_working_copy_it_cannot_make_and_stores_nothing():
+    # the working copy's conversion runs in the core process: damage the decode let through is still an
+    # EngineError naming the import, never a traceback
+    bad = palette_png_with_a_long_trns()
+    with load_image(bad, formats=IMPORT_FORMATS) as im:
+        assert (im.size, im.mode) == ((4, 4), "P")  # it decodes: only the working copy meets the damage
+    store = ArtifactStore()
+    for label, shown in (("mark.png", "mark.png"), ("", "the pasted data")):
+        with pytest.raises(EngineError, match="isn't an image badshop can open") as e:
+            store.import_image(bad, label)
+        assert e.value.message.startswith(f"{shown} ") and "PNG, JPEG" in e.value.hint
     assert store.ids() == []
