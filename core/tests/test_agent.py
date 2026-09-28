@@ -856,3 +856,121 @@ def test_a_stop_as_the_turn_opens_never_loses_the_users_changes(tmp_path):
     assert sum(f"{lincoln.id[:8]} (lincoln_work)" in note for note in heard) == 1  # heard, and once
     notes = [m.content[0].text for m in session.data.messages if m.role == "system_note"]
     assert heard == notes  # the chat shows what the model heard
+
+
+# Added in fix round 1 (review G1): stops can overlap. chat.stop, then the client going away; on_client_gone,
+# then close(); a Stop on a turn that is winding up after a failure. A cancel that lands while the turn winds
+# up must not cut the wind-up short: every call still gets its recorded answer.
+
+class StopSeen(HeldExecutor):
+    """A HeldExecutor that keeps each call's stop signal, so a test can see Stop reach the tool."""
+
+    def __init__(self):
+        super().__init__()
+        self.signals: list[threading.Event | None] = []
+
+    def run(self, call, cancel=None):
+        self.signals.append(cancel)
+        return super().run(call, cancel)
+
+
+def test_a_second_stop_while_a_tool_runs(tmp_path):
+    executor = StopSeen()
+    session, img, ev = new_session(tmp_path, executor=executor)
+    invert = {"image": img.id, "names": ["invert"]}
+    provider = ScriptedProvider([Reply(tool_calls=[call("c1", "filter", invert)])])
+
+    async def main():
+        cfg = TurnConfig(approval_mode="auto")
+        task = asyncio.create_task(run_turn(session, provider, ApprovalGate(ev), "go", [], cfg, ev))
+        assert await asyncio.to_thread(executor.started.wait, LIMIT)
+        task.cancel()  # chat.stop
+        assert await asyncio.to_thread(executor.signals[0].wait, LIMIT)  # the tool has 0.2 s left to report
+        task.cancel()  # the client goes away while the first stop still waits for the tool
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, LIMIT)
+
+    asyncio.run(main())
+    step = session.data.steps[0]
+    assert executor.cancels == 0
+    assert step.status == "error" and step.error.message == "stopped by the user"
+    assert tool_entries(session) == {"c1": step.result_text} and every_call_answered(session.data.transcript)
+    assert ev.of("turn.finished") == [{"reason": "stopped"}]
+    names = ev.names()
+    assert names.index("step.failed") < names.index("turn.finished") == len(names) - 1  # waited for the tool
+
+
+class BreakingGate(ApprovalGate):
+    """A gate that breaks while a step waits for approval, once `breaks` is set: a turn failing mid-wait."""
+
+    def __init__(self, emit):
+        super().__init__(emit)
+        self.announce, self.breaks = emit, asyncio.Event()
+
+    async def request(self, step):
+        self.announce("approval.needed", {"step": step.model_dump(mode="json")})
+        await self.breaks.wait()
+        raise RuntimeError("the gate broke")
+
+
+@pytest.mark.parametrize("first", ["stop", "failure"])
+def test_a_second_cancel_while_the_wind_up_waits_for_the_lock(tmp_path, first):
+    # A step waits for approval and the user's own call holds the server's lock. The turn is stopped (or
+    # fails), so its wind-up waits for the lock, and then a (second) cancel lands. The wind-up still rejects
+    # the step and answers its call once the lock is free, and only then does the turn end, cancelled.
+    session, img, ev = new_session(tmp_path)
+    invert = {"image": img.id, "names": ["invert"]}
+    provider = ScriptedProvider([Reply(tool_calls=[call("c1", "filter", invert)])])
+    note = "stopped by the user" if first == "stop" else "the turn failed"
+
+    async def main():
+        lock, queued, needed = asyncio.Lock(), asyncio.Event(), asyncio.Event()
+
+        async def locked(fn, *args):  # the server's `blocking`: one session call at a time
+            if lock.locked():
+                queued.set()  # this call waits behind another
+            async with lock:
+                return await asyncio.to_thread(fn, *args)
+
+        def emit(name, payload):
+            ev(name, payload)
+            if name == "approval.needed":
+                needed.set()
+
+        gate = ApprovalGate(emit) if first == "stop" else BreakingGate(emit)
+        cfg = TurnConfig(approval_mode="ask_all")
+        task = asyncio.create_task(run_turn(session, provider, gate, "go", [], cfg, emit, locked))
+        await asyncio.wait_for(needed.wait(), LIMIT)
+        holding, release = threading.Event(), threading.Event()
+
+        def users_call():  # the user's own tools.run, still running
+            holding.set()
+            release.wait(LIMIT)
+
+        mine = asyncio.create_task(locked(users_call))
+        assert await asyncio.to_thread(holding.wait, LIMIT)
+        if first == "stop":
+            task.cancel()  # chat.stop
+        else:
+            gate.breaks.set()  # the turn fails
+        await asyncio.wait_for(queued.wait(), LIMIT)  # its wind-up now waits for the lock
+        task.cancel()  # the client goes away (for the failing turn: the user's Stop)
+        release.set()
+        await asyncio.wait_for(mine, LIMIT)
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, LIMIT)
+        return gate
+
+    gate = asyncio.run(main())
+    step = session.step("s1")
+    assert gate.pending() == []
+    assert step.status == "rejected" and step.result_text == f"rejected by user: {note}"
+    assert tool_entries(session) == {"c1": f"not run: {note}"}
+    assert every_call_answered(session.data.transcript)
+    finished = ({"reason": "stopped"} if first == "stop"
+                else {"reason": "error", "error": "RuntimeError: the gate broke"})
+    assert ev.of("turn.finished") == [finished] and ev.names()[-1] == "turn.finished"  # after the wind-up
+    # The next turn hears the recorded answer, not a stand-in for a call nothing answered.
+    nxt = ScriptedProvider([Reply(text="ok")])
+    assert turn(session, nxt, ev, text="carry on")[0] == "done"
+    assert {"role": "tool", "tool_call_id": "c1", "content": f"not run: {note}"} in nxt.received[0]

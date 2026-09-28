@@ -166,6 +166,21 @@ def _wind_up(session: Session, message_id: str | None, unanswered: dict[str, str
         _record(session, *entries)
 
 
+async def _to_the_end(aw: Awaitable[None]) -> None:
+    """Finish the wind-up even if the turn is cancelled again (chat.stop, then the client going away;
+    on_client_gone, then close()), then pass that cancellation on."""
+    task = asyncio.ensure_future(aw)
+    again = False
+    while not task.done():
+        try:
+            await asyncio.wait({task})
+        except asyncio.CancelledError:
+            again = True
+    task.result()
+    if again:
+        raise asyncio.CancelledError
+
+
 class _Turn:
     def __init__(self, session: Session, provider: Provider, gate: ApprovalGate, cfg: TurnConfig,
                  emit: Emit, blocking: Blocking):
@@ -293,8 +308,10 @@ async def run_turn(session: Session, provider: Provider, gate: ApprovalGate, tex
 
     Stop is cancelling the task that runs this: pending approvals are rejected, a running tool is killed,
     `turn.finished {"reason": "stopped"}` is emitted and CancelledError propagates. Any other exception
-    ends the turn with `turn.finished {"reason": "error"}` and propagates. An attachment that doesn't
-    resolve raises EngineError before anything is recorded or emitted."""
+    ends the turn with `turn.finished {"reason": "error"}` and propagates. A cancel that lands while the
+    turn winds up (a second Stop, or a Stop on a failing turn) waits for the wind-up to end, then
+    propagates. An attachment that doesn't resolve raises EngineError before anything is recorded or
+    emitted."""
     images = await blocking(_attachments, session, attachments)
     turn = _Turn(session, provider, gate, cfg, emit, blocking)
     emit("turn.started", {})
@@ -302,13 +319,13 @@ async def run_turn(session: Session, provider: Provider, gate: ApprovalGate, tex
         reason = await turn.run(text, images)
     except asyncio.CancelledError:
         try:
-            await turn.stop(STOPPED)
+            await _to_the_end(turn.stop(STOPPED))
         finally:
             emit("turn.finished", {"reason": "stopped"})
         raise
     except Exception as e:
         try:
-            await turn.stop(FAILED)
+            await _to_the_end(turn.stop(FAILED))
         finally:
             emit("turn.finished", {"reason": "error", "error": f"{type(e).__name__}: {e}"})
         raise
