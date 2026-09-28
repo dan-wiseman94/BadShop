@@ -462,12 +462,12 @@ def test_delete_last_only_deletes_the_last_finished_step(rig):
 
 def test_referenced_ids(rig):
     s = rig.s
-    lone = s.import_image(_png(), "lone.png")  # imported but never used
+    lone = s.import_image(_png(), "lone.png")  # imported but never used: a save still keeps it
     s1 = s.run_tool("filter", {"image": rig.work.id, "names": ["invert"]}, "user")
     s.add_message("user", [Part(type="image", artifact_id=s1.outputs[0])])
     ids = s.referenced_ids()
-    assert ids == {rig.work.id, rig.work.original_id, s1.outputs[0]}
-    assert lone.id not in ids and rig.work.original_id != rig.work.id
+    assert ids == {rig.work.id, rig.work.original_id, s1.outputs[0], lone.id}
+    assert lone.id in ids and lone.original_id is None and rig.work.original_id != rig.work.id
 
 
 def test_referenced_ids_keep_what_the_chat_and_the_model_point_at(rig):
@@ -500,6 +500,28 @@ def test_referenced_ids_keep_what_the_chat_and_the_model_point_at(rig):
     ids = s.referenced_ids()
     assert y in ids  # s2 is deleted, but a message still names it
     assert z not in ids and z in s.artifacts  # nothing names s3 or mentions its piece: dropped at save
-    assert lone.id not in ids and lone.original_id not in ids
+    assert lone.id in ids and lone.original_id in ids  # nothing names it, but the user imported it
     assert ids == {rig.work.id, rig.work.original_id, s1.outputs[0], y, told.id, told.original_id,
-                   said.id, said.original_id, shown.id, shown.original_id, glued.id, glued.original_id}
+                   said.id, said.original_id, shown.id, shown.original_id, glued.id, glued.original_id,
+                   lone.id, lone.original_id}
+
+
+def test_referenced_ids_keep_a_deleted_steps_picture_only_while_something_mentions_it(rig):
+    """The mention half of R6 on step outputs, which (unlike the user's imports) nothing else keeps once
+    their step is deleted: a short id in a tool call's arguments or inside a longer hex run in a tool
+    result, or a full id in a message's text, keeps the picture; a picture nothing mentions is dropped."""
+    s = rig.s
+    steps = [s.run_tool("filter", {"image": rig.work.id, "names": [name]}, "agent:fake")
+             for name in ("invert", "sepia", "grayscale", "emboss", "edges")]
+    live, called, told, written, dropped = (st.outputs[0] for st in steps)
+    s.data.transcript.extend([
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "c1", "type": "function",
+             "function": {"name": "view", "arguments": json.dumps({"image": short(called)})}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": f"not run: no picture deadbeef{short(told)}"},
+    ])
+    s.add_message("assistant", [Part(type="text", text=f"compare it with {written}")])
+    for st in reversed(steps[1:]):
+        s.delete_last(st.id)
+    assert all(x in s.artifacts for x in (called, told, written, dropped))
+    assert s.referenced_ids() == {rig.work.id, rig.work.original_id, live, called, told, written}

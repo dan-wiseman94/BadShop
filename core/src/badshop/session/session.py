@@ -587,14 +587,18 @@ class Session:
         return found
 
     def referenced_ids(self) -> set[str]:
-        """The artifacts the session still points at, which project save (Task 9) keeps: every step's
-        inputs and outputs (and a stopped replay's previous_outputs); the images in messages; what each
-        step a message names made first (its produced_by), which for a deleted step is what is left of
-        its outputs; every artifact whose short id appears in the transcript or in a message's text; and
-        the originals of all of those that are imports. So a reopened session never loses a picture the
-        chat or the model still points at."""
+        """The artifacts the session still points at, which project save (Task 9) keeps: every image the
+        user imported, used or not; every step's inputs and outputs (and a stopped replay's
+        previous_outputs); the images in messages; what each step a message names made first (its
+        produced_by), which for a deleted step is what is left of its outputs; every artifact whose short
+        id appears in the transcript or in a message's text; and the originals of all of those that are
+        imports. So a reopened session never loses a picture the user added or the chat or the model
+        still points at (spec 2, criterion 4)."""
         meta = self.artifacts.meta
-        ids: set[str] = set()
+        # The user's imports are the working copies no step produced. They stay even before any step,
+        # message or agent turn names them, so a save or autosave right after a drop keeps the picture.
+        originals = {a.original_id for a in meta.values() if a.original_id}
+        ids = {i for i, a in meta.items() if a.produced_by is None and i not in originals}
         for s in self.data.steps:
             ids.update(_image_refs(s), s.outputs, s.previous_outputs)
         named: set[str] = set()
