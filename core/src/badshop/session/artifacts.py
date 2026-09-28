@@ -61,6 +61,15 @@ def _decode(data: bytes, name: str) -> Image.Image:
         raise _refused(name, e) from None
 
 
+def _frames(im: Image.Image, name: str) -> int:
+    """How many frames an opened image has. Counting reads on past the frame _decode loaded (a GIF's later
+    frames, a TIFF's page chain), where damaged bytes raise just as freely: refused the same way."""
+    try:
+        return getattr(im, "n_frames", 1)
+    except Exception as e:
+        raise _refused(name, e) from None
+
+
 class ArtifactStore:
     """Artifact bytes and metadata. An id is always the sha256 of the bytes, computed here, never trusted."""
 
@@ -84,7 +93,7 @@ class ArtifactStore:
         with _decode(data, label) as im:  # only images that open are stored, so image() never fails later
             fmt = FORMAT_ALIASES.get(im.format, im.format)
             meta = ArtifactMeta(id=id, label=label, width=im.width, height=im.height, format=fmt,
-                                mime=MIME[fmt], frames=getattr(im, "n_frames", 1), produced_by=produced_by,
+                                mime=MIME[fmt], frames=_frames(im, label), produced_by=produced_by,
                                 source=source, original_id=original_id)
         self._data[id] = data
         self.meta[id] = meta

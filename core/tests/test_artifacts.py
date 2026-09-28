@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import struct
 import subprocess
 import sys
 import typing
@@ -15,6 +16,7 @@ from pydantic import ValidationError
 from badshop import files
 from badshop.cli import filestore
 from badshop.cli import main as cli_main
+from badshop.engine.common import load_image
 from badshop.engine.errors import EngineError
 from badshop.session import artifacts
 from badshop.session.artifacts import (IMPORT_FORMATS, MIME, REF_HINT, WORKING_MAX, ArtifactStore, describe,
@@ -160,6 +162,39 @@ def test_add_refuses_what_is_not_an_image():
             store.add(bad, "x")
         assert e.value.hint and "BytesIO" not in e.value.message
     assert store.ids() == []
+
+
+def tiff_with_a_broken_page_chain() -> bytes:
+    """A 3-page TIFF whose first page is sound but whose link to the second page points one byte into it."""
+    pages = [Image.new("RGB", (8, 6), c) for c in ("red", "lime", "blue")]
+    data = encode(pages[0], "TIFF", save_all=True, append_images=pages[1:])
+    assert data[:4] == b"II*\0"  # little-endian
+    first = struct.unpack_from("<I", data, 4)[0]
+    link = first + 2 + 12 * struct.unpack_from("<H", data, first)[0]  # the first IFD's next-IFD offset
+    return data[:link] + struct.pack("<I", struct.unpack_from("<I", data, link)[0] + 1) + data[link + 4:]
+
+
+def test_damage_past_the_first_frame_is_refused_cleanly():
+    # counting frames reads on past the frame the decode loaded; a hostile project member (Task 9 rebuilds
+    # its store with add) or a download cut short there is still an EngineError, never a traceback
+    bad = tiff_with_a_broken_page_chain()
+    with load_image(bad, formats=IMPORT_FORMATS) as im:
+        assert im.size == (8, 6)  # the first page decodes: only the page count meets the damage
+    store = ArtifactStore()
+    for call in (lambda: store.add(bad, "scan"), lambda: store.import_image(bad, "scan.tiff")):
+        with pytest.raises(EngineError, match="isn't an image badshop can open") as e:
+            call()
+        assert "PNG, JPEG" in e.value.hint
+    assert store.ids() == []
+    gif = gif3()
+    for cut in range(len(gif)):  # every truncation of an animation: stored (its first frame opens) or refused
+        for call in (store.add, store.import_image):
+            try:
+                call(gif[:cut], "dance.gif")
+            except EngineError:
+                pass
+    for id in store.ids():
+        store.image(id).close()
 
 
 def test_unknown_ids_are_clean_errors_and_drop_forgets():
