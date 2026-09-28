@@ -30,6 +30,7 @@ from conftest import FIXTURES
 LINCOLN = (FIXTURES / "lincoln.png").read_bytes()
 TRUMP = FIXTURES / "trump.png"
 HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
+NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
     "session.new", "session.get", "session.open", "session.restore", "session.save", "session.save_as",
     "session.export_recipe", "session.set_approval_mode", "chat.send", "chat.stop", "tools.list",
@@ -74,9 +75,22 @@ def test_settings_bounds():
         "tool_timeout_s": 120.0, "tool_memory_mb": 3072, "fake_provider_script": None}
     for bad in ({"step_budget": 0}, {"step_budget": 501}, {"tool_timeout_s": 0.5}, {"tool_timeout_s": 3601},
                 {"tool_timeout_s": float("inf")}, {"tool_memory_mb": 255}, {"tool_memory_mb": 65537},
-                {"approval_mode": "yolo"}, {"output_dir": "relative/folder"}, {"nope": 1}):
+                {"approval_mode": "yolo"}, {"output_dir": "relative/folder"},
+                {"output_dir": f"{NO_HOME}/pics"}, {"nope": 1}):
         with pytest.raises(ValidationError):
             Settings(**bad)
+
+
+def test_settings_files_that_would_break_loading(env):
+    """load_settings never raises: a home folder that doesn't exist is an invalid value (dropped, the rest
+    kept), and a file nested too deeply for json is unreadable (the defaults)."""
+    config_dir().mkdir(parents=True)
+    no_home = json.dumps({"output_dir": f"{NO_HOME}/pics", "step_budget": 7})
+    settings_path().write_text(no_home, encoding="utf-8")
+    assert load_settings() == Settings(step_budget=7)
+    for deep in ("[" * 100_000, '{"step_budget": ' + "[" * 100_000):
+        settings_path().write_text(deep, encoding="utf-8")
+        assert load_settings() == Settings()
 
 
 # --- the dispatcher -----------------------------------------------------------------------------
@@ -350,6 +364,41 @@ def test_import_run_get_and_events(env, monkeypatch):
     run(body)
 
 
+def test_a_pasted_image_has_the_import_limit_and_is_decoded_off_the_loop(env, monkeypatch):
+    """artifacts.import's `data` has the same MAX_IMPORT_BYTES limit as a picked file, checked on the base64
+    length before anything is decoded; and it is decoded in the locked call's thread, never on the event
+    loop, so a big paste doesn't stall every client."""
+    decoded_in: list[threading.Thread] = []
+    decode = server_app._decode_paste
+
+    def spy(data: str) -> bytes:
+        decoded_in.append(threading.current_thread())
+        return decode(data)
+
+    monkeypatch.setattr(server_app, "_decode_paste", spy)
+
+    async def body(app):
+        c = Client(app)
+        # lincoln.png is 249419 bytes, so its base64 ends in "=": the limit is on the decoded size exactly
+        monkeypatch.setattr(server_app, "MAX_IMPORT_BYTES", len(LINCOLN) - 1)
+        with pytest.raises(Failed) as e:
+            await imported(c)
+        assert (e.value.code, e.value.message) == (rpc.ENGINE_ERROR, "lincoln.png is too big to import")
+        assert e.value.data["hint"].startswith("the limit is ")
+        with pytest.raises(Failed) as e:  # too big is known from the length alone: this is never decoded
+            await c.call("artifacts.import", data="!" * (2 * len(LINCOLN)))
+        assert e.value.message == "the pasted image is too big to import"
+        assert decoded_in == [] and app.session.artifacts.ids() == []
+        monkeypatch.setattr(server_app, "MAX_IMPORT_BYTES", len(LINCOLN))  # the limit itself is allowed
+        assert app.session.artifacts.meta[await imported(c)].label == "lincoln_work"
+        assert len(decoded_in) == 1 and decoded_in[0] is not threading.main_thread()  # the loop's thread
+        with pytest.raises(Failed) as e:  # within the limit, bad base64 is still refused (in the thread)
+            await c.call("artifacts.import", data="not base64!")
+        assert e.value.code == rpc.INVALID_PARAMS and e.value.message == "data is not base64"
+
+    run(body)
+
+
 def test_untrusted_actor_rules_and_approvals(env):
     async def body(app):
         user, cli = Client(app), Client(app, "cli:claude")
@@ -574,6 +623,29 @@ def test_project_files_export_and_modes(env):
         assert [s["id"] for s in opened["steps"]] == [cut["id"]]
         got = await c.call("artifacts.get", id=cut["outputs"][0])
         assert base64.b64decode(got["data"]) == (env / "out" / "head.png").read_bytes()
+
+    run(body)
+
+
+def test_save_as_refuses_the_autosave_folder(env):
+    """The autosave folder is badshop's: the next launch's claim_autosave moves session.badshop out of the
+    way, so a project saved there would vanish from where the user put it. Save As refuses the folder (by
+    the same test session.open uses to treat a file there as no project file), and writes nothing."""
+    async def body(app):
+        c = Client(app)
+        await imported(c)  # a change: this run's autosave is written
+        folder = project.autosave_path().parent
+        (env / "link").symlink_to(folder, target_is_directory=True)
+        for target in (project.autosave_path(), folder / "mine.badshop", folder / "mine", env / "link" / "x"):
+            with pytest.raises(Failed) as e:
+                await c.call("session.save_as", path=str(target))
+            assert e.value.code == rpc.ENGINE_ERROR, target
+            assert e.value.message == f"can't save a project in {folder}: it is badshop's autosave folder"
+            assert e.value.data == {"hint": "pick another folder for the project"}
+        assert (await c.call("session.get"))["path"] is None
+        assert [p.name for p in folder.iterdir()] == ["session.badshop"]  # nothing was written there
+        saved = await c.call("session.save_as", path=str(env / "mine.badshop"))  # any other folder is fine
+        assert saved == {"path": str(env / "mine.badshop")}
 
     run(body)
 
@@ -846,6 +918,69 @@ def test_settings_apply_to_the_running_app(env):
     assert [ex.closes for _, ex in made] == [1, 1]
 
 
+def test_settings_changes_queued_behind_a_tool_all_apply(env):
+    """settings.set merges its values into the settings as they are once its turn under the lock comes, so
+    changes queued behind a running tool (a settings page may send one per field) apply in order and none
+    is lost, in the app and in settings.json. A bad value queued with them is still INVALID_PARAMS."""
+    ex = HangingFirstCall()
+
+    async def body(app):
+        c = Client(app)
+        lincoln = await imported(c)
+        busy = asyncio.create_task(c.call("tools.run", tool="info", params={"image": lincoln}))
+        assert await asyncio.to_thread(ex.started.wait, 10)  # the user's tool holds the lock
+        first = asyncio.create_task(c.call("settings.set", values={"auto_replay": False}))
+        bad = asyncio.create_task(c.call("settings.set", values={"step_budget": 0}))
+        second = asyncio.create_task(c.call("settings.set", values={"step_budget": 7}))
+        await asyncio.sleep(0)  # all three run up to the lock and wait there, in order
+        ex.released.set()
+        assert (await busy)["status"] == "error"
+        assert (await first)["auto_replay"] is False
+        with pytest.raises(Failed) as e:
+            await bad
+        assert e.value.code == rpc.INVALID_PARAMS and "step_budget" in e.value.data["hint"]
+        both = Settings(auto_replay=False, step_budget=7)
+        assert await second == both.model_dump(mode="json")
+        assert app.settings == load_settings() == both
+
+    run(body, factory=lambda **limits: ex)
+
+
+def test_a_bad_settings_file_or_home_folder_never_breaks_the_core(env):
+    """A settings.json that load_settings can't use still lets the core start (with what it could keep), and a
+    "~name" path for a user this computer doesn't have is a clean error, never an internal one."""
+    async def start():
+        app = CoreApp(executor_factory=in_process)  # no settings given: it loads settings.json
+        try:
+            return app.settings
+        finally:
+            await app.close()
+
+    config_dir().mkdir(parents=True)
+    no_home = json.dumps({"output_dir": f"{NO_HOME}/pics", "step_budget": 7})
+    for text, kept in ((no_home, Settings(step_budget=7)), ("[" * 100_000, Settings())):
+        settings_path().write_text(text, encoding="utf-8")
+        assert asyncio.run(start()) == kept
+
+    async def body(app):
+        c = Client(app)
+        for method, params in (("session.open", {"path": f"{NO_HOME}/x.badshop"}),
+                               ("session.save_as", {"path": f"{NO_HOME}/x.badshop"}),
+                               ("session.export_recipe", {"path": f"{NO_HOME}/recipe.json"}),
+                               ("artifacts.import", {"path": f"{NO_HOME}/x.png"})):
+            with pytest.raises(Failed) as e:
+                await c.call(method, **params)
+            assert (e.value.code, e.value.message) == (rpc.ENGINE_ERROR,
+                                                       f"{params['path']} is not an absolute path"), method
+            assert e.value.data == {"hint": "pick the file with the file dialog"}
+        with pytest.raises(Failed) as e:
+            await c.call("settings.set", values={"output_dir": f"{NO_HOME}/pics"})
+        assert e.value.code == rpc.INVALID_PARAMS and "output_dir" in e.value.data["hint"]
+        assert app.settings == Settings() and (await c.call("session.get"))["path"] is None
+
+    run(body)
+
+
 def test_no_turn_starts_while_the_session_is_being_replaced(env):
     ex = HangingFirstCall()
 
@@ -868,6 +1003,43 @@ def test_no_turn_starts_while_the_session_is_being_replaced(env):
         assert [m["role"] for m in (await idle(c))["messages"]] == ["user", "assistant"]
 
     run(body, factory=lambda **limits: ex)
+
+
+def test_a_replaced_session_sends_no_step_events(env):
+    """Step ids start again at s1 in every session and events carry no session id, so once session.new,
+    session.open or session.restore has replaced a session, nothing that session does reaches a client: the
+    CLI step it rejects after the swap would otherwise land on the new session's step with the same id."""
+    async def first_run(app):  # leaves an autosave to restore, and a project to open
+        c = Client(app)
+        lincoln = await imported(c)
+        await c.call("tools.run", tool="cutout", params={"image": lincoln, "box": HEAD, "no_ai": True})
+        await c.call("session.save_as", path=str(env / "saved.badshop"))
+
+    async def next_run(app):
+        ids = []  # (the replaced session's waiting CLI step, the new session's next step)
+        for method, params in (("session.new", {}), ("session.open", {"path": str(env / "saved.badshop")}),
+                               ("session.restore", {})):
+            user, cli = Client(app), Client(app, "cli:claude")
+            lincoln = await imported(user)
+            waiting = asyncio.create_task(cli.call("tools.run", tool="filter",
+                                                   params={"image": lincoln, "names": ["invert"]}))
+            old = await user.waiting()
+            mark = len(user.events)
+            await user.call(method, **params)
+            assert (await waiting)["status"] == "rejected"  # the CLI caller still gets its answer
+            new = await user.call("tools.run", tool="info", params={"image": await imported(user)})
+            await user.event("step.finished", lambda p: p["step"]["id"] == new["id"])  # events come in order
+            after = [(e["method"], e["params"]["step"]["id"], e["params"]["step"]["tool"])
+                     for e in user.events[mark:] if e["method"].startswith("step.")]
+            assert after == [(m, new["id"], "info")
+                             for m in ("step.proposed", "step.started", "step.finished")], method
+            ids.append((old, new["id"]))
+            user.unsubscribe()
+            cli.unsubscribe()
+        assert ids == [("s1", "s1"), ("s2", "s2"), ("s3", "s2")]  # after new and open: the same id
+
+    run(first_run)
+    run(next_run)
 
 
 def test_failures_are_reported_and_the_core_keeps_serving(env, monkeypatch):

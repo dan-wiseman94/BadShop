@@ -29,7 +29,13 @@ class Settings(BaseModel):
     @field_validator("output_dir")
     @classmethod
     def _absolute(cls, v: str | None) -> str | None:
-        if v is not None and not Path(v).expanduser().is_absolute():
+        if v is None:
+            return v
+        try:
+            folder = Path(v).expanduser()
+        except RuntimeError:  # "~name/..." for a user this computer doesn't have: no home folder to expand
+            raise ValueError("give an absolute folder path (that home folder doesn't exist)") from None
+        if not folder.is_absolute():
             raise ValueError("give an absolute folder path")
         return v
 
@@ -48,7 +54,7 @@ def load_settings() -> Settings:
     valid (or a key this version doesn't know) is dropped, so a bad file never stops the core."""
     try:
         raw = json.loads(settings_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):  # RecursionError: nested deeper than json's scanner goes
         return Settings()
     if not isinstance(raw, dict):
         return Settings()

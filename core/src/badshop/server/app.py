@@ -48,22 +48,51 @@ NO_PROVIDER_HINT = "set fake_provider_script in the settings (or BADSHOP_FAKE_PR
 
 def _user_path(path: str) -> Path:
     """A path the user picked in a file dialog. Relative paths would depend on the core's working
-    folder, so they are refused."""
-    p = Path(path).expanduser()
-    if not p.is_absolute():
+    folder, so they are refused, and so is "~name/..." for a user this computer doesn't have."""
+    try:
+        p: Path | None = Path(path).expanduser()
+    except RuntimeError:  # pathlib can't find that user's home folder
+        p = None
+    if p is None or not p.is_absolute():
         raise EngineError(f"{path} is not an absolute path", hint="pick the file with the file dialog")
     return p
+
+
+def _in_autosave_folder(p: Path) -> bool:
+    """A file there is badshop's, never the user's project: the next launch's claim_autosave moves the
+    autosave aside. Touches the disk (it resolves links), so it runs in a worker thread."""
+    try:
+        return p.resolve().parent == project.autosave_path().parent.resolve()
+    except (OSError, RuntimeError):  # a symlink loop (Python 3.12 raises RuntimeError): not that folder
+        return False
+
+
+def _too_big(name: str) -> EngineError:
+    return EngineError(f"{name} is too big to import",
+                       hint=f"the limit is {MAX_IMPORT_BYTES // 2**20} MB; use a smaller copy")
 
 
 def _read_import(path: Path) -> bytes:
     try:
         if path.stat().st_size > MAX_IMPORT_BYTES:
-            raise EngineError(f"{path.name} is too big to import",
-                              hint=f"the limit is {MAX_IMPORT_BYTES // 2**20} MB; use a smaller copy")
+            raise _too_big(path.name)
         return path.read_bytes()
     except OSError as e:
         raise EngineError(f"can't read {path} ({e.strerror or e})",
                           hint="check that the file exists and is readable") from None
+
+
+def _pasted_size(data: str) -> int:
+    """The bytes valid base64 `data` decodes to, known from its length alone (the padding comes off)."""
+    return len(data) * 3 // 4 - data[-2:].count("=")
+
+
+def _decode_paste(data: str) -> bytes:
+    """Pasted image bytes. Runs in a worker thread: a big paste must not stall the event loop."""
+    try:
+        return base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise RpcError(INVALID_PARAMS, "data is not base64") from None
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -142,11 +171,23 @@ class CoreApp:
         return Path(chosen).expanduser() if chosen else files.default_output_dir()
 
     def _session_kw(self) -> dict:
-        return {"executor": self._executor, "emit": self._emit, "output_dir": self._output_dir(),
-                "on_change": self._changed}
+        """What every session is made with; `_own` gives it its emit once it exists."""
+        return {"executor": self._executor, "output_dir": self._output_dir(), "on_change": self._changed}
+
+    def _own(self, session: Session) -> Session:
+        """Give a session the app just made (a session emits nothing while it is made) an emit that forwards
+        its events only while it is the open session. Step ids start again at s1 in every session and
+        events carry no session id, so what a replaced session still does (a waiting CLI step it rejects
+        after session.open, say) must not reach a client: it would land on the new session's step."""
+        def emit(method: str, params: dict) -> None:
+            if self.session is session:
+                self._emit(method, params)
+
+        session.emit = emit
+        return session
 
     def _new_session(self, name: str) -> Session:
-        session = Session.new(name, **self._session_kw())
+        session = self._own(Session.new(name, **self._session_kw()))
         session.data.approval_mode = self.settings.approval_mode
         return session
 
@@ -429,8 +470,7 @@ class CoreApp:
             self._check_idle()
             session = project.open_project(p, **self._session_kw())  # any failure: the session is untouched
             # a file in the autosave folder is badshop's, not the user's project: Save must not write there
-            autosaved = p.resolve().parent == project.autosave_path().parent.resolve()
-            self.session, self.path = session, None if autosaved else p
+            self.session, self.path = self._own(session), None if _in_autosave_folder(p) else p
             self._dirty = True
 
         return await self._switch(load, "the user opened another session")
@@ -444,7 +484,7 @@ class CoreApp:
                 raise EngineError("there is no autosaved session to restore",
                                   hint="the last run left no autosaved session, or it was restored already")
             session = project.open_project(self._restorable, **self._session_kw())
-            self.session, self.path, self._restorable = session, None, None
+            self.session, self.path, self._restorable = self._own(session), None, None
             self._dirty = True  # autosaved at once: from now on this run's autosave holds it
 
         return await self._switch(load, "the user restored the autosaved session")
@@ -461,6 +501,10 @@ class CoreApp:
         p = _user_path(path)
 
         def save() -> Path:
+            if _in_autosave_folder(p):  # the next launch would move the "project" out of the user's way
+                folder = project.autosave_path().parent
+                raise EngineError(f"can't save a project in {folder}: it is badshop's autosave folder",
+                                  hint="pick another folder for the project")
             self.path = project.save(self.session, p)
             return self.path
 
@@ -603,19 +647,18 @@ class CoreApp:
         if (path is None) == (data is None):
             raise RpcError(INVALID_PARAMS, "give either path or data",
                            {"hint": "path: a file the user picked; data: the image bytes in base64"})
+        blob: bytes | None = None
         if path is not None:
             p = _user_path(path)
             blob = await asyncio.to_thread(_read_import, p)
             label = name or p.name
+        elif _pasted_size(data) > MAX_IMPORT_BYTES:  # the path's limit, refused before anything is decoded
+            raise _too_big(name or "the pasted image")
         else:
-            try:
-                blob = base64.b64decode(data, validate=True)
-            except (binascii.Error, ValueError):
-                raise RpcError(INVALID_PARAMS, "data is not base64") from None
             label = name or ""
 
         def do() -> tuple:  # the store turns a file name into a label ("pasted" when there is none)
-            working = self.session.import_image(blob, label)
+            working = self.session.import_image(_decode_paste(data) if blob is None else blob, label)
             return working, self.session.artifacts.meta.get(working.original_id or "", working)
 
         working, original = await self._blocking(do)
@@ -631,15 +674,16 @@ class CoreApp:
         return self.settings.model_dump(mode="json")
 
     async def _settings_set(self, actor: str, values: dict) -> dict:
+        return (await self._blocking(self._apply_settings, values)).model_dump(mode="json")
+
+    def _apply_settings(self, values: dict) -> Settings:
+        """Runs in a thread under the lock, so no tool is running while the executor is swapped, and the
+        values merge into the settings as they are now: changes queued behind a running tool apply in
+        order and none is lost."""
         try:
             new = Settings.model_validate({**self.settings.model_dump(), **values})
         except ValidationError as e:
             raise RpcError(INVALID_PARAMS, "invalid settings", {"hint": runner.explain(e)}) from None
-        await self._blocking(self._apply_settings, new)
-        return new.model_dump(mode="json")
-
-    def _apply_settings(self, new: Settings) -> None:
-        """Runs in a thread under the lock, so no tool is running while the executor is swapped."""
         save_settings(new)
         old, self.settings = self.settings, new
         if (new.tool_timeout_s, new.tool_memory_mb) != (old.tool_timeout_s, old.tool_memory_mb):
@@ -649,6 +693,7 @@ class CoreApp:
         self.session.output_dir = self._output_dir()
         if new.fake_provider_script != old.fake_provider_script:
             self._provider = None
+        return new
 
     async def _assets_status(self, actor: str) -> list[dict]:
         return await asyncio.to_thread(manifest.status)
