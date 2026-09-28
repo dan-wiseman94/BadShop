@@ -82,3 +82,57 @@ def add_tool_parser(sub: argparse._SubParsersAction, spec: ToolSpec) -> None:
         s.add_argument("-o", "--out", dest="_out", default=None, metavar="OUT",
                        help="path for the main output")
     s.set_defaults(_tool=spec.name)
+
+
+def _plain(value: Any) -> Any:
+    """Tuples as lists, so JSON params compare equal to a model's defaults."""
+    return [_plain(v) for v in value] if isinstance(value, (list, tuple)) else value
+
+
+def _option(flag: str, value: Any) -> list[str]:
+    word = str(value)
+    # argparse reads a word starting with "-" as the next option ("--rotate -1e-05", "--text -_-").
+    return [f"{flag}={word}"] if word.startswith("-") else [flag, word]
+
+
+def to_argv(spec: ToolSpec, params: dict) -> list[str]:
+    """The command line (tool name first) that `add_tool_parser`'s parser reads back as `params`.
+
+    `params` is a validated, JSON-safe dict such as a step's params. Positional fields come first, in
+    POSITIONAL order, then flags in field order (FLAGS or --field-name). Fields missing from `params` or at
+    their default are left out, tuples are spelled out, lists repeat their flag, and True bools are bare
+    flags. A flag value starting with "-" is written --flag=value; positional values that start with "-"
+    go after a "--", with every flag before it. One value depends on the Python reading it back: a word
+    that is exactly "--". Python 3.12.11 and 3.13 keep it; older 3.12 releases drop it (a caption of "--"
+    parses as text=[] on 3.12.0 and 3.12.5), which the tool then refuses as bad parameters."""
+    model = spec.params
+    positional: list[str] = []
+    flags: list[str] = []
+    for name, f in model.model_fields.items():
+        if name not in params:
+            continue
+        value = _plain(params[name])
+        if not f.is_required() and value == _plain(f.get_default(call_default_factory=True)):
+            continue
+        if name in model.POSITIONAL:
+            positional += [str(v) for v in value] if isinstance(value, list) else [str(value)]
+            continue
+        kind, _ = _classify(f.annotation)
+        flag = model.FLAGS.get(name, "--" + name.replace("_", "-"))
+        if kind == "bool":
+            if value is not True:  # store_true flags can only switch a False default on
+                raise ValueError(f"{spec.name}: {name}={value!r} can't be written as a command-line flag")
+            flags.append(flag)
+        elif kind == "tuple":
+            flags += [flag, *map(str, value)]  # whole numbers: "-5" is read as a value, not an option
+        elif kind == "list_tuple":
+            for item in value:
+                flags += [flag, *map(str, item)]
+        elif kind.startswith("list_"):
+            for item in value:
+                flags += _option(flag, item)
+        else:
+            flags += _option(flag, value)
+    if any(word.startswith("-") for word in positional):
+        return [spec.name, *flags, "--", *positional]
+    return [spec.name, *positional, *flags]
