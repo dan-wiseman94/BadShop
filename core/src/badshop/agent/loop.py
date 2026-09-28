@@ -36,7 +36,7 @@ def _arguments(call: ToolCallRequest) -> dict:
     if isinstance(args, str):
         try:
             args = json.loads(args)
-        except ValueError:
+        except (ValueError, RecursionError):  # deep nesting ("[[[[..." to the token limit) is RecursionError
             raise EngineError(f"the arguments for {call.name} are not valid JSON",
                               hint="send the arguments as one JSON object") from None
     if not isinstance(args, dict):

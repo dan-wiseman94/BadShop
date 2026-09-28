@@ -974,3 +974,30 @@ def test_a_second_cancel_while_the_wind_up_waits_for_the_lock(tmp_path, first):
     nxt = ScriptedProvider([Reply(text="ok")])
     assert turn(session, nxt, ev, text="carry on")[0] == "done"
     assert {"role": "tool", "tool_call_id": "c1", "content": f"not run: {note}"} in nxt.received[0]
+
+
+# Added for review F2 (post-review ruling 2): json.loads raises RecursionError, not ValueError, on deeply nested JSON.
+# A model that repeats "[" until its token limit sends exactly that; it is an invalid call, not a failed turn.
+
+def test_deeply_nested_arguments_are_an_invalid_call(tmp_path):
+    session, img, ev = new_session(tmp_path)
+    deep = "[" * 100_000
+    provider = ScriptedProvider([
+        Reply(tool_calls=[call("c1", "info", deep), call("c2", "info", deep), call("c3", "info", deep),
+                          call("c4", "info", {"image": img.id})]),
+    ])
+    reason, _ = turn(session, provider, ev, mode="auto")
+    assert reason == "invalid_calls" and ev.of("turn.finished") == [{"reason": "invalid_calls"}]
+    assert session.data.steps == []  # invalid calls never become steps
+    got = tool_entries(session)
+    for id in ("c1", "c2", "c3"):
+        assert got[id] == ("error: the arguments for info are not valid JSON\n"
+                           "hint: send the arguments as one JSON object")
+    assert got["c4"].startswith("not run: 3 invalid calls in a row")
+    assert every_call_answered(session.data.transcript)
+    # One such call is an answer the model hears, and the turn goes on.
+    session, img, ev = new_session(tmp_path)
+    provider = ScriptedProvider([Reply(tool_calls=[call("c1", "info", deep)]), Reply(text="Sorry.")])
+    assert turn(session, provider, ev, mode="auto")[0] == "done"
+    assert provider.received[1][-1] == {"role": "tool", "tool_call_id": "c1",
+                                        "content": tool_entries(session)["c1"]}
