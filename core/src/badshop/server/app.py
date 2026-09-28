@@ -620,8 +620,9 @@ class CoreApp:
             log.exception("auto replay failed")
             self._log("warning", f"replay failed: {getattr(e, 'message', e)}")
 
-    async def _steps_replay_from(self, actor: str, step_id: str) -> list[dict]:
-        steps = await self._blocking(lambda: self.session.replay_from(step_id))
+    async def _steps_replay_from(self, actor: str, step_id: str, use_cache: bool = True) -> list[dict]:
+        # use_cache=False runs every step again, even one whose inputs did not change (spec 2, criterion 4)
+        steps = await self._blocking(lambda: self.session.replay_from(step_id, use_cache=use_cache))
         return [s.model_dump(mode="json") for s in steps]
 
     async def _steps_delete(self, actor: str, step_id: str) -> dict:
