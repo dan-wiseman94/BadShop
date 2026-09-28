@@ -106,6 +106,36 @@ def deepfry_tool(p: DeepfryParams, image: Image.Image) -> EngineResult:
                         lines=[f"size: {im.width}x{im.height}, level {p.level}"])
 
 
+# A GIF stores each frame's delay as a 16-bit count of hundredths of a second, and Pillow's writer merges
+# identical consecutive frames into one, adding their delays: no single picture can show for longer. The
+# writer stores int(ms / 10), so compare in hundredths (GIF_MAX_STILL_MS // 10): up to 655_359 ms still fits.
+GIF_MAX_STILL_MS = 655_350
+
+
+def _same_picture(a: Image.Image, b: Image.Image) -> bool:
+    """Whether Pillow's GIF writer would merge frame b into frame a (GifImagePlugin._getbbox): the same
+    palette indices under the same palette, or, when the palettes differ, the same colors pixel for pixel."""
+    if a is b:
+        return True
+    if a.getpalette() == b.getpalette():
+        return a.tobytes() == b.tobytes()
+    return a.convert("RGBA").tobytes() == b.convert("RGBA").tobytes()
+
+
+def _longest_still(frames: list[Image.Image]) -> int:
+    """The most consecutive frames the GIF writer merges into one frame shown for their summed delay. Like
+    the writer, each frame is compared with the first frame of the run it might join."""
+    longest = run = 0
+    first = None
+    for f in frames:
+        if first is not None and _same_picture(first, f):
+            run += 1
+        else:
+            first, run = f, 1
+        longest = max(longest, run)
+    return longest
+
+
 class AnimateParams(Params):
     POSITIONAL: ClassVar = ("images",)
     images: list[ImageRef] = Field(min_length=1, max_length=32, description="frames cycle through these (e.g. with and without laser eyes)")
@@ -157,6 +187,13 @@ def animate(p: AnimateParams, images: list[Image.Image]) -> EngineResult:
         frames.append(dithered(f, p.colors))
     if p.effect == "zoom" and p.hold:
         frames += [frames[-1]] * p.hold
+    if len(frames) * p.delay > GIF_MAX_STILL_MS:  # else no one picture can show for that long
+        still = _longest_still(frames)
+        # in the writer's units: it stores int(ms / 10) as a 16-bit number, or fails with a struct.error
+        if still * p.delay // 10 > GIF_MAX_STILL_MS // 10:
+            raise EngineError(f"{still} identical frames in a row at {p.delay}ms would show one picture for "
+                              f"{still * p.delay / 1000:g} s, and a GIF frame lasts at most "
+                              f"{GIF_MAX_STILL_MS / 1000:g} s", hint="lower delay, hold or frames")
     hint = f"final:{p.name}" if p.name else f"final:{{stem}}_{p.effect}"
     out = Output("animated", frames[0], hint, fmt="GIF", frames=frames, duration=p.delay)
     return EngineResult(outputs=[out], lines=[f"size: {W}x{H}, {len(frames)} frames at {p.delay}ms, effect {p.effect}"

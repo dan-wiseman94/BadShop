@@ -86,6 +86,8 @@ def test_font_lookup_retries_a_download_that_failed(tmp_path, monkeypatch):
 
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(text, "SYSTEM_FONT_DIRS", [])
+    monkeypatch.setattr(text, "DOWNLOAD_RETRY_S", 0.0)  # no retry window: the next lookup tries again
+    monkeypatch.setattr(text, "_download_failed_at", {})
     monkeypatch.setitem(text.FONT_CANDIDATES, "impact", ["BadshopTestDownload.ttf", "BadshopTestFallback.ttf"])
     monkeypatch.setitem(text.FONT_DOWNLOADS, "BadshopTestDownload.ttf", assets.Pinned("https://e.org/f.ttf", "0" * 64, 1))
     (tmp_path / "fonts").mkdir()
@@ -117,7 +119,8 @@ def test_line_breaks_in_every_style(monkeypatch, style, brk):
 
     seen = []
     render = text.render_text
-    monkeypatch.setattr(text, "render_text", lambda lines, *a: seen.append(lines) or render(lines, *a))
+    monkeypatch.setattr(text, "render_text",
+                        lambda lines, *a, **kw: seen.append(lines) or render(lines, *a, **kw))
     store = MemoryStore()
     ref = store.add(Image.open(FIXTURES / "lincoln.png").convert("RGB"), "lincoln.png")
     run = run_tool("text", {"image": ref, "text": f"top line{brk}bottom line", "style": style, "size": 30}, store)

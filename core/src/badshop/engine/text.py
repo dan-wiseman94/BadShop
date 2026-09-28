@@ -2,6 +2,7 @@
 
 import glob
 import re
+import time
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal
 
@@ -49,6 +50,11 @@ def _font_dirs(data_dir: str) -> list[Path]:
 
 _font_cache: dict[tuple[str, str | None, str], str | None] = {}
 
+# After a font download fails, lookups skip it for this long, so one offline caption (whose auto-size loop
+# looks the font up at every size it tries) waits on the network once, not once per size.
+DOWNLOAD_RETRY_S = 60.0
+_download_failed_at: dict[tuple[str, str], float] = {}  # (font file name, data dir) -> time.monotonic()
+
 
 def find_font_file(style: str, explicit: str | None = None) -> str | None:
     """Path (or Pillow-searchable name) of the best font for a style, or None for the built-in one."""
@@ -82,11 +88,20 @@ def _find_font_file(style: str, explicit: str | None, data_dir: str) -> tuple[st
         except OSError:
             pass
         if name in FONT_DOWNLOADS and not explicit:
+            key = (name, data_dir)
+            failed_at = _download_failed_at.get(key)
+            if failed_at is not None and time.monotonic() - failed_at < DOWNLOAD_RETRY_S:
+                definitive = False  # it failed moments ago: fall back without waiting on the network again
+                continue
             try:
                 pin = FONT_DOWNLOADS[name]
-                return str(assets.cached(f"fonts/{name}", pin.url, sha256=pin.sha256, size=pin.size)), definitive
+                path = assets.cached(f"fonts/{name}", pin.url, sha256=pin.sha256, size=pin.size)
             except EngineError:
-                definitive = False  # offline: keep going down the list, and try the download again next time
+                _download_failed_at[key] = time.monotonic()
+                definitive = False  # offline: keep going down the list, and try the download again later
+                continue
+            _download_failed_at.pop(key, None)
+            return str(path), definitive
     return None, definitive
 
 
@@ -127,8 +142,9 @@ def rainbow(size) -> Image.Image:
     return Image.merge("HSV", (hue, full, full)).convert("RGBA")
 
 
-def render_text(lines, fnt, style, color) -> Image.Image:
-    """RGBA layer with the text, tight around it."""
+def render_text(lines, fnt, style, color, budget: int = 0) -> Image.Image:
+    """RGBA layer with the text, tight around it. `budget` is check_size's floor: the pixels of the image
+    the text goes on, which the layer may use even past MAX_WORK_PIXELS."""
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     stroke = max(2, fnt.size // 14) if style in ("impact", "wordart") else 0
     shadow = max(2, fnt.size // 12) if style == "paint" else 0
@@ -139,7 +155,7 @@ def render_text(lines, fnt, style, color) -> Image.Image:
     lh = ascent + descent
     W = int(max(widths)) + 2 * stroke + off + 4
     H = lh * len(lines) + 2 * stroke + off + 4
-    check_size(W, H)
+    check_size(W, H, floor=budget)
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     if style == "wordart":
@@ -214,7 +230,8 @@ def caption(p: TextParams, image: Image.Image) -> EngineResult:
         size = int(size * 0.85)
     if not lines:
         raise EngineError("nothing to write", hint="give some words")
-    layer = render_text(lines, fnt, p.style, color)
+    # a caption as big as the photo it goes on is never too big, even when the photo is over the budget
+    layer = render_text(lines, fnt, p.style, color, budget=im.width * im.height)
     if p.rotate:
         layer = layer.rotate(p.rotate, resample=Image.BICUBIC, expand=True)
     if p.at:

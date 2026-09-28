@@ -47,7 +47,7 @@ def paste(p: PasteParams, base_im: Image.Image, piece_im: Image.Image) -> Engine
     def scaled(width, height=None):
         w = max(1, round(width))
         h = max(1, round(height if height else piece.height * w / piece.width))
-        check_size(w, h)
+        check_size(w, h, floor=base.width * base.height)  # a piece as big as the base is never too big
         return piece.resize((w, h), Image.NEAREST)
 
     if p.repeat:

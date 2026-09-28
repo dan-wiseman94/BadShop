@@ -18,11 +18,15 @@ WEB_FORMATS = ("PNG", "JPEG", "GIF", "WEBP")
 MAX_WORK_PIXELS = 50_000_000
 
 
-def check_size(w: int, h: int) -> None:
-    """Refuse, before Pillow tries to allocate it, an image that parameters blew up past the budget."""
-    if w * h > MAX_WORK_PIXELS:
+def check_size(w: int, h: int, floor: int = 0) -> None:
+    """Refuse, before Pillow tries to allocate it, an image that parameters blew up past the budget.
+
+    `floor` raises the limit to the pixels of an image the user already has (the photo a caption goes on,
+    the base a piece is pasted onto): work as big as the user's own photo is never "too big"."""
+    limit = max(MAX_WORK_PIXELS, floor)
+    if w * h > limit:
         raise EngineError(f"that would make a {w}x{h} image, too big to work with",
-                          hint=f"use a smaller size or scale (the limit is {MAX_WORK_PIXELS // 1_000_000} megapixels)")
+                          hint=f"use a smaller size or scale (the limit is {limit // 1_000_000} megapixels)")
 
 
 def load_image(src: Path | bytes, formats: tuple[str, ...] | None = None,
