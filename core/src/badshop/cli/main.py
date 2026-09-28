@@ -1,7 +1,6 @@
 """`badshop` command line: one subcommand per registered tool."""
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from badshop.cli import recipes
 from badshop.cli.argparse_gen import add_tool_parser
 from badshop.cli.filestore import FileStore
 from badshop.engine.errors import EngineError
+from badshop.files import default_output_dir
 from badshop.tools import REGISTRY
 from badshop.tools.runner import run_tool
 
@@ -17,7 +17,7 @@ WORK_DIR = Path("badshop_work")
 
 
 def final_dir() -> Path:
-    return Path(os.environ.get("BADSHOP_OUT") or Path.home() / "Pictures" / "badshop")
+    return default_output_dir()
 
 
 def build_parser() -> argparse.ArgumentParser:
