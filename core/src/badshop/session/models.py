@@ -67,6 +67,10 @@ class Step(BaseModel):
     started_at: float | None = None
     finished_at: float | None = None
     cache_key: str | None = None
+    # Only on a step where a replay stopped (status "error"): the outputs of its last good run, which the
+    # stale steps after it still reference. The next replay that gets past it maps them to its new
+    # outputs; it is saved with the session, so reopening a project in between loses nothing.
+    previous_outputs: list[str] = []
 
 
 class Part(BaseModel):

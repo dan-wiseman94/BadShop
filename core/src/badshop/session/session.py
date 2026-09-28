@@ -4,6 +4,7 @@ The user, the in-app agent and CLI agents all propose a step here and run it her
 approvals, edits and replay work the same for every caller. Engine rules still hold: nothing here prints,
 and every failure a caller can act on is an EngineError."""
 
+import copy
 import json
 import re
 import threading
@@ -49,6 +50,37 @@ def _image_refs(step: Step) -> list[str]:
         if value is not None:
             refs.extend(value if is_list else [value])
     return refs
+
+
+# Steps the approval gate or a tool still owns: edit, replay and delete refuse to touch them.
+_BUSY = {"proposed": "is waiting for approval", "approved": "is about to run", "running": "is running"}
+
+
+def _map_refs(tool: str, params: dict, fn: Callable[[str], str]) -> dict:
+    """A copy of stored params with every image ref passed through fn (replay's remap, short ids)."""
+    out = dict(params)
+    for name, is_list in registry.image_fields(registry.get(tool).params).items():
+        value = out.get(name)
+        if value is not None:
+            out[name] = [fn(v) for v in value] if is_list else fn(value)
+    return out
+
+
+def _made(steps: list[Step]) -> set[str]:
+    """Every artifact these steps output, a stopped replay's previous_outputs included."""
+    return {id for s in steps for id in s.outputs + s.previous_outputs}
+
+
+def _advance(remap: dict[str, str], old: list[str], new: list[str]) -> None:
+    """Replay's table after a step made `new` where it used to make `old`: a later reference to its old
+    output i now means its new output i. The newest producer before a reader wins, so an id this step
+    makes again (or no longer makes) stops pointing at whatever an earlier step made in its place."""
+    for i, o in enumerate(old):
+        n = new[i] if i < len(new) else o
+        if n != o:
+            remap[o] = n
+        else:
+            remap.pop(o, None)
 
 
 def label_for(record: OutputRecord, stem: str, tool: str) -> str:
@@ -380,3 +412,203 @@ class Session:
     def take_changes(self) -> list[str]:
         changes, self.changes = self.changes, []
         return changes
+
+    # edit, replay, delete (spec 5.3, 7)
+
+    def _position(self, step_id: str) -> int:
+        step = self.step(step_id)  # an unknown id is step()'s clean EngineError
+        return next(i for i, s in enumerate(self.data.steps) if s is step)
+
+    @staticmethod
+    def _refuse_busy(steps: list[Step]) -> None:
+        for s in steps:
+            if s.status in _BUSY:
+                hint = ("approve or reject it first (the approval prompt can change its parameters)"
+                        if s.status == "proposed" else "wait for it to finish, or press Stop")
+                raise EngineError(f"step {s.index} ({s.tool}) {_BUSY[s.status]}", hint=hint)
+
+    def _refuse_later(self, step: Step, pos: int, params: dict) -> None:
+        """The timeline runs top to bottom: a step reads imports and what earlier steps made, never a
+        picture that first came from itself or a later step. An artifact counts by its first producer,
+        so an import that a step happens to make again (prep of a working copy gives the same bytes)
+        is still the user's import, and a step may read it."""
+        mine = {s.id for s in self.data.steps[pos:]}
+        earlier = _made(self.data.steps[:pos])
+        for id in _image_refs(step.model_copy(update={"params": params})):
+            meta = self.artifacts.meta.get(id)
+            if id in earlier or meta is None or meta.produced_by not in mine:
+                continue
+            maker = self.step(meta.produced_by)
+            why = "it is this step's own output" if maker is step else f"step {maker.index} makes it later"
+            raise EngineError(f"step {step.index} can't use {short(id)}: {why}",
+                              hint="use an imported image or one an earlier step made")
+
+    def _call(self, step: Step) -> str:
+        """A step's call as a change note shows it: the params that differ from the defaults, short ids."""
+        shown = registry.get(step.tool).params.model_validate(step.params).model_dump(mode="json",
+                                                                                     exclude_defaults=True)
+        return f"{step.tool} {json.dumps(_map_refs(step.tool, shown, short), ensure_ascii=False)}"
+
+    def edit(self, step_id: str, raw: dict) -> list[Step]:
+        """Give a finished (or failed, stale or rejected) step new params, as the user. It and every later
+        step that was not rejected become `stale`; nothing runs until replay_from. Stale steps keep their
+        old outputs and cache_key, which is how the replay finds results it can reuse. Params equal to the
+        stored ones still mark the steps stale, but are not an edit: no `edited` flag, no change note."""
+        pos = self._position(step_id)
+        step = self.data.steps[pos]
+        self._refuse_busy(self.data.steps[pos:])
+        params = self._resolved(runner.validate(step.tool, raw, "user"))
+        self._refuse_later(step, pos, params)
+        changed = params != step.params
+        if changed:
+            step.params, step.edited = params, True
+        stale = [step] + [s for s in self.data.steps[pos + 1:] if s.status != "rejected"]
+        for s in stale:
+            s.status = "stale"
+        if changed:
+            self.changes.append(f"the user edited step {step.index}: {self._call(step)}")
+        self.emit("step.stale", {"step_ids": [s.id for s in stale]})
+        self._changed()
+        return stale
+
+    def _executions(self) -> dict[str, Step]:
+        """The successful runs the steps remember, by cache_key: done steps, and stale steps whose last
+        run worked. Copies, so a replay that overwrites a step still finds what that step had."""
+        return {s.cache_key: s.model_copy(deep=True) for s in self.data.steps
+                if s.cache_key and s.error is None and s.status in ("done", "stale")}
+
+    def _reuse(self, step: Step, hit: Step, key: str) -> None:
+        """Take a remembered run's results instead of running: no step.started, only step.finished."""
+        step.outputs, step.result_text = list(hit.outputs), hit.result_text
+        step.data = copy.deepcopy(hit.data)
+        step.status, step.error, step.cache_key = "done", None, key
+        step.started_at = step.finished_at = time.time()
+        self._emit("step.finished", step, step.outputs)
+
+    def replay_from(self, step_id: str, *, use_cache: bool = True) -> list[Step]:
+        """Re-execute a step and every later step that was not rejected, in order (spec 5.3).
+
+        A reference to an old output of a re-executed step becomes the new output in the same position.
+        A step whose rewritten params give the cache_key of an earlier successful run, all of whose outputs
+        are still in the store, takes that run's results without running (use_cache=False runs every
+        step). Stops at the first failure: that step is `error`, the steps after it stay `stale`, and
+        their references already follow what the steps before the failure made. Returns the steps it
+        processed, run or reused, the failed one last."""
+        pos = self._position(step_id)
+        behind = next((s for s in self.data.steps[:pos] if s.status == "stale" or s.previous_outputs), None)
+        if behind is not None:  # these steps would run on inputs that are about to change
+            raise EngineError(f"step {behind.index} ({behind.tool}) comes first and is not up to date",
+                              hint=f"replay from step {behind.index} (if it failed, edit it first)")
+        todo = [s for s in self.data.steps[pos:] if s.status != "rejected"]
+        self._refuse_busy(todo)
+        cache = self._executions() if use_cache else {}
+        fresh = [s for s in todo if s.status != "stale"]
+        for s in fresh:
+            s.status = "stale"
+        if fresh:
+            self.emit("step.stale", {"step_ids": [s.id for s in fresh]})
+        remap: dict[str, str] = {}
+        processed: list[Step] = []
+        failed: Step | None = None
+        for step in todo:
+            if remap:
+                step.params = _map_refs(step.tool, step.params, lambda id: remap.get(id, id))
+            old = list(step.outputs or step.previous_outputs)
+            key = cache_key(step.tool, step.params)
+            hit = cache.get(key)
+            if hit is not None and all(id in self.artifacts for id in hit.outputs):
+                self._reuse(step, hit, key)
+            else:
+                self._execute(step)  # never raises for the tool's failure; writes no change note
+            processed.append(step)
+            if step.status != "done":
+                step.previous_outputs, failed = old, step
+                break
+            step.previous_outputs = []
+            if use_cache:
+                cache[key] = step.model_copy(deep=True)
+            _advance(remap, old, step.outputs)
+        if failed is not None:
+            # The next replay starts at the failed step with an empty table, so the steps after it take
+            # what ran before it now. They keep their last run (outputs, cache_key: still a true cache
+            # entry) and stay stale. The failed step and each of them still stand for what they made
+            # last time, so a reference to that stays put.
+            _advance(remap, failed.previous_outputs, failed.previous_outputs)
+            for rest in todo[len(processed):]:
+                if remap:
+                    rest.params = _map_refs(rest.tool, rest.params, lambda id: remap.get(id, id))
+                made = rest.outputs or rest.previous_outputs
+                _advance(remap, made, made)
+            self.changes.append(f"the user replayed from step {todo[0].index}: step {failed.index} "
+                                f"({failed.tool}) failed: {failed.error.message}; later steps are stale")
+        elif processed:
+            last = processed[-1]
+            made = ", ".join(self._named(i) for i in last.outputs)
+            self.changes.append(f"the user replayed steps {processed[0].index} to {last.index}"
+                                + (f"; step {last.index} now gives {made}" if made else ""))
+        self._changed()
+        return processed
+
+    def delete_last(self, step_id: str) -> None:
+        """Delete the last step (spec 7: the last step only, in v1) and emit `step.deleted {"step_id"}`,
+        an event spec 7's list gains here, so every client drops the step's card. Nothing else is
+        rewritten: its artifacts stay in the store (a message, another step or an export may still show
+        them), a message that lists it keeps listing it, and an artifact it made first keeps it as
+        produced_by. Those records are what stop Task 7's _next_id from giving its id to a new step, and
+        what lets referenced_ids keep the pictures a message's deleted step made."""
+        step = self.step(step_id)
+        last = self.data.steps[-1]
+        if step is not last:
+            raise EngineError(f"only the last step can be deleted, and step {step.index} is not the last",
+                              hint=f"delete step {last.index} first, then work backwards")
+        self._refuse_busy([step])
+        self.data.steps.pop()
+        self.changes.append(f"the user deleted step {step.index} ({step.tool})")
+        self.emit("step.deleted", {"step_id": step.id})
+        self._changed()
+
+    @staticmethod
+    def _mentioned(value: object, shorts: set[str]) -> set[str]:
+        """The short ids in `shorts` that appear in any string inside `value`, a JSON value such as the
+        transcript (contents and tool-call arguments) or a list of message texts. A short id counts
+        wherever it sits in a run of hex digits, so a full id or a longer prefix mentions it too. Walked
+        with a list, not recursion, because a transcript read from a project file may nest deeply."""
+        found: set[str] = set()
+        todo = [value]
+        while todo:
+            item = todo.pop()
+            if isinstance(item, str):
+                for run in re.findall(r"[0-9a-f]{8,}", item):
+                    found |= shorts.intersection(run[i:i + 8] for i in range(len(run) - 7))
+            elif isinstance(item, dict):
+                todo.extend(item.values())
+            elif isinstance(item, list):
+                todo.extend(item)
+        return found
+
+    def referenced_ids(self) -> set[str]:
+        """The artifacts the session still points at, which project save (Task 9) keeps: every step's
+        inputs and outputs (and a stopped replay's previous_outputs); the images in messages; what each
+        step a message names made first (its produced_by), which for a deleted step is what is left of
+        its outputs; every artifact whose short id appears in the transcript or in a message's text; and
+        the originals of all of those that are imports. So a reopened session never loses a picture the
+        chat or the model still points at."""
+        meta = self.artifacts.meta
+        ids: set[str] = set()
+        for s in self.data.steps:
+            ids.update(_image_refs(s), s.outputs, s.previous_outputs)
+        named: set[str] = set()
+        texts: list[str] = []
+        for m in self.data.messages:
+            named.update(m.step_ids)
+            ids.update(p.artifact_id for p in m.content if p.type == "image" and p.artifact_id)
+            texts.extend(p.text for p in m.content if p.text)
+        ids.update(i for i, a in meta.items() if a.produced_by in named)
+        by_short: dict[str, list[str]] = {}
+        for i in meta:
+            by_short.setdefault(short(i), []).append(i)
+        for found in self._mentioned([self.data.transcript, texts], set(by_short)):
+            ids.update(by_short[found])
+        originals = [meta[i].original_id for i in ids if i in meta]
+        ids.update(o for o in originals if o)
+        return ids
