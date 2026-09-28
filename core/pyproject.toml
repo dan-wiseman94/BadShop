@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.7,<3",
     "platformdirs>=4",
     "psutil>=6",
+    "websockets>=15,<17",
 ]
 
 [project.scripts]
