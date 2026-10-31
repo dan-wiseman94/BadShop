@@ -12,12 +12,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--clean', action='store_true')
-    args = parser.parse_args()
-    cmd = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--distpath', str(ROOT / 'packaging/core-dist'),
+    parser.add_argument('--clean', action='store_true', help='retained for compatibility; builds are always clean')
+    parser.parse_args()
+    # Release payloads must not reuse analysis from a previous core API revision.
+    cmd = [sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', '--distpath', str(ROOT / 'packaging/core-dist'),
            '--workpath', str(ROOT / 'packaging/build'), str(ROOT / 'packaging/badshop-core.spec')]
-    if args.clean:
-        cmd.insert(3, '--clean')
     env = {**os.environ, 'LITELLM_LOCAL_MODEL_COST_MAP': 'True'}
     subprocess.run(cmd, cwd=ROOT, env=env, check=True)
     inventory = sorted([{'name': d.metadata['Name'], 'version': d.version,

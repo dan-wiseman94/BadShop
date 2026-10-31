@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod macos_quit;
 mod supervisor;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -102,6 +104,8 @@ pub fn run() {
             diagnostics
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            macos_quit::install(app.handle())?;
             let config = launch(app.handle())?;
             let handle = app.handle().clone();
             let supervisor = Supervisor::start(config, move |status| {
@@ -123,6 +127,10 @@ pub fn run() {
                     let _ = window.close();
                     return;
                 }
+                app.state::<Core>().0.stop();
+            } else if matches!(event, tauri::RunEvent::Exit) {
+                // AppKit termination can bypass ExitRequested and deliver Exit
+                // directly. stop() is idempotent and must run before the shell dies.
                 app.state::<Core>().0.stop();
             }
         });

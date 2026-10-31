@@ -138,7 +138,7 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
                 await ws.send(json.dumps({'type': 'hello', 'token': hello['token'], 'actor': 'user'}))
                 assert json.loads(await ws.recv())['type'] == 'welcome'
                 counter = 0
-                async def rpc(method, **params):
+                async def rpc(method, *, expected_error=None, **params):
                     nonlocal counter
                     counter += 1
                     await ws.send(json.dumps({'jsonrpc': '2.0', 'id': counter, 'method': method, 'params': params}))
@@ -147,6 +147,11 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
                         # must finish before this harness deadline, including on cold CI hosts.
                         result = json.loads(await asyncio.wait_for(ws.recv(), 195))
                         if result.get('id') == counter:
+                            if expected_error is not None:
+                                error = result.get('error', {})
+                                assert error.get('code') == -32000, result
+                                assert expected_error in error.get('message', ''), result
+                                return error
                             assert 'error' not in result, result
                             return result['result']
                 tools = await rpc('tools.list')
@@ -166,10 +171,38 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
                         observer.cancel()
                         await asyncio.gather(observer, return_exceptions=True)
                 assert step['status'] == 'done', step
-                saved = await rpc('session.save_as', path=str(Path(folder) / 'smoke.badshop'))
-                assert Path(saved['path']).is_file()
                 children = psutil.Process(proc.pid).children(recursive=True)
                 assert children, 'find must have started a worker'
+                # Exercise the desktop's exact revision-bearing save/replacement API.
+                # Startup and unguarded saves can otherwise pass against a stale core.
+                snapshot = await rpc('session.get')
+                assert snapshot['unsaved_changes']
+                revision = snapshot['document_revision']
+                await rpc('session.new', expected_revision=revision,
+                          expected_error='unsaved changes')
+                assert (await rpc('session.get'))['id'] == snapshot['id']
+                await rpc('session.set_approval_mode', mode='ask_all')
+                destination = Path(folder) / 'smoke.badshop'
+                await rpc('session.save_as', path=str(destination), expected_revision=revision,
+                          expected_error='session changed')
+                assert not destination.exists()
+                snapshot = await rpc('session.get')
+                saved = await rpc('session.save_as', path=str(destination),
+                                  expected_revision=snapshot['document_revision'])
+                assert Path(saved['path']).is_file()
+                assert not (await rpc('session.get'))['unsaved_changes']
+                before = destination.read_bytes()
+                await rpc('session.set_approval_mode', mode='auto')
+                await rpc('session.save', expected_revision=snapshot['document_revision'],
+                          expected_error='session changed')
+                assert destination.read_bytes() == before
+                snapshot = await rpc('session.get')
+                await rpc('session.save', expected_revision=snapshot['document_revision'])
+                assert not (await rpc('session.get'))['unsaved_changes']
+                fresh = await rpc('session.new', expected_revision=snapshot['document_revision'])
+                opened = await rpc('session.open', path=str(destination),
+                                   expected_revision=fresh['document_revision'])
+                assert opened['id'] == snapshot['id'] and not opened['unsaved_changes']
             if crash:
                 proc.kill()
             else:
@@ -178,7 +211,7 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
             assert crash or code == 0
             _, alive = await asyncio.to_thread(psutil.wait_procs, children, timeout=15)
             assert not [p for p in alive if p.status() != psutil.STATUS_ZOMBIE], 'orphaned core worker'
-            print('Frozen core smoke passed: handshake, tools, spawned find, save, ' +
+            print('Frozen core smoke passed: handshake, tools, spawned find, guarded save/open, ' +
                   ('forced core death' if crash else 'clean EOF exit') + ' and no orphan worker')
         except BaseException:
             failed = True

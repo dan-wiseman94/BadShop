@@ -34,8 +34,10 @@ uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop
 pnpm --dir app tauri build
 ```
 
-Use `badshop-core.exe` in the smoke command on Windows. The frozen smoke starts a fresh
-private session, runs a Haar face detector in the spawned worker, saves and shuts down by
+Freezing always clears PyInstaller's analysis cache. Use `badshop-core.exe` in the smoke
+command on Windows. The frozen smoke starts a fresh private session, runs a Haar face
+detector in the spawned worker, verifies revision-guarded Save As/Save/Open and rejects
+stale writes and replacement of an unsaved project. It shuts down by
 closing stdin, then repeats with forced core termination and verifies no worker survives. The onedir is bundled as resources, not a single-file sidecar.
 
 The initial Linux .deb is about 370 MiB, AppImage 395 MiB and Flatpak 220 MiB. The unpacked core is

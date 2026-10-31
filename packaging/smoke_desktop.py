@@ -129,13 +129,19 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
                                   'established_connections': connected}), flush=True)
                 shot = screenshot or root / 'window.png'
                 shot.parent.mkdir(parents=True, exist_ok=True)
-                time.sleep(3)  # allow the connected renderer to paint its first frame
-                capture_window(window, shot.resolve())
-                with Image.open(shot) as frame:
-                    assert frame.width >= 900 and frame.height >= 600, 'Window capture is smaller than the app minimum'
-                    # Exclude window chrome: a created but unpainted webview is not a pass.
-                    content = frame.crop((40, 100, frame.width - 40, frame.height - 40)).convert('L')
-                    assert content.entropy() > 1, 'Webview screenshot is blank'
+                paint_deadline = time.monotonic() + 30
+                while True:
+                    capture_window(window, shot.resolve())
+                    with Image.open(shot) as frame:
+                        assert frame.width >= 900 and frame.height >= 600, 'Window capture is smaller than the app minimum'
+                        # Connecting the socket can precede WebKit's first paint on CI.
+                        # Keep the same content requirement and retain the final frame on failure.
+                        content = frame.crop((40, 100, frame.width - 40, frame.height - 40)).convert('L')
+                        if content.entropy() > 1:
+                            break
+                    assert proc.poll() is None, 'Shell exited before its first paint'
+                    assert time.monotonic() < paint_deadline, 'Webview screenshot is blank after 30 seconds'
+                    time.sleep(.5)
                 children = psutil.Process(proc.pid).children(recursive=True)
                 normal_close(window_pid, window)
                 assert proc.wait(timeout=15) == 0, 'Native close returned a failure exit code'
@@ -148,6 +154,9 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
                     except psutil.NoSuchProcess:
                         pass
                 assert not survivors, f'Children survived native close: {survivors}'
+                if sys.platform == 'darwin':
+                    assert 'native Quit routed through project close guard' in log_path.read_text(), \
+                        'Native Quit bypassed the unsaved-project close guard'
                 print('Native desktop smoke passed: rendered window, connected core, clean close', flush=True)
             finally:
                 if proc.poll() is None:
