@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod macos_quit;
 mod supervisor;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,13 +56,6 @@ fn launch(app: &tauri::AppHandle) -> Result<Launch, Box<dyn std::error::Error>> 
         .join("badshop-core")
         .join(executable);
     let log_path = app.path().app_log_dir()?.join("shell.log");
-    if bundled.is_file() {
-        return Ok(Launch {
-            program: bundled,
-            args: vec!["serve".into()],
-            log_path,
-        });
-    }
     if cfg!(debug_assertions) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -102,6 +97,8 @@ pub fn run() {
             diagnostics
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            macos_quit::install(app.handle())?;
             let config = launch(app.handle())?;
             let handle = app.handle().clone();
             let supervisor = Supervisor::start(config, move |status| {
@@ -113,7 +110,20 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("can't initialize badshop desktop")
         .run(|app, event| {
-            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            if let tauri::RunEvent::ExitRequested { api: _api, .. } = event {
+                // macOS Quit arrives without a window-close request. Route it through
+                // the same unsaved-project decision as the titlebar close button.
+                // Once the frontend destroys the window, the next exit can proceed.
+                #[cfg(target_os = "macos")]
+                if let Some(window) = app.get_webview_window("main") {
+                    _api.prevent_exit();
+                    let _ = window.close();
+                    return;
+                }
+                app.state::<Core>().0.stop();
+            } else if matches!(event, tauri::RunEvent::Exit) {
+                // AppKit termination can bypass ExitRequested and deliver Exit
+                // directly. stop() is idempotent and must run before the shell dies.
                 app.state::<Core>().0.stop();
             }
         });

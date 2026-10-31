@@ -199,14 +199,52 @@ button.primary {
 }
 .session-menu {
   position: relative;
+  min-width: 0;
 }
 .session-name {
   background: none;
   border: none;
   padding: 6px 0;
   max-width: 200px;
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.session-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.session-name > svg,
+.unsaved-dot {
+  flex-shrink: 0;
+}
+.unsaved-dot {
+  color: var(--accent);
+  font-size: 8px;
+}
+.brand,
+.header-center,
+.header-actions {
+  flex-shrink: 0;
+}
+.modal.save-changes-modal {
+  width: min(540px, 95vw);
+}
+.save-changes-modal h2 {
+  overflow-wrap: anywhere;
+}
+.save-changes-modal p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
 }
 .header-center {
   display: flex;
@@ -2005,4 +2043,134 @@ button.primary {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 22px;
+}
+/* RJSF 6 uses rjsf-field-* classes for repeated tool parameters. */
+.rjsf fieldset.rjsf-field-array {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 15px;
+}
+.rjsf .rjsf-field-array > legend {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 5px;
+  margin: 0 0 5px;
+}
+.rjsf .rjsf-field-array .array-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 9px 0;
+}
+.rjsf .rjsf-field-array .array-item > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.rjsf .rjsf-array-item-add {
+  font-size: 11px;
+  padding: 5px 9px;
+  margin-top: 6px;
+}
+.rjsf .rjsf-field-boolean label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.error-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, var(--error) 55%, var(--line));
+  border-radius: 6px;
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 8%, var(--panel));
+  font-size: 11px;
+  line-height: 1.6;
+}
+.error-notice > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.error-notice > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.error-notice > button {
+  font-size: 10px;
+  padding: 4px 6px;
+}
+.error-notice > button:last-child {
+  border: 0;
+  background: none;
+  color: var(--error);
+  padding: 2px;
+}
+.parameter-conflict {
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  margin: 12px 0;
+  background: var(--bg);
+  font-size: 11px;
+}
+.parameter-conflict > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+.parameter-conflict button {
+  font-size: 10px;
+}
+.rjsf .array-action {
+  font-size: 10px;
+  padding: 5px 7px;
+  margin-top: 4px;
+}
+.rjsf .array-item-toolbox {
+  min-width: 30px;
+  flex-shrink: 0;
+}
+.rjsf .array-item-toolbox .btn-group {
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.rjsf .array-item-toolbox .array-action {
+  flex: initial;
+  margin-top: 0;
+}
+.probe-notice {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.saved-provider-choice {
+  margin: 18px 0;
+}
+.saved-provider-choice > button {
+  width: 100%;
+  justify-content: flex-start;
+  margin-top: 8px;
+  padding: 10px 12px;
+}
+.saved-provider-choice > button > strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.saved-provider-choice > button > span {
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: auto;
+  white-space: normal;
+  text-align: right;
+}
+.saved-provider-choice > p {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 15px;
 }

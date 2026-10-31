@@ -15,8 +15,10 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { action, queries, run, useCoreQuery, useSession } from "../data";
+import type { DownloadActivities } from "../data";
 import { useUI } from "../store";
 import { pickFolder } from "../native";
+import { ErrorNotice } from "./ErrorNotice";
 import { BIREFNET_MEMORY_NOTE } from "../constants";
 import type {
   Asset,
@@ -50,7 +52,7 @@ export function ProfileEditor({
 }: {
   initial?: Profile;
   kind?: Profile["kind"];
-  onSaved: (profile: Profile) => void;
+  onSaved: (profile: Profile) => void | Promise<void>;
 }) {
   const [profile, setProfile] = useState<Partial<Profile>>(
     initial ?? {
@@ -103,7 +105,8 @@ export function ProfileEditor({
                 : {}),
             });
             setKey("");
-            onSaved(saved);
+            setProfile(saved);
+            await onSaved(saved);
           } finally {
             setBusy(false);
           }
@@ -312,9 +315,14 @@ export function AssetRow({
   asset: Asset;
   active?: boolean;
 }) {
-  const [localBusy, setBusy] = useState(false);
-  const manuallyCancellable = localBusy || active;
-  const [error, setError] = useState("");
+  const { data: downloads } = useQuery<DownloadActivities>({
+    queryKey: ["downloads"],
+    queryFn: () => ({}),
+    enabled: false,
+  });
+  const manuallyCancellable =
+    active || (downloads?.[asset.name]?.pending ?? 0) > 0;
+  const error = downloads?.[asset.name]?.error;
   const { data: progress } = useQuery<Params>({
     queryKey: ["progress", asset.name],
     queryFn: () => ({}),
@@ -345,13 +353,9 @@ export function AssetRow({
       ) : (
         <button
           disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            setError("");
-            void action("assets.download", { name: asset.name })
-              .catch((e) => setError(e.message))
-              .finally(() => setBusy(false));
-          }}
+          onClick={() =>
+            run(() => action("assets.download", { name: asset.name }))
+          }
         >
           {busy ? (
             "Downloading…"
@@ -387,6 +391,11 @@ export function AssetRow({
 }
 function Assets() {
   const [downloading, setDownloading] = useState<string | null>(null);
+  const { data: downloads } = useQuery<DownloadActivities>({
+    queryKey: ["downloads"],
+    queryFn: () => ({}),
+    enabled: false,
+  });
   const { data: assets, error } = useCoreQuery("assets.status");
   return (
     <div className="assets">
@@ -396,7 +405,12 @@ function Assets() {
       </p>
       {error && <p className="error-text">{error.message}</p>}
       <button
-        disabled={downloading !== null}
+        disabled={
+          downloading !== null ||
+          Object.values(downloads ?? {}).some(
+            (transfer) => transfer.pending > 0,
+          )
+        }
         onClick={() =>
           run(async () => {
             try {
@@ -427,7 +441,10 @@ function Assets() {
 export function Settings() {
   const [tab, setTab] = useState("providers");
   const [edit, setEdit] = useState<Profile | null | undefined>(undefined);
-  const [test, setTest] = useState<Record<string, string>>({});
+  const [test, setTest] = useState<
+    Record<string, { message: string; failed: boolean }>
+  >({});
+  const [checking, setChecking] = useState(false);
   const [detected, setDetected] = useState<CLIDetection[] | null>(null);
   const { data: profiles } = useCoreQuery("providers.list");
   const { data: settings } = useCoreQuery("settings.get");
@@ -435,6 +452,49 @@ export function Settings() {
   const theme = useUI((s) => s.theme);
   const update = (values: Partial<SettingsType>) =>
     run(() => action("settings.set", { values }));
+  const checkProvider = async (profile: Profile, probe = false) => {
+    setChecking(true);
+    setTest((previous) => ({
+      ...previous,
+      [profile.id]: {
+        message: probe ? "Testing connection…" : "Checking setup…",
+        failed: false,
+      },
+    }));
+    try {
+      const result = await action("providers.test", {
+        profile_id: profile.id,
+        ...(probe ? { probe: true } : {}),
+      });
+      setTest((previous) => ({
+        ...previous,
+        [profile.id]: {
+          message:
+            result.status === "ready"
+              ? [
+                  result.probed
+                    ? "Connection succeeded."
+                    : profile.kind === "cli"
+                      ? "Installation checked."
+                      : "Setup checked. No test request was sent.",
+                  ...(result.warnings ?? []),
+                ].join(" ")
+              : (result.error ?? "Provider check failed."),
+          failed: result.status !== "ready",
+        },
+      }));
+    } catch (error) {
+      setTest((previous) => ({
+        ...previous,
+        [profile.id]: {
+          message: error instanceof Error ? error.message : String(error),
+          failed: true,
+        },
+      }));
+    } finally {
+      setChecking(false);
+    }
+  };
   return (
     <div
       className="modal-backdrop"
@@ -461,6 +521,7 @@ export function Settings() {
             <X size={20} />
           </button>
         </div>
+        <ErrorNotice />
         <div className="settings-body">
           <nav>
             {[
@@ -512,7 +573,16 @@ export function Settings() {
                             {profile.model || profile.cli}
                           </span>
                           {test[profile.id] && (
-                            <small>{test[profile.id]}</small>
+                            <small
+                              role={
+                                test[profile.id].failed ? "alert" : "status"
+                              }
+                              className={
+                                test[profile.id].failed ? "error-text" : ""
+                              }
+                            >
+                              {test[profile.id].message}
+                            </small>
                           )}
                         </div>
                         <div>
@@ -539,31 +609,21 @@ export function Settings() {
                           </button>
                           <button onClick={() => setEdit(profile)}>Edit</button>
                           <button
-                            onClick={() =>
-                              run(async () => {
-                                setTest((prev) => ({
-                                  ...prev,
-                                  [profile.id]: "Testing…",
-                                }));
-                                const result = await action("providers.test", {
-                                  profile_id: profile.id,
-                                });
-                                setTest((prev) => ({
-                                  ...prev,
-                                  [profile.id]:
-                                    result.status === "ready"
-                                      ? [
-                                          "Capabilities checked.",
-                                          ...(result.warnings ?? []),
-                                        ].join(" ")
-                                      : (result.error ??
-                                        "Provider test failed."),
-                                }));
-                              })
-                            }
+                            disabled={checking}
+                            onClick={() => void checkProvider(profile)}
                           >
-                            Test
+                            {profile.kind === "cli"
+                              ? "Check installation"
+                              : "Check setup"}
                           </button>
+                          {profile.kind !== "cli" && (
+                            <button
+                              disabled={checking}
+                              onClick={() => void checkProvider(profile, true)}
+                            >
+                              Test connection
+                            </button>
+                          )}
                           <button
                             aria-label={`Delete ${profile.label}`}
                             onClick={() =>
@@ -577,6 +637,12 @@ export function Settings() {
                             <Trash2 size={14} />
                           </button>
                         </div>
+                        {profile.kind !== "cli" && (
+                          <small className="probe-notice">
+                            Test connection sends a short test request; your
+                            provider may charge.
+                          </small>
+                        )}
                       </div>
                     ))}
                     {!profiles?.length && (
@@ -780,9 +846,24 @@ export function Welcome({ onClose }: { onClose: () => void }) {
   const [kind, setKind] = useState<Profile["kind"]>("api");
   const { data: assets } = useCoreQuery("assets.status");
   const { data: profiles } = useCoreQuery("providers.list");
+  const { data: session } = useSession();
+  const [choosing, setChoosing] = useState(false);
   useEffect(() => {
-    if (profiles?.length) setStep(3);
-  }, [profiles?.length]);
+    if (
+      session?.provider_profile_id &&
+      profiles?.some((profile) => profile.id === session.provider_profile_id)
+    )
+      setStep(3);
+  }, [session?.provider_profile_id, profiles]);
+  const chooseProfile = async (profile: Profile) => {
+    setChoosing(true);
+    try {
+      await action("providers.select", { profile_id: profile.id });
+      setStep(3);
+    } finally {
+      setChoosing(false);
+    }
+  };
   return (
     <div className="modal-backdrop">
       <section
@@ -811,8 +892,27 @@ export function Welcome({ onClose }: { onClose: () => void }) {
               ? "The model makes the decisions. badshop does the pixel work."
               : "Download the essentials now, or let badshop fetch them when needed."}
         </p>
+        <ErrorNotice />
         {step === 1 ? (
           <>
+            {!!profiles?.length && (
+              <div className="saved-provider-choice">
+                <h3>Use a saved provider</h3>
+                {profiles.map((profile) => (
+                  <button
+                    key={profile.id}
+                    disabled={choosing}
+                    aria-label={`Use ${profile.label}`}
+                    onClick={() => run(() => chooseProfile(profile))}
+                  >
+                    <strong>{profile.label}</strong>
+                    <span>{profile.model || profile.cli}</span>
+                    <ArrowRight size={15} />
+                  </button>
+                ))}
+                <p>Or connect another provider below.</p>
+              </div>
+            )}
             <div className="kind-grid">
               {Object.entries(kindNames).map(([value, label]) => {
                 const Icon = icons[value as Profile["kind"]];
@@ -835,15 +935,7 @@ export function Welcome({ onClose }: { onClose: () => void }) {
             </button>
           </>
         ) : step === 2 ? (
-          <ProfileEditor
-            kind={kind}
-            onSaved={(profile) =>
-              run(async () => {
-                await action("providers.select", { profile_id: profile.id });
-                setStep(3);
-              })
-            }
-          />
+          <ProfileEditor kind={kind} onSaved={chooseProfile} />
         ) : (
           <>
             <div className="welcome-assets">

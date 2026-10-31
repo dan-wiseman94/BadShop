@@ -17,6 +17,7 @@ app/src-tauri/target/
 app/src-tauri/gen/
 app/test-results/
 app/playwright-report/
+.playwright-mcp/
 packaging/core-dist/
 packaging/build/
 core/dist/

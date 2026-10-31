@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Form from "@rjsf/core";
 import { customizeValidator } from "@rjsf/validator-ajv8";
 import type {
@@ -6,8 +6,19 @@ import type {
   UiSchema,
   WidgetProps,
   FieldProps,
+  IconButtonProps,
 } from "@rjsf/utils";
-import { Crosshair, FolderOpen, Shuffle } from "lucide-react";
+import {
+  Crosshair,
+  FolderOpen,
+  Shuffle,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Copy,
+  X,
+} from "lucide-react";
 import type { Params, Tool, Artifact } from "../types";
 import { action, run, useSession, useArtifact, imageUrl } from "../data";
 import { native, pickImages } from "../native";
@@ -151,12 +162,33 @@ export function ImagePicker({
 }
 function ColorPicker({ id, value, onChange, disabled }: WidgetProps) {
   const str = String(value ?? "#ffffff");
+  let swatch = /^#[\da-f]{6}$/i.test(str) ? str : "#ffffff";
+  if (typeof CanvasRenderingContext2D !== "undefined") {
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = str;
+      const normalized = ctx.fillStyle;
+      if (/^#[\da-f]{6}$/i.test(normalized)) swatch = normalized;
+      else {
+        const channels = normalized.match(/[\d.]+/g)?.slice(0, 3);
+        if (channels?.length === 3)
+          swatch =
+            "#" +
+            channels
+              .map((channel) =>
+                Math.round(Number(channel)).toString(16).padStart(2, "0"),
+              )
+              .join("");
+      }
+    }
+  }
   return (
     <div className="color-picker">
       <input
         type="color"
         aria-label="Color swatch"
-        value={/^#[\da-f]{6}$/i.test(str) ? str : "#ffffff"}
+        value={swatch}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
@@ -190,8 +222,54 @@ function Seed({ id, value, onChange, disabled }: WidgetProps) {
     </div>
   );
 }
+interface ToolFormContext {
+  coordinateImageId: string | null;
+  coordinateImageLabel?: string;
+}
+function cleanParams(params: Params = {}) {
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      ([, value]) => value !== null && value !== undefined,
+    ),
+  );
+}
+/** Refresh unchanged fields after replay; retain draft edits and identify real conflicts. */
+export function mergeParameterDraft(
+  draft: Params,
+  baseline: Params,
+  current: Params,
+) {
+  const data: Params = {};
+  const conflicts: string[] = [];
+  const equal = (a: unknown, b: unknown) =>
+    JSON.stringify(a) === JSON.stringify(b);
+  for (const key of new Set([
+    ...Object.keys(baseline),
+    ...Object.keys(draft),
+    ...Object.keys(current),
+  ])) {
+    const edited = !equal(draft[key], baseline[key]);
+    const changed = !equal(current[key], baseline[key]);
+    const value = edited ? draft[key] : current[key];
+    if (value !== undefined) data[key] = value;
+    if (edited && changed && !equal(draft[key], current[key]))
+      conflicts.push(key);
+  }
+  return { data, conflicts };
+}
 export function Coordinates(props: FieldProps) {
   const { schema, formData, onChange, disabled, fieldPathId } = props;
+  const context = props.registry?.formContext as ToolFormContext | undefined;
+  const targetImage = context?.coordinateImageId;
+  const path = fieldPathId.path;
+  const itemIndex = path
+    .map((part) => typeof part === "number")
+    .lastIndexOf(true);
+  const title =
+    schema.title ??
+    (itemIndex >= 0
+      ? `${String(path[itemIndex - 1]).replaceAll("_", " ")} ${Number(path[itemIndex]) + 1}`
+      : "Coordinates");
   const kind =
     schema.format === "badshop-box"
       ? "box"
@@ -208,14 +286,14 @@ export function Coordinates(props: FieldProps) {
   const change = (next: number[]) => onChange(next, fieldPathId.path);
   return (
     <div className="coordinate-field">
-      <label>{schema.title ?? "Coordinates"}</label>
+      <label>{title}</label>
       <div className="coordinate-inputs">
         {labels.map((label, i) => (
           <label key={label}>
             {label}
             <input
               type="number"
-              aria-label={`${schema.title ?? "Coordinates"} ${label}`}
+              aria-label={`${title} ${label}`}
               disabled={disabled}
               value={value[i] ?? ""}
               onChange={(e) => {
@@ -229,11 +307,14 @@ export function Coordinates(props: FieldProps) {
       </div>
       <button
         type="button"
-        disabled={disabled}
+        disabled={disabled || !targetImage}
         onClick={() =>
+          targetImage &&
           useUI.getState().set({
             pick: {
               kind,
+              artifactId: targetImage,
+              label: context?.coordinateImageLabel,
               complete: (next) =>
                 change(
                   schema.format === "badshop-spot"
@@ -247,6 +328,11 @@ export function Coordinates(props: FieldProps) {
         <Crosshair size={14} />
         Pick on image
       </button>
+      {!targetImage && (
+        <p className="field-description">
+          Choose an input image to pick coordinates.
+        </p>
+      )}
       {!props.required && value.length > 0 && (
         <button
           type="button"
@@ -260,6 +346,63 @@ export function Coordinates(props: FieldProps) {
     </div>
   );
 }
+function ArrayAction({
+  kind,
+  id,
+  onClick,
+  disabled,
+}: {
+  kind: "add" | "remove" | "up" | "down" | "copy" | "clear";
+} & IconButtonProps) {
+  const Icon = {
+    add: Plus,
+    remove: Trash2,
+    up: ArrowUp,
+    down: ArrowDown,
+    copy: Copy,
+    clear: X,
+  }[kind];
+  const label = {
+    add: "Add item",
+    remove: "Remove item",
+    up: "Move item up",
+    down: "Move item down",
+    copy: "Copy item",
+    clear: "Clear item",
+  }[kind];
+  return (
+    <button
+      type="button"
+      id={id}
+      className="array-action"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon size={14} />
+      {kind === "add" && label}
+    </button>
+  );
+}
+const arrayButtons = {
+  AddButton: (props: IconButtonProps) => <ArrayAction {...props} kind="add" />,
+  RemoveButton: (props: IconButtonProps) => (
+    <ArrayAction {...props} kind="remove" />
+  ),
+  MoveUpButton: (props: IconButtonProps) => (
+    <ArrayAction {...props} kind="up" />
+  ),
+  MoveDownButton: (props: IconButtonProps) => (
+    <ArrayAction {...props} kind="down" />
+  ),
+  CopyButton: (props: IconButtonProps) => (
+    <ArrayAction {...props} kind="copy" />
+  ),
+  ClearButton: (props: IconButtonProps) => (
+    <ArrayAction {...props} kind="clear" />
+  ),
+};
 export function ToolForm({
   tool,
   initial,
@@ -273,28 +416,88 @@ export function ToolForm({
   submitLabel?: string;
   disabled?: boolean;
 }) {
-  const [formData, setFormData] = useState<Params>(
-    Object.fromEntries(
-      Object.entries(initial ?? {}).filter(([, value]) => value !== null),
-    ),
-  );
+  const [formData, setFormData] = useState<Params>(() => cleanParams(initial));
+  const baseline = useRef(cleanParams(initial));
+  const initialSignature = JSON.stringify(cleanParams(initial));
+  const baselineSignature = useRef(initialSignature);
+  const source = useRef({
+    data: cleanParams(initial),
+    signature: initialSignature,
+  });
+  source.current = { data: cleanParams(initial), signature: initialSignature };
+  const [conflicts, setConflicts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  useEffect(() => {
+    if (initialSignature === baselineSignature.current || submitting.current)
+      return;
+    const merged = mergeParameterDraft(
+      formData,
+      baseline.current,
+      source.current.data,
+    );
+    setFormData(merged.data);
+    setConflicts((previous) => [
+      ...new Set([
+        ...previous.filter(
+          (key) =>
+            JSON.stringify(merged.data[key]) !==
+            JSON.stringify(source.current.data[key]),
+        ),
+        ...merged.conflicts,
+      ]),
+    ]);
+    baseline.current = source.current.data;
+    baselineSignature.current = initialSignature;
+  }, [initialSignature, busy]);
   const schema = normalizeSchema(tool.schema);
+  const { data: session } = useSession();
+  const imageFields = Object.entries(schema.properties ?? {}).filter(
+    ([, field]) =>
+      typeof field === "object" &&
+      (field.format === "badshop-image" ||
+        (typeof field.items === "object" &&
+          !Array.isArray(field.items) &&
+          field.items.format === "badshop-image")),
+  );
+  const imageField = tool.name === "paste" ? "base" : imageFields[0]?.[0];
+  const imageValue = imageField ? formData[imageField] : undefined;
+  const reference = Array.isArray(imageValue) ? imageValue[0] : imageValue;
+  const artifact =
+    typeof reference === "string" ? session?.artifacts[reference] : undefined;
+  const context: ToolFormContext = {
+    coordinateImageId: artifact?.id ?? null,
+    coordinateImageLabel: artifact?.label,
+  };
   return (
     <Form
       schema={schema}
       uiSchema={schemaUI(schema)}
       validator={validator}
       fields={{ Coordinates }}
+      formContext={context}
       widgets={{ ImagePicker, ColorPicker, Seed }}
+      templates={{ ButtonTemplates: arrayButtons }}
       formData={formData}
       onChange={(event) => setFormData(event.formData ?? {})}
       onSubmit={(event) =>
         run(async () => {
           setBusy(true);
+          submitting.current = true;
+          const submitted = event.formData ?? {};
+          const previousSource = source.current.signature;
           try {
-            await onSubmit(event.formData ?? {});
+            await onSubmit(submitted);
+            setFormData(
+              source.current.signature !== previousSource
+                ? source.current.data
+                : submitted,
+            );
+            baseline.current = source.current.data;
+            baselineSignature.current = source.current.signature;
+            setConflicts([]);
           } finally {
+            submitting.current = false;
             setBusy(false);
           }
         })
@@ -307,13 +510,36 @@ export function ToolForm({
         arrayMinItems: { populate: "requiredOnly" },
       }}
     >
+      {!!conflicts.length && (
+        <div className="parameter-conflict" role="alert">
+          <p>
+            This step changed during replay. Your edits to{" "}
+            {conflicts.join(", ")} are preserved. Choose which values to use
+            before applying.
+          </p>
+          <div>
+            <button
+              type="button"
+              onClick={() => {
+                setFormData(source.current.data);
+                setConflicts([]);
+              }}
+            >
+              Use current parameters
+            </button>
+            <button type="button" onClick={() => setConflicts([])}>
+              Keep my edits
+            </button>
+          </div>
+        </div>
+      )}
       {formData.model === "birefnet-general" && (
         <p className="model-memory-note">{BIREFNET_MEMORY_NOTE}</p>
       )}
       <button
         type="submit"
         className="primary form-run"
-        disabled={disabled || busy}
+        disabled={disabled || busy || conflicts.length > 0}
       >
         {busy ? "Working…" : submitLabel}
       </button>

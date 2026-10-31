@@ -58,19 +58,61 @@ export function reconcileSessionSnapshot(
 export function useSession() {
   return useCoreQuery("session.get");
 }
+export type DownloadActivities = Record<
+  string,
+  { pending: number; error?: string }
+>;
 export async function action<K extends keyof MethodMap>(
   method: K,
   params?: MethodMap[K][0],
 ): Promise<MethodMap[K][1]> {
+  const downloadName =
+    method === "assets.download" && params && "name" in params
+      ? String(params.name)
+      : null;
+  if (downloadName)
+    queries.setQueryData<DownloadActivities>(["downloads"], (old) => ({
+      ...old,
+      [downloadName]: { pending: (old?.[downloadName]?.pending ?? 0) + 1 },
+    }));
   let value: MethodMap[K][1];
+  let downloadError: string | undefined;
   try {
     value = await rpc.request(method, params);
+  } catch (error) {
+    downloadError = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
-    if (method === "assets.download" && params && "name" in params) {
-      queries.setQueryData<Params>(["progress", params.name], (old) =>
-        old ? { ...old, active: false } : old,
+    if (downloadName) {
+      const next = queries.setQueryData<DownloadActivities>(
+        ["downloads"],
+        (old) => ({
+          ...old,
+          [downloadName]: {
+            pending: Math.max(0, (old?.[downloadName]?.pending ?? 1) - 1),
+            ...(downloadError ? { error: downloadError } : {}),
+          },
+        }),
       );
+      if (!next?.[downloadName]?.pending)
+        queries.setQueryData<Params>(["progress", downloadName], (old) =>
+          old ? { ...old, active: false } : old,
+        );
     }
+  }
+  if (["session.new", "session.open", "session.restore"].includes(method)) {
+    queries.removeQueries({ queryKey: ["artifact"] });
+    queries.setQueryData<Session>(["session.get"], {
+      ...(value as Session),
+      stream_text: "",
+    });
+    useUI.getState().set({
+      documentGeneration: useUI.getState().documentGeneration + 1,
+      selectedStep: null,
+      selectedArtifact: null,
+      pick: null,
+      paletteOpen: false,
+    });
   }
   await queries.invalidateQueries({ queryKey: ["session.get"] });
   if (method.startsWith("providers."))
@@ -84,7 +126,7 @@ export async function action<K extends keyof MethodMap>(
 export function run<T>(work: () => Promise<T>) {
   void work().catch(showError);
 }
-function applyEvent({ method, params }: CoreEvent) {
+export function applyCoreEvent({ method, params }: CoreEvent) {
   if (method === "message.delta") {
     queries.setQueryData<Session>(["session.get"], (old) =>
       old
@@ -115,7 +157,9 @@ function applyEvent({ method, params }: CoreEvent) {
   }
   if (method === "core.log") {
     if (params.level === "error" || params.level === "warning")
-      useUI.getState().set({ error: String(params.message) });
+      useUI
+        .getState()
+        .set({ error: String(params.message), errorAction: null });
     return;
   }
   if (["step.finished", "step.failed", "turn.finished"].includes(method)) {
@@ -166,13 +210,30 @@ function applyEvent({ method, params }: CoreEvent) {
         (id) => id !== params.step_id,
       );
     if (method === "turn.started") {
+      useUI.getState().set({ error: null, errorAction: null });
       next.turn_running = true;
       next.stream_text = "";
     }
     if (method === "turn.finished") {
       next.turn_running = false;
       next.stream_text = "";
-      if (params.error) useUI.getState().set({ error: String(params.error) });
+      if (params.error)
+        useUI.getState().set({
+          error: String(params.error),
+          errorAction: params.reason === "provider_error" ? "retry-turn" : null,
+        });
+      else if (params.reason === "budget")
+        useUI.getState().set({
+          error:
+            "The agent reached the step limit for this turn. Send another message to continue, or raise Maximum steps per turn in Settings.",
+          errorAction: null,
+        });
+      else if (params.reason === "invalid_calls")
+        useUI.getState().set({
+          error:
+            "The agent stopped after repeated invalid tool calls. Check the failed steps, then send a clearer instruction or choose another model.",
+          errorAction: null,
+        });
     }
     return next;
   });
@@ -231,7 +292,7 @@ export function startCore() {
     useUI.getState().set({ status });
     if (status === "disconnected") schedule();
   });
-  const offEvents = rpc.onEvent(applyEvent);
+  const offEvents = rpc.onEvent(applyCoreEvent);
   const offNative = onCoreStatus((event) => {
     if (disposed) return;
     useUI.getState().set({ logPath: event.log_path });

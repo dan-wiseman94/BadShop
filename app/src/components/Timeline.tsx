@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Clock3,
@@ -18,6 +18,7 @@ import { useUI } from "../store";
 import { copyText, openLink } from "../native";
 import { ToolForm, normalizeSchema } from "./ToolForm";
 import { ArtifactThumb } from "./Viewer";
+import { ErrorNotice } from "./ErrorNotice";
 import type { Tool, Step, Params } from "../types";
 export function parameterSummary(params: Params) {
   return Object.entries(params)
@@ -183,10 +184,7 @@ export function Timeline() {
         Run tool<span>{tools?.length ?? "…"} tools</span>
       </button>
       {step && tool && (
-        <div
-          className="step-detail"
-          key={`${session?.id}-${step.id}-${step.edited}`}
-        >
+        <div className="step-detail" key={`${session?.id}-${step.id}`}>
           <div className="detail-heading">
             <h3>
               {step.index}. {step.tool}
@@ -343,6 +341,7 @@ export function ToolPalette() {
   const picking = useUI((state) => !!state.pick);
   const [search, setSearch] = useState("");
   const [tool, setTool] = useState<Tool | null>(null);
+  const defaults = useRef<Params>({});
   const { data: tools } = useCoreQuery("tools.list");
   const { data: session } = useSession();
   const groups = (tools ?? [])
@@ -388,6 +387,7 @@ export function ToolPalette() {
             <X size={20} />
           </button>
         </div>
+        <ErrorNotice />
         {tool ? (
           <>
             <button className="back-link" onClick={() => setTool(null)}>
@@ -396,21 +396,7 @@ export function ToolPalette() {
             <ToolForm
               key={tool.name}
               tool={tool}
-              initial={Object.fromEntries(
-                Object.entries(tool.schema.properties ?? {})
-                  .filter(
-                    ([, schema]) =>
-                      typeof schema === "object" &&
-                      schema.format === "badshop-image",
-                  )
-                  .map(([name]) => [
-                    name,
-                    useUI.getState().selectedArtifact ??
-                      session?.steps.at(-1)?.outputs[0] ??
-                      Object.values(session?.artifacts ?? {})[0]?.id,
-                  ])
-                  .filter(([, value]) => value),
-              )}
+              initial={defaults.current}
               onSubmit={async (params) => {
                 const result = await action("tools.run", {
                   tool: tool.name,
@@ -445,7 +431,36 @@ export function ToolPalette() {
                     <button
                       key={t.name}
                       className="tool-option"
-                      onClick={() => setTool(t)}
+                      onClick={() => {
+                        const selected =
+                          useUI.getState().selectedArtifact ??
+                          session?.steps.at(-1)?.outputs[0] ??
+                          Object.values(session?.artifacts ?? {}).find(
+                            (artifact) =>
+                              !Object.values(session?.artifacts ?? {}).some(
+                                (other) => other.original_id === artifact.id,
+                              ),
+                          )?.id;
+                        const schema = normalizeSchema(t.schema);
+                        defaults.current = Object.fromEntries(
+                          Object.entries(schema.properties ?? {}).flatMap<
+                            [string, unknown]
+                          >(([name, field]) => {
+                            if (typeof field !== "object" || !selected)
+                              return [];
+                            if (field.format === "badshop-image")
+                              return [[name, selected]];
+                            if (
+                              typeof field.items === "object" &&
+                              !Array.isArray(field.items) &&
+                              field.items.format === "badshop-image"
+                            )
+                              return [[name, [selected]]];
+                            return [];
+                          }),
+                        );
+                        setTool(t);
+                      }}
                     >
                       <strong>{t.name}</strong>
                       <span>{t.summary}</span>

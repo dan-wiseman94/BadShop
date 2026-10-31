@@ -47,6 +47,8 @@ log = logging.getLogger("badshop.server")
 
 Send = Callable[[str], Awaitable[None]]
 SessionName = Annotated[str, Field(min_length=1, max_length=200)]
+DocumentRevision = Annotated[int, Field(strict=True, ge=0)]
+DiscardUnsaved = Annotated[bool, Field(strict=True)]
 MaxPx = Annotated[int, Field(ge=16, le=4096)]
 Verdict = Literal["approve", "reject", "edit"]
 MAX_IMPORT_BYTES = 200 * 2**20  # a picked file bigger than this is refused before it is read
@@ -171,6 +173,10 @@ class CoreApp:
             self._profiles, self._profiles_error = {}, e
             log.warning("provider profiles could not be loaded; tools and sessions remain available")
         self._dirty = False  # the session changed since the last autosave
+        # Autosave is recovery, not a user Save. Revisions never repeat during this core's lifetime,
+        # including when a saved session id is opened again, so dialogs can safely guard replacement.
+        self._document_revision = 0
+        self._saved_revision = 0
         self._closed = False
         # Two gates: the in-app turn's (Stop cancels it) and the CLI agents' (only a closed UI, a new or
         # opened session, or close() cancels it). Both check an edit's image ids against the open session.
@@ -202,15 +208,19 @@ class CoreApp:
         return {"executor": self._executor, "output_dir": self._output_dir(), "on_change": self._changed}
 
     def _own(self, session: Session) -> Session:
-        """Give a session the app just made (a session emits nothing while it is made) an emit that forwards
-        its events only while it is the open session. Step ids start again at s1 in every session and
+        """Forward events and changes only while this is the open session. Step ids start at s1 in every session and
         events carry no session id, so what a replaced session still does (a waiting CLI step it rejects
         after session.open, say) must not reach a client: it would land on the new session's step."""
         def emit(method: str, params: dict) -> None:
             if self.session is session:
                 self._emit(method, params)
 
+        def changed() -> None:
+            if getattr(self, "session", None) is session:
+                self._changed()
+
         session.emit = emit
+        session.on_change = changed
         return session
 
     def _new_session(self, name: str) -> Session:
@@ -219,6 +229,7 @@ class CoreApp:
         return session
 
     def _changed(self) -> None:  # Session.on_change: called from whichever thread changed it
+        self._document_revision += 1
         self._dirty = True
 
     def _resolve_ref(self, ref: str) -> str:  # the gates' check of an edit's image ids (thread-safe, no disk)
@@ -331,6 +342,8 @@ class CoreApp:
         """The session as saved (SessionData by alias) plus what the app knows about it."""
         return {**self.session.data.model_dump(mode="json", by_alias=True),
                 "path": str(self.path) if self.path else None,
+                "document_revision": self._document_revision,
+                "unsaved_changes": self._document_revision != self._saved_revision,
                 "turn_running": self._turn is not None or self._starting,
                 "pending_approvals": self.gate.pending() + self._cli_gate.pending(),
                 "restorable": str(self._restorable) if self._restorable else None}
@@ -340,6 +353,12 @@ class CoreApp:
             raise EngineError("badshop is closing")
         if self._turn is not None or self._starting:
             raise EngineError("the agent is still working", hint="press Stop, or wait for the turn to finish")
+
+    def _check_revision(self, expected_revision: int | None, operation: str) -> None:
+        """Called under the session lock, immediately before a guarded replacement or file write."""
+        if expected_revision is not None and expected_revision != self._document_revision:
+            raise EngineError(f"the session changed before it could be {operation}",
+                              hint="review the latest changes and try again")
 
     def _cancel_approvals(self, note: str) -> None:
         """Reject every step waiting for approval, the turn's and the CLI agents'."""
@@ -425,7 +444,7 @@ class CoreApp:
                 self._emit("turn.finished", {"reason": "error", "error": f"{type(e).__name__}: {e}"})
         finally:
             self._turn = self._turn_cfg = None
-        await self._blocking(self._changed)  # one autosave of the session as the turn left it
+        await self._blocking(session.on_change)  # the old turn must never dirty a replacement session
 
     async def _stop_turn(self, note: str) -> bool:
         """Cancel the running turn and wait for it to end. run_turn rejects the steps it left waiting
@@ -540,7 +559,8 @@ class CoreApp:
         ):
             self.dispatcher.method(name, actors=actors)(handler)
 
-    async def _switch(self, replace: Callable[[], None], note: str) -> dict:
+    async def _switch(self, replace: Callable[[], None], note: str,
+                      expected_revision: int | None = None, discard_unsaved: bool = False) -> dict:
         """session.new, session.open and session.restore: `replace` swaps the session in, under the lock.
         From the idle check until the swap is done no turn can start (chat.send refuses while `_switching`),
         so a turn never runs on a session that is being replaced; `replace` checks again under the lock. CLI
@@ -548,13 +568,30 @@ class CoreApp:
         when the caller of this method was cancelled (a swap whose thread has started always finishes; one
         cancelled while it waits for the lock never starts, and then nothing changes)."""
         self._check_idle()
-        before = self.session
+        replaced = False
+
+        def guarded_replace() -> None:
+            nonlocal replaced
+            self._check_idle()
+            # Legacy clients omit the token. Desktop clients opt into both checks; they run after
+            # any queued mutation, before loading files, swapping sessions, or cancelling approvals.
+            if expected_revision is not None:
+                self._check_revision(expected_revision, "replaced")
+                if self._document_revision != self._saved_revision and not discard_unsaved:
+                    raise EngineError("the session has unsaved changes",
+                                      hint="Save the project or explicitly discard its changes")
+            before = self.session
+            try:
+                replace()
+            finally:
+                replaced = self.session is not before
+
         self._switching += 1
         try:
-            await self._blocking(replace)
+            await self._blocking(guarded_replace)
         finally:
             self._switching -= 1
-            if self.session is not before:
+            if replaced:
                 self._cancel_approvals(note)
                 for key, provider in list(self._cli_providers.items()):
                     if key[0] != self.session.data.id:
@@ -562,18 +599,22 @@ class CoreApp:
                         await provider.close()
         return self._snapshot()
 
-    async def _session_new(self, actor: str, name: SessionName = "Untitled") -> dict:
+    async def _session_new(self, actor: str, name: SessionName = "Untitled",
+                           expected_revision: DocumentRevision | None = None,
+                           discard_unsaved: DiscardUnsaved = False) -> dict:
         def replace() -> None:
             self._check_idle()
             self.session, self.path = self._new_session(name), None
-            self._dirty = True
+            self._changed()
+            self._saved_revision = self._document_revision
 
-        return await self._switch(replace, "the user started a new session")
+        return await self._switch(replace, "the user started a new session", expected_revision, discard_unsaved)
 
     async def _session_get(self, actor: str) -> dict:
         return self._snapshot()
 
-    async def _session_open(self, actor: str, path: str) -> dict:
+    async def _session_open(self, actor: str, path: str, expected_revision: DocumentRevision | None = None,
+                            discard_unsaved: DiscardUnsaved = False) -> dict:
         p = _user_path(path)
 
         def load() -> None:
@@ -581,11 +622,13 @@ class CoreApp:
             session = project.open_project(p, **self._session_kw())  # any failure: the session is untouched
             # a file in the autosave folder is badshop's, not the user's project: Save must not write there
             self.session, self.path = self._own(session), None if _in_autosave_folder(p) else p
-            self._dirty = True
+            self._changed()
+            self._saved_revision = self._document_revision
 
-        return await self._switch(load, "the user opened another session")
+        return await self._switch(load, "the user opened another session", expected_revision, discard_unsaved)
 
-    async def _session_restore(self, actor: str) -> dict:
+    async def _session_restore(self, actor: str, expected_revision: DocumentRevision | None = None,
+                               discard_unsaved: DiscardUnsaved = False) -> dict:
         """Open the last run's autosave (the offer the snapshot's `restorable` names) as an unsaved
         session. Taking the offer uses it up; a failed restore changes nothing."""
         def load() -> None:
@@ -595,27 +638,33 @@ class CoreApp:
                                   hint="the last run left no autosaved session, or it was restored already")
             session = project.open_project(self._restorable, **self._session_kw())
             self.session, self.path, self._restorable = self._own(session), None, None
-            self._dirty = True  # autosaved at once: from now on this run's autosave holds it
+            self._changed()  # recovery is unsaved; from now on this run's autosave holds it
 
-        return await self._switch(load, "the user restored the autosaved session")
+        return await self._switch(load, "the user restored the autosaved session", expected_revision, discard_unsaved)
 
-    async def _session_save(self, actor: str) -> dict:
+    async def _session_save(self, actor: str, expected_revision: DocumentRevision | None = None) -> dict:
         def save() -> Path:
+            self._check_revision(expected_revision, "saved")
             if self.path is None:
                 raise EngineError("this session has no project file yet", hint="use Save As to pick one")
-            return project.save(self.session, self.path)
+            saved = project.save(self.session, self.path)
+            self._saved_revision = self._document_revision
+            return saved
 
         return {"path": str(await self._blocking(save))}
 
-    async def _session_save_as(self, actor: str, path: str) -> dict:
+    async def _session_save_as(self, actor: str, path: str,
+                               expected_revision: DocumentRevision | None = None) -> dict:
         p = _user_path(path)
 
         def save() -> Path:
+            self._check_revision(expected_revision, "saved")
             if _in_autosave_folder(p):  # the next launch would move the "project" out of the user's way
                 folder = project.autosave_path().parent
                 raise EngineError(f"can't save a project in {folder}: it is badshop's autosave folder",
                                   hint="pick another folder for the project")
             self.path = project.save(self.session, p)
+            self._saved_revision = self._document_revision
             return self.path
 
         return {"path": str(await self._blocking(save))}
@@ -628,7 +677,7 @@ class CoreApp:
     async def _session_set_approval_mode(self, actor: str, mode: ApprovalMode) -> dict:
         def apply() -> None:
             self.session.data.approval_mode = mode
-            self._dirty = True
+            self._changed()
 
         await self._blocking(apply)
         if self._turn_cfg is not None:  # the running turn follows the switch from its next tool call

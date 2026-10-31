@@ -1,21 +1,26 @@
-"""Linux native smoke on a dedicated X server (never use the user's active display).
+"""Native installed desktop smoke; on Linux use a dedicated X server.
 
 xvfb-run -a uv run --project core python packaging/smoke_desktop.py \
     --screenshot /tmp/badshop.png -- /path/to/installed/badshop-desktop
 
-Requires Xvfb, xdotool, libX11 and (only for screenshots) ImageMagick. Confirms a real
-renderer/core socket, a visible native window, and graceful close without child processes.
+Linux needs Xvfb, xdotool, libX11 and ImageMagick; macOS needs PyObjC Cocoa/Quartz.
+Requires a visible window, a renderer/core socket, a nonblank content screenshot,
+and normal window close/application quit without surviving child processes.
 """
 import argparse
 import ctypes
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 import psutil
+from native_windows import normal_close, visible_window
+from native_windows import screenshot as capture_window
+from PIL import Image
 
 
 def close_window(window: int) -> None:
@@ -55,10 +60,35 @@ def close_window(window: int) -> None:
         xlib.XCloseDisplay(display)
 
 
+def core_connections(core: psutil.Process) -> tuple[list[int], int]:
+    if sys.platform == 'darwin':
+        # macOS restricts psutil's system TCP table even for a process we own.
+        result = subprocess.run(['lsof', '-nP', '-a', '-p', str(core.pid), '-iTCP', '-F', 'nT'],
+                                capture_output=True, text=True, check=False, timeout=5)
+        ports = []
+        endpoint = ''
+        established = 0
+        for line in result.stdout.splitlines():
+            if line.startswith('n'):
+                endpoint = line[1:]
+            elif line == 'TST=LISTEN' and endpoint.startswith('127.0.0.1:'):
+                ports.append(int(endpoint.rsplit(':', 1)[1]))
+            elif line == 'TST=ESTABLISHED':
+                established += 1
+        return ports, established
+    sockets = core.net_connections('tcp')
+    return ([c.laddr.port for c in sockets if c.status == 'LISTEN' and c.laddr.ip == '127.0.0.1'],
+            sum(c.status == 'ESTABLISHED' for c in sockets))
+
+
 def smoke(command: list[str], screenshot: Path | None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
         root = Path(folder)
-        env = {**os.environ, 'GDK_BACKEND': 'x11'}
+        env = dict(os.environ)
+        # Preserve the real installation lookup before isolating XDG application data.
+        env.setdefault('FLATPAK_USER_DIR', str(Path(env.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'flatpak'))
+        if sys.platform == 'linux':
+            env['GDK_BACKEND'] = 'x11'
         for key, suffix in [('XDG_CONFIG_HOME', 'config'), ('XDG_DATA_HOME', 'data'),
                             ('XDG_CACHE_HOME', 'cache'), ('XDG_STATE_HOME', 'state'),
                             ('BADSHOP_CONFIG_DIR', 'core-config'), ('BADSHOP_DATA_DIR', 'core-data'),
@@ -71,41 +101,66 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
             proc = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
             children = []
             try:
-                deadline = time.monotonic() + 45
+                deadline = time.monotonic() + 90
                 while time.monotonic() < deadline:
                     if proc.poll() is not None:
                         raise RuntimeError(f'shell exited {proc.returncode}')
                     children = psutil.Process(proc.pid).children(recursive=True)
-                    cores = [p for p in children if p.name() == 'badshop-core']
+                    cores = [p for p in children if p.name() in ('badshop-core', 'badshop-core.exe')]
                     if cores:
                         core = cores[0]
-                        sockets = core.net_connections('tcp')
-                        ports = [c.laddr.port for c in sockets
-                                 if c.status == 'LISTEN' and c.laddr.ip == '127.0.0.1']
-                        connected = [c for c in sockets if c.status == 'ESTABLISHED']
-                        if ports and connected:
+                        ports, connected = core_connections(core)
+                        window = None
+                        window_pid = proc.pid
+                        for candidate in [psutil.Process(proc.pid), *children]:
+                            window = visible_window(candidate.pid)
+                            if window:
+                                window_pid = candidate.pid
+                                break
+                        if not window and sys.platform == 'linux' and Path(command[0]).name == 'flatpak':
+                            window = visible_window(0)
+                        if ports and connected and window:
                             break
                     time.sleep(.2)
                 else:
-                    raise RuntimeError('No renderer/core connection after 45 seconds')
+                    raise RuntimeError('No visible window with renderer/core connection after 90 seconds')
                 print(json.dumps({'shell_pid': proc.pid, 'core_pid': core.pid,
                                   'core_executable': core.exe(), 'listen_ports': ports,
-                                  'established_connections': len(connected)}), flush=True)
-                windows = subprocess.check_output(
-                    ['xdotool', 'search', '--onlyvisible', '--name', '^badshop$'],
-                    env=env, text=True).splitlines()
-                assert windows, 'No visible application window'
-                if screenshot:
-                    time.sleep(2)  # let the first frame settle before recording the screenshot
-                    subprocess.run(['import', '-window', 'root', str(screenshot.resolve())],
-                                   env=env, check=True)
-                close_window(int(windows[0]))
+                                  'established_connections': connected}), flush=True)
+                shot = screenshot or root / 'window.png'
+                shot.parent.mkdir(parents=True, exist_ok=True)
+                paint_deadline = time.monotonic() + 30
+                while True:
+                    capture_window(window, shot.resolve())
+                    with Image.open(shot) as frame:
+                        assert frame.width >= 900 and frame.height >= 600, 'Window capture is smaller than the app minimum'
+                        # Connecting the socket can precede WebKit's first paint on CI.
+                        # Keep the same content requirement and retain the final frame on failure.
+                        content = frame.crop((40, 100, frame.width - 40, frame.height - 40)).convert('L')
+                        if content.entropy() > 1:
+                            break
+                    assert proc.poll() is None, 'Shell exited before its first paint'
+                    assert time.monotonic() < paint_deadline, 'Webview screenshot is blank after 30 seconds'
+                    time.sleep(.5)
+                children = psutil.Process(proc.pid).children(recursive=True)
+                normal_close(window_pid, window)
                 assert proc.wait(timeout=15) == 0, 'Native close returned a failure exit code'
                 _, alive = psutil.wait_procs(children, timeout=5)
-                alive = [p for p in alive if p.status() != psutil.STATUS_ZOMBIE]
-                assert not alive, f'Children survived native close: {[p.pid for p in alive]}'
+                survivors = []
+                for child in alive:
+                    try:
+                        if child.is_running() and child.status() != psutil.STATUS_ZOMBIE:
+                            survivors.append(child.pid)
+                    except psutil.NoSuchProcess:
+                        pass
+                assert not survivors, f'Children survived native close: {survivors}'
+                if sys.platform == 'darwin':
+                    assert 'native Quit routed through project close guard' in log_path.read_text(), \
+                        'Native Quit bypassed the unsaved-project close guard'
                 print('Native desktop smoke passed: rendered window, connected core, clean close', flush=True)
             finally:
+                if proc.poll() is None:
+                    children = psutil.Process(proc.pid).children(recursive=True)
                 if proc.poll() is None:
                     proc.terminate()
                     try:
@@ -115,8 +170,11 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
                         proc.wait()
                 # The isolated harness owns these children; never leave them behind after a failure.
                 for child in children:
-                    if child.is_running():
-                        child.kill()
+                    try:
+                        if child.is_running():
+                            child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
                 psutil.wait_procs(children, timeout=5)
                 print(log_path.read_text()[-5000:])
 

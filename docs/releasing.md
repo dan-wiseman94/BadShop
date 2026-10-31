@@ -10,8 +10,11 @@ supported. The retired macos-13 CI runner from the initial spec is replaced with
 ## Local development
 
 Install Python 3.12, uv, Node 22, pnpm 10, Rust stable and Tauri's native prerequisites.
-On Linux the build needs GTK 3, WebKitGTK 4.1, OpenSSL, a C toolchain and the app indicator
-library. Development startup is `pnpm --dir app tauri dev`; Rust starts `uv run --project
+On Linux the build needs GTK 3, WebKitGTK 4.1, OpenSSL, a C toolchain, the app indicator
+library, and the TBB runtime (`libtbb12` on Ubuntu). TBB satisfies the bundled numba
+plugin's ELF dependency; AppImage packaging checks even optional native plugins.
+
+Development startup is `pnpm --dir app tauri dev`; Rust starts `uv run --project
 core badshop-core serve` and holds its stdin pipe open. Set BADSHOP_UV to an absolute uv
 path if a GUI launcher has a minimal PATH.
 
@@ -31,8 +34,10 @@ uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop
 pnpm --dir app tauri build
 ```
 
-Use `badshop-core.exe` in the smoke command on Windows. The frozen smoke starts a fresh
-private session, runs a Haar face detector in the spawned worker, saves and shuts down by
+Freezing always clears PyInstaller's analysis cache. Use `badshop-core.exe` in the smoke
+command on Windows. The frozen smoke starts a fresh private session, runs a Haar face
+detector in the spawned worker, verifies revision-guarded Save As/Save/Open and rejects
+stale writes and replacement of an unsaved project. It shuts down by
 closing stdin, then repeats with forced core termination and verifies no worker survives. The onedir is bundled as resources, not a single-file sidecar.
 
 The initial Linux .deb is about 370 MiB, AppImage 395 MiB and Flatpak 220 MiB. The unpacked core is
@@ -43,7 +48,11 @@ Installer compression reduces the download; model files add separate optional st
 ## Flatpak
 
 `packaging/build_flatpak.py path/to/badshop.deb` (dpkg-deb or ar + bsdtar) uses the same verified Linux build,
-extracts its resource layout and feeds `packaging/flatpak.json` to flatpak-builder.
+extracts its resource layout and feeds `packaging/flatpak.json` to flatpak-builder >= 1.3.4.
+This version minimum uses `appstreamcli compose` for metadata; SDK 49 no longer supplies
+the legacy `appstream-compose` executable. On Ubuntu 22.04, CI installs the current
+builder and AppStream compose support from the [official Flatpak stable PPA](https://github.com/flatpak/ppa-flatpak)
+after building and testing the .deb and AppImage, preserving their Ubuntu 22.04 baseline.
 Install org.gnome.Platform and org.gnome.Sdk branch 49 in the user Flatpak installation.
 This v1 binary bundle avoids a second cargo/node dependency resolution; the upstream
 Linux build uses committed pnpm/Cargo/uv lockfiles. A future Flathub submission can replace
@@ -54,8 +63,8 @@ profile if a host CLI is unavailable there.
 
 ## Release workflow
 
-`release.yml` builds and smoke-tests each supported target, uploads installers, and on a
-`v*` tag creates a draft GitHub release. A manual dispatch builds artifacts without publishing.
+`native-desktop.yml` is shared by PR CI and `release.yml`: it builds and tests each
+supported installer before uploading it. On a `v*` tag, `release.yml` creates a draft GitHub release. A manual dispatch builds artifacts without publishing.
 The PyPI job runs only on version tags after all bundle jobs pass, through the protected
 `pypi` GitHub environment and trusted publishing. Configure the repository/environment as
 a trusted PyPI publisher before its first release. Match the tag to Python, frontend and
@@ -70,10 +79,17 @@ Run anyway. Only bypass these prompts for builds whose source and release you tr
 
 Run the opt-in `test_live_provider.py` smoke against the intended provider and model; cloud
 calls require an explicit environment opt-in. Authenticate each supported subscription CLI
-outside badshop and test a real image/approval turn. Confirm the actual OS keychain on each
-platform (Linux Secret Service synthetic credential round-trip passed locally). Run `packaging/measure_model.py --model birefnet-general` for worker memory needs
-on release hardware. CI validates each platform's frozen core; local Linux validation alone
-is not evidence that Windows/macOS installers have run successfully.
+outside badshop and test a real image/approval turn.
+
+The required frozen-core keychain smoke stores a unique synthetic credential, retrieves it
+inside the frozen executable to authenticate to a loopback-only endpoint, then deletes it
+and verifies absence. Linux CI supplies a private D-Bus Secret Service; Windows and macOS
+use their real OS credential stores. No cloud account or provider quota is involved.
+
+Run `packaging/measure_model.py --model birefnet-general` for worker memory needs on release
+hardware. The installed-desktop job additionally launches each platform's packaged GUI; passing
+core tests alone does not satisfy that job. Missing GUI or keychain access fails rather
+than silently skipping a platform.
 
 The reference engine and skill remain unchanged as parity fixtures. Installed users can
 call `badshop` after `uv tool install ./core` (or the published PyPI package after release).
@@ -119,10 +135,31 @@ selected model/CLI behavior, not compatibility with every upstream version or ac
 To repeat native Linux lifecycle checks on an isolated display:
 
 ```sh
-xvfb-run -a uv run --project core python packaging/smoke_desktop.py -- /path/to/badshop-desktop
+xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_desktop.py -- /path/to/badshop-desktop
 ```
 
-This needs Xvfb and xdotool. The script verifies a visible window, a renderer connection to
-the bundled core, window-manager close, and process cleanup. `--screenshot PATH` additionally
-requires ImageMagick. Use the extracted .deb binary, or pass an AppImage followed by
+This needs Xvfb, xdotool and ImageMagick. The script requires a visible application
+window, a renderer connection to the bundled core, a nonblank screenshot of the content,
+window-manager close, and process cleanup. `--screenshot PATH` retains the screenshot. Use the extracted .deb binary, or pass an AppImage followed by
 `--appimage-extract-and-run`. Run it on its own display, not the active desktop.
+
+
+## Native installer checks
+
+`packaging/smoke_installer.py --screenshot packaging/native-smoke.png` discovers the one
+installer for the current OS. It extracts the .deb payload without root, silently installs
+the Windows NSIS package into a temporary directory, or mounts the macOS DMG and copies
+its .app out before launching. Windows sends the normal `WM_CLOSE` request; macOS uses
+`NSRunningApplication.terminate()` (normal application quit). Both require exit status 0
+and no surviving core/WebView children. macOS's harness uses PyObjC Cocoa/Quartz and an
+actual logged-in graphical session; CI installs these harness dependencies separately.
+Linux runs on Xvfb; AppImage's extraction runner and the installed Flatpak receive the
+same lifecycle check. AppImage FUSE mounting is not covered.
+
+The required screenshot catches an empty WebView; the established loopback connection
+confirms the renderer opened a socket to its bundled core. Authentication and editing
+behavior are verified separately by protocol and browser end-to-end tests. Screenshots are
+uploaded as `desktop-evidence-*`. These checks do **not** claim native file-dialog,
+clipboard image, or every editing-flow coverage: browser end-to-end tests cover editing,
+while native dialogs and clipboard should also receive an interactive release check.
+No test driver or automation endpoint is added to the shipped application.

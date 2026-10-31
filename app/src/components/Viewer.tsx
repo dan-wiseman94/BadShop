@@ -80,7 +80,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
             typeof value === "string" && !!session?.artifacts[value],
         )
     : undefined;
-  const id = before && inputId ? inputId : afterId;
+  const id = pick?.artifactId ?? (before && inputId ? inputId : afterId);
   const { data, error } = useArtifact(id);
   const meta = data?.meta;
   const progress = session?.stream_text;
@@ -333,6 +333,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         )}
         {pick && (
           <div className="pick-hint">
+            {pick.label && <strong>{pick.label}</strong>}
             {pick.kind === "box"
               ? "Drag a box on the image"
               : pick.kind === "segment"

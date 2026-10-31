@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Local desktop window can connect to its core and use explicit native dialogs.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save", "clipboard-manager:allow-read-image", "clipboard-manager:allow-write-text", "opener:allow-reveal-item-in-dir", {"identifier": "opener:allow-open-url", "allow": [{"url": "https://*"}, {"url": "http://*"}]}]
+  "permissions": ["core:default", "core:window:allow-destroy", "dialog:allow-open", "dialog:allow-save", "clipboard-manager:allow-read-image", "clipboard-manager:allow-write-text", "opener:allow-reveal-item-in-dir", {"identifier": "opener:allow-open-url", "allow": [{"url": "https://*"}, {"url": "http://*"}]}]
 }

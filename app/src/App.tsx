@@ -17,6 +17,9 @@ import { Chat } from "./components/Chat";
 import { Viewer } from "./components/Viewer";
 import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
+import { ErrorNotice } from "./components/ErrorNotice";
+import { SaveChangesDialog, useSessionActions } from "./sessionActions";
+import { usePaneLayout } from "./layout";
 import {
   action,
   importBlob,
@@ -41,9 +44,15 @@ import type { ApprovalMode } from "./types";
 function Resizer({
   side,
   onResize,
+  value,
+  maximum,
+  onReset,
 }: {
   side: "left" | "right";
   onResize: (delta: number) => void;
+  value: number;
+  maximum: number;
+  onReset: () => void;
 }) {
   const start = useRef(0);
   return (
@@ -52,10 +61,19 @@ function Resizer({
       role="separator"
       aria-label={`Resize ${side === "left" ? "chat" : "steps"} pane`}
       aria-orientation="vertical"
+      aria-valuenow={Math.round(value)}
+      aria-valuemin={side === "left" ? 260 : 270}
+      aria-valuemax={Math.round(maximum)}
       tabIndex={0}
+      onDoubleClick={onReset}
       onKeyDown={(event) => {
-        if (event.key === "ArrowLeft") onResize(-16);
-        if (event.key === "ArrowRight") onResize(16);
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+          event.preventDefault();
+        if (event.key === "ArrowLeft") onResize(side === "left" ? -16 : 16);
+        if (event.key === "ArrowRight") onResize(side === "left" ? 16 : -16);
+        if (event.key === "Home")
+          onResize((side === "left" ? 260 : 270) - value);
+        if (event.key === "End") onResize(maximum - value);
       }}
       onPointerDown={(event) => {
         start.current = event.clientX;
@@ -65,7 +83,7 @@ function Resizer({
         if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
         const delta = event.clientX - start.current;
         start.current = event.clientX;
-        onResize(delta);
+        onResize(side === "left" ? delta : -delta);
       }}
     >
       <span />
@@ -77,7 +95,8 @@ export default function App() {
   const { data: profiles } = useCoreQuery("providers.list");
   const ui = useUI();
   const [attachments, setAttachments] = useState<string[]>([]);
-  const [widths, setWidths] = useState({ left: 318, right: 316 });
+  const { workbench, widths, resize, reset, contentWidth } = usePaneLayout();
+  const documents = useSessionActions();
   const [welcome, setWelcome] = useState(
     !localStorage.getItem("badshop.welcome"),
   );
@@ -87,7 +106,7 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const previousSession = useRef<string | undefined>(undefined);
-  const workbench = useRef<HTMLDivElement>(null);
+  const sessionMenu = useRef<HTMLDivElement>(null);
   useEffect(() => startCore(), []);
   useEffect(() => {
     if (previousSession.current && previousSession.current !== session?.id) {
@@ -97,6 +116,9 @@ export default function App() {
     previousSession.current = session?.id;
   }, [session?.id]);
   useEffect(() => {
+    setAttachments([]);
+  }, [ui.documentGeneration]);
+  useEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
     const apply = () =>
       (document.documentElement.dataset.theme =
@@ -105,15 +127,18 @@ export default function App() {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [ui.theme]);
-  const addPath = useCallback(async (path: string) => {
-    if (path.toLowerCase().endsWith(".badshop")) {
-      await action("session.open", { path });
-      return;
-    }
-    const result = await action("artifacts.import", { path });
-    setAttachments((previous) => [...previous, result.working.id]);
-    useUI.getState().set({ selectedArtifact: result.working.id });
-  }, []);
+  const addPath = useCallback(
+    async (path: string) => {
+      if (path.toLowerCase().endsWith(".badshop")) {
+        return documents.request({ kind: "open", path });
+      }
+      const result = await action("artifacts.import", { path });
+      setAttachments((previous) => [...previous, result.working.id]);
+      useUI.getState().set({ selectedArtifact: result.working.id });
+      return true;
+    },
+    [documents.request],
+  );
   const addBlob = useCallback(async (blob: Blob, name?: string) => {
     const result = await importBlob(blob, name);
     setAttachments((previous) => [...previous, result.working.id]);
@@ -131,7 +156,7 @@ export default function App() {
     let disposed = false;
     const unlisten = onFileDrop((paths) =>
       run(async () => {
-        for (const path of paths) await addPath(path);
+        for (const path of paths) if (!(await addPath(path))) break;
       }),
     );
     void unlisten.then((fn) => {
@@ -143,25 +168,24 @@ export default function App() {
     };
   }, [addPath]);
   const save = useCallback(
-    (as = false) =>
-      run(async () => {
-        if (!session) return;
-        if (session.path && !as) {
-          await action("session.save");
-          useUI.getState().set({ notice: "Session saved" });
-          return;
-        }
-        const path = await projectPath(true);
-        if (path) {
-          await action("session.save_as", { path });
-          useUI.getState().set({ notice: `Saved to ${path}` });
-        }
-      }),
-    [session],
+    (as = false) => run(() => documents.save(as)),
+    [documents.save],
   );
+  useEffect(() => {
+    if (!menu) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!sessionMenu.current?.contains(event.target as Node)) setMenu(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [menu]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (documents.pending) {
+          documents.cancel();
+          return;
+        }
         setNewSessionOpen(false);
         if (useUI.getState().pick) {
           useUI.getState().set({ pick: null });
@@ -172,21 +196,19 @@ export default function App() {
           .set({ settingsOpen: false, paletteOpen: false, pick: null });
         setMenu(false);
       }
-      if ((event.ctrlKey || event.metaKey) && event.key === "s") {
+      if (document.querySelector('[role="dialog"]')) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         save(event.shiftKey);
       }
-      if ((event.ctrlKey || event.metaKey) && event.key === "o") {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
         event.preventDefault();
-        run(async () => {
-          const path = await projectPath(false);
-          if (path) await action("session.open", { path });
-        });
+        run(documents.open);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [save]);
+  }, [save, documents.open, documents.pending, documents.cancel]);
   useEffect(() => {
     if (!ui.notice) return;
     const timer = setTimeout(
@@ -268,6 +290,7 @@ export default function App() {
     ui.status,
     ui.pick,
     newSessionOpen,
+    documents.pending,
   ]);
   const closeWelcome = () => {
     localStorage.setItem("badshop.welcome", "1");
@@ -300,14 +323,29 @@ export default function App() {
         <div className="brand">
           badshop<span>✱</span>
         </div>
-        <div className="session-menu">
-          <button className="session-name" onClick={() => setMenu(!menu)}>
-            {session?.name ?? "Untitled"}
+        <div className="session-menu" ref={sessionMenu}>
+          <button
+            className="session-name"
+            aria-expanded={menu}
+            aria-controls="session-actions"
+            onClick={() => setMenu(!menu)}
+          >
+            <span className="session-label">{session?.name ?? "Untitled"}</span>
+            {session?.unsaved_changes && (
+              <span
+                className="unsaved-dot"
+                aria-hidden="true"
+                title="Unsaved changes"
+              >
+                ●
+              </span>
+            )}
             <ChevronDown size={14} />
           </button>
           {menu && (
-            <div className="dropdown">
+            <div className="dropdown" id="session-actions">
               <button
+                disabled={ui.status !== "ready" || session?.turn_running}
                 onClick={() => {
                   setMenu(false);
                   setNewSessionOpen(true);
@@ -317,18 +355,17 @@ export default function App() {
                 New session
               </button>
               <button
+                disabled={ui.status !== "ready" || session?.turn_running}
                 onClick={() => {
                   setMenu(false);
-                  run(async () => {
-                    const path = await projectPath(false);
-                    if (path) await action("session.open", { path });
-                  });
+                  run(documents.open);
                 }}
               >
                 <FolderOpen size={15} />
                 Open session<kbd>Ctrl O</kbd>
               </button>
               <button
+                disabled={ui.status !== "ready"}
                 onClick={() => {
                   setMenu(false);
                   save();
@@ -338,6 +375,7 @@ export default function App() {
                 Save session<kbd>Ctrl S</kbd>
               </button>
               <button
+                disabled={ui.status !== "ready"}
                 onClick={() => {
                   setMenu(false);
                   save(true);
@@ -359,7 +397,12 @@ export default function App() {
                 Export recipe
               </button>
               <hr />
-              <button onClick={importImages}>
+              <button
+                onClick={() => {
+                  setMenu(false);
+                  importImages();
+                }}
+              >
                 <Plus size={15} />
                 Import images
               </button>
@@ -384,7 +427,7 @@ export default function App() {
             <select
               aria-label="Active provider"
               value={session?.provider_profile_id ?? ""}
-              disabled={session?.turn_running}
+              disabled={ui.status !== "ready" || session?.turn_running}
               onChange={(event) =>
                 event.target.value === "add"
                   ? ui.set({ settingsOpen: true })
@@ -413,6 +456,7 @@ export default function App() {
             <span className="approval-dot" />
             <select
               aria-label="Approval mode"
+              disabled={ui.status !== "ready"}
               value={session?.approval_mode ?? "ask_changes"}
               onChange={(event) =>
                 run(() =>
@@ -433,6 +477,7 @@ export default function App() {
             className="quiet"
             title="Save session"
             aria-label="Save session"
+            disabled={ui.status !== "ready"}
             onClick={() => save()}
           >
             <Save size={17} />
@@ -445,31 +490,36 @@ export default function App() {
           >
             <Settings2 size={18} />
           </button>
-          <button className="export" onClick={exportImage}>
+          <button
+            className="export"
+            onClick={exportImage}
+            disabled={
+              ui.status !== "ready" ||
+              !Object.keys(session?.artifacts ?? {}).length
+            }
+          >
             <Download size={15} />
             Export
           </button>
         </div>
       </header>
-      {(ui.error || sessionError) && (
+      {!ui.settingsOpen &&
+        !ui.paletteOpen &&
+        !welcome &&
+        !newSessionOpen &&
+        !documents.pending && <ErrorNotice />}
+      {sessionError && !ui.error && (
         <div className="error-banner" role="alert">
-          <AlertTriangle size={16} />
-          <span>{ui.error ?? sessionError?.message}</span>
-          <button onClick={() => run(() => action("chat.retry"))}>
-            Retry turn
-          </button>
-          <button
-            aria-label="Dismiss error"
-            onClick={() => ui.set({ error: null })}
-          >
-            <X size={15} />
-          </button>
+          {sessionError.message}
         </div>
       )}
       {session?.restorable && !restoredDismissed && (
         <div className="restore-banner">
           <span>An autosaved session is available from your last run.</span>
-          <button onClick={() => run(() => action("session.restore"))}>
+          <button
+            disabled={ui.status !== "ready" || session?.turn_running}
+            onClick={() => run(() => documents.request({ kind: "restore" }))}
+          >
             Restore session
           </button>
           <button onClick={() => setRestoreDismissed(true)}>Dismiss</button>
@@ -515,6 +565,7 @@ export default function App() {
           }}
         >
           <Chat
+            key={`chat-${ui.documentGeneration}`}
             attachments={attachments}
             onAttachments={setAttachments}
             onImport={importImages}
@@ -522,36 +573,23 @@ export default function App() {
           />
           <Resizer
             side="left"
-            onResize={(delta) =>
-              setWidths((prev) => ({
-                ...prev,
-                left: Math.max(
-                  260,
-                  Math.min(
-                    (workbench.current?.clientWidth ?? 1400) - prev.right - 300,
-                    prev.left + delta,
-                  ),
-                ),
-              }))
-            }
+            value={widths.left}
+            maximum={contentWidth - widths.right - 262}
+            onResize={(delta) => resize("left", delta)}
+            onReset={reset}
           />
-          <Viewer onImport={importImages} />
+          <Viewer
+            key={`viewer-${ui.documentGeneration}`}
+            onImport={importImages}
+          />
           <Resizer
             side="right"
-            onResize={(delta) =>
-              setWidths((prev) => ({
-                ...prev,
-                right: Math.max(
-                  270,
-                  Math.min(
-                    (workbench.current?.clientWidth ?? 1400) - prev.left - 300,
-                    prev.right - delta,
-                  ),
-                ),
-              }))
-            }
+            value={widths.right}
+            maximum={contentWidth - widths.left - 262}
+            onResize={(delta) => resize("right", delta)}
+            onReset={reset}
           />
-          <Timeline />
+          <Timeline key={`timeline-${ui.documentGeneration}`} />
         </main>
       )}
       <footer className="app-footer">
@@ -568,14 +606,22 @@ export default function App() {
               : "Starting core…"}
         </span>
       </footer>
-      {newSessionOpen && (
-        <NewSession onClose={() => setNewSessionOpen(false)} />
+      {newSessionOpen && !documents.pending && (
+        <NewSession
+          onClose={() => setNewSessionOpen(false)}
+          onCreate={async (name) => {
+            setNewSessionOpen(false);
+            await documents.request({ kind: "new", name });
+          }}
+        />
       )}
-      {ui.settingsOpen && <Settings />}
-      {ui.paletteOpen && <ToolPalette />}
-      {welcome && ui.status === "ready" && !ui.settingsOpen && (
-        <Welcome onClose={closeWelcome} />
-      )}
+      {ui.settingsOpen && !documents.pending && <Settings />}
+      {ui.paletteOpen && !documents.pending && <ToolPalette />}
+      <SaveChangesDialog actions={documents} />
+      {welcome &&
+        ui.status === "ready" &&
+        !ui.settingsOpen &&
+        !documents.pending && <Welcome onClose={closeWelcome} />}
       {dragging && (
         <div className="drop-overlay">
           <Plus size={40} />
@@ -613,7 +659,13 @@ export default function App() {
   );
 }
 
-function NewSession({ onClose }: { onClose: () => void }) {
+function NewSession({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (name: string) => Promise<void>;
+}) {
   const [name, setName] = useState("Untitled");
   const [busy, setBusy] = useState(false);
   return (
@@ -633,15 +685,14 @@ function NewSession({ onClose }: { onClose: () => void }) {
             <X size={18} />
           </button>
         </div>
+        <ErrorNotice />
         <form
           onSubmit={(event) => {
             event.preventDefault();
             run(async () => {
               setBusy(true);
               try {
-                await action("session.new", {
-                  name: name.trim() || "Untitled",
-                });
+                await onCreate(name.trim() || "Untitled");
                 onClose();
               } finally {
                 setBusy(false);
