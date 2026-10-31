@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from badshop.agent.approval import ApprovalGate, needs_approval
-from badshop.agent.context import build_messages, image_placeholder, tool_definitions
+from badshop.agent.context import build_messages, image_placeholder, model_result, tool_definitions
 from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.engine.errors import EngineError
 from badshop.session.models import ArtifactMeta, Message, Part, Step
@@ -87,7 +87,7 @@ def _as_it_is(step: Step) -> str:
     """The answer for a call whose step something other than this turn settled while it waited: how it
     ended (a run's result, a rejection and its note), or what it is now."""
     if step.status in ("done", "error", "rejected") and step.result_text:
-        return step.result_text
+        return model_result(step)
     return f"not run: the user changed this step (it is {step.status} now)"
 
 
@@ -133,7 +133,7 @@ def _execute(session: Session, step_id: str, params: dict | None,
         # `resolve`). run() checks before it changes anything, so the step is still waiting: reject it.
         session.reject(step_id, f"the edited parameters were refused: {e.message}")
         return False, f"rejected by user: their edited parameters were refused ({e.message})"
-    text = step.result_text  # the session's own report of the run: outputs, the tool's lines, or the error
+    text = model_result(step)  # structured coordinates and bounded untrusted source text for the model
     if params is not None:
         text = f"the user edited the parameters before it ran: {json.dumps(step.params)}\n{text}"
     return True, text
@@ -218,14 +218,15 @@ class _Turn:
     def delta(self, chunk: str) -> None:
         self.emit("message.delta", {"text": chunk})
 
-    async def run(self, text: str, images: list[ArtifactMeta]) -> str:
-        note = await self.call(_changes_note, self.session)
-        if note is not None:
-            self.emit("message.done", {"message": note.model_dump(mode="json")})
-        lines = ([text] if text else []) + [image_placeholder(m) for m in images]
-        await self.call(_record, self.session, {"role": "user", "content": "\n".join(lines)})
-        await self.message("user", ([Part(type="text", text=text)] if text else [])
-                           + [Part(type="image", artifact_id=m.id) for m in images])
+    async def run(self, text: str, images: list[ArtifactMeta], *, retry: bool = False) -> str:
+        if not retry:
+            note = await self.call(_changes_note, self.session)
+            if note is not None:
+                self.emit("message.done", {"message": note.model_dump(mode="json")})
+            lines = ([text] if text else []) + [image_placeholder(m) for m in images]
+            await self.call(_record, self.session, {"role": "user", "content": "\n".join(lines)})
+            await self.message("user", ([Part(type="text", text=text)] if text else [])
+                               + [Part(type="image", artifact_id=m.id) for m in images])
         tools = tool_definitions()
         while True:
             messages = await self.call(build_messages, self.session)
@@ -303,8 +304,11 @@ class _Turn:
 
 async def run_turn(session: Session, provider: Provider, gate: ApprovalGate, text: str,
                    attachments: list[str], cfg: TurnConfig, emit: Emit,
-                   blocking: Blocking = asyncio.to_thread) -> str:
+                   blocking: Blocking = asyncio.to_thread, *, retry: bool = False) -> str:
     """Run one turn and return why it ended: "done", "budget", "invalid_calls" or "provider_error".
+
+    With retry=True, resume the persisted transcript at the next provider completion without adding
+    another user message or replaying completed tools. The server only permits this after a provider error.
 
     Stop is cancelling the task that runs this: pending approvals are rejected, a running tool is killed,
     `turn.finished {"reason": "stopped"}` is emitted and CancelledError propagates. Any other exception
@@ -312,11 +316,11 @@ async def run_turn(session: Session, provider: Provider, gate: ApprovalGate, tex
     turn winds up (a second Stop, or a Stop on a failing turn) waits for the wind-up to end, then
     propagates. An attachment that doesn't resolve raises EngineError before anything is recorded or
     emitted."""
-    images = await blocking(_attachments, session, attachments)
+    images = [] if retry else await blocking(_attachments, session, attachments)
     turn = _Turn(session, provider, gate, cfg, emit, blocking)
     emit("turn.started", {})
     try:
-        reason = await turn.run(text, images)
+        reason = await turn.run(text, images, retry=retry)
     except asyncio.CancelledError:
         try:
             await _to_the_end(turn.stop(STOPPED))

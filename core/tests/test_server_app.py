@@ -32,6 +32,8 @@ TRUMP = FIXTURES / "trump.png"
 HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
 NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
+    "providers.list", "providers.save", "providers.add", "providers.select", "providers.delete", "providers.test",
+    "chat.retry",
     "session.new", "session.get", "session.open", "session.restore", "session.save", "session.save_as",
     "session.export_recipe", "session.set_approval_mode", "chat.send", "chat.stop", "tools.list",
     "tools.run", "steps.edit", "steps.replay_from", "steps.delete", "approval.respond", "artifacts.get",

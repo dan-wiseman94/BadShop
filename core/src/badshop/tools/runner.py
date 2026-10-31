@@ -47,6 +47,11 @@ def validate(name: str, raw: dict, actor: str = "user") -> Params:
     except ValidationError as e:
         raise EngineError(f"bad parameters for {name}", hint=explain(e)) from None
     if not is_trusted(actor):
+        if name == "text" and params.font is not None:
+            from badshop.tools.fonts import font_names
+            if params.font not in font_names():
+                raise EngineError("text: choose a discovered font name",
+                                  hint="omit font for the style default; only the user can pick a file path")
         hidden = user_only_fields(spec.params)
         for field, info in spec.params.model_fields.items():  # declaration order: the first one is named
             if field in hidden and getattr(params, field) != info.get_default(call_default_factory=True):

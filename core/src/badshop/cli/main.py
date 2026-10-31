@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from badshop import __version__
-from badshop.cli import recipes
+from badshop.cli import chat, recipes
 from badshop.cli.argparse_gen import add_tool_parser
 from badshop.cli.filestore import FileStore
 from badshop.engine.errors import EngineError
@@ -27,12 +27,15 @@ def build_parser() -> argparse.ArgumentParser:
     for spec in REGISTRY.values():
         add_tool_parser(sub, spec)
     recipes.add_parsers(sub)
+    chat.add_parser(sub)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     a = build_parser().parse_args(argv)
+    if a.cmd == "chat":
+        return chat.run_command(a)
     if a.cmd in recipes.RECIPE_COMMANDS:
         return recipes.run_command(a, main)
     raw = {k: v for k, v in vars(a).items() if k not in ("cmd", "_tool", "_out")}

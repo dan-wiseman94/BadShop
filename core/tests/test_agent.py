@@ -6,7 +6,7 @@ import time
 import pytest
 
 from badshop.agent.approval import ApprovalGate, Decision, needs_approval
-from badshop.agent.context import SYSTEM_PROMPT, build_messages, image_placeholder, tool_definitions
+from badshop.agent.context import SYSTEM_PROMPT, build_messages, image_placeholder, model_result, tool_definitions
 from badshop.agent.fake import END_OF_SCRIPT, ScriptedProvider
 from badshop.agent.loop import TurnConfig, run_turn
 from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
@@ -171,7 +171,7 @@ def test_tool_definitions_are_the_model_schemas():
     json.dumps(defs)
 
 
-def test_system_prompt_placeholder_and_step_summary(tmp_path):
+def test_system_prompt_and_step_summary(tmp_path):
     session, img, _ = new_session(tmp_path)
     assert "artifact id" in SYSTEM_PROMPT and "nearest-neighbor" in SYSTEM_PROMPT
     assert image_placeholder(img) == f"[image {img.id[:8]}: lincoln_work, {img.width}x{img.height}]"
@@ -237,14 +237,18 @@ def test_turn_runs_tools_and_reports_back(tmp_path):
     assert session.summary() in second[0]["content"] and second[-1] == answer
 
 
-def test_attachments_are_resolved_and_shown_as_placeholders(tmp_path):
+def test_attachments_are_resolved_and_shown_as_images(tmp_path):
     session, img, ev = new_session(tmp_path)
     provider = ScriptedProvider([Reply(text="Nice picture.")])
     turn(session, provider, ev, text="look", attachments=[img.id[:6].upper()])
     user = session.data.messages[0]
     assert [(p.type, p.text, p.artifact_id) for p in user.content] == [("text", "look", None),
                                                                      ("image", None, img.id)]
-    assert provider.received[0][-1] == {"role": "user", "content": f"look\n{image_placeholder(img)}"}
+    sent = provider.received[0][-1]
+    assert sent["role"] == "user"
+    assert sent["content"][0] == {"type": "text", "text": f"look\n{image_placeholder(img)}"}
+    assert sent["content"][-1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert session.data.transcript[0]["content"] == f"look\n{image_placeholder(img)}"
     before, quiet = list(session.data.messages), Events()
     with pytest.raises(EngineError, match="no such artifact"):
         turn(session, provider, quiet, attachments=["/etc/passwd"])
@@ -283,15 +287,18 @@ def test_an_image_the_user_adds_is_news_to_the_agent(tmp_path):
     assert f"{lincoln.id[:8]} (lincoln_work)" in added  # the id the model can call tools with, and its label
     sent = provider.received[0]
     assert sent[1] == session.data.transcript[0] == {"role": "system", "content": note.content[0].text}
-    assert sent[2] == {"role": "user", "content": "what have we got?"}  # not attached: no placeholder
+    assert sent[2]["role"] == "user"
+    assert sent[2]["content"][0] == {"type": "text", "text": "what have we got?"}
+    assert any(p["type"] == "image_url" for p in sent[2]["content"])  # newly imported image
     # Heard once: the next turn's note carries only what the user added since.
     trump = session.import_image(TRUMP, "trump")
     assert turn(session, provider, ev, text="and now?")[0] == "done"
     notes = [m.content[0].text for m in session.data.messages if m.role == "system_note"]
     assert len(notes) == 2 and f"{trump.id[:8]} (trump_work)" in notes[1]
     assert lincoln.id[:8] not in notes[1]
-    assert provider.received[1][-2:] == [{"role": "system", "content": notes[1]},
-                                         {"role": "user", "content": "and now?"}]
+    assert provider.received[1][-2] == {"role": "system", "content": notes[1]}
+    assert provider.received[1][-1]["content"][0] == {"type": "text", "text": "and now?"}
+    assert sum(p["type"] == "image_url" for p in provider.received[1][-1]["content"]) == 1
     assert session.changes == []
 
 
@@ -392,7 +399,7 @@ def test_invalid_calls_come_back_as_errors_and_end_the_turn(tmp_path):
     got = tool_entries(session)
     assert got["c1"].startswith("error: the arguments for draw are not valid JSON")
     assert got["c2"].startswith("error: unknown tool 'sharpen_everything'")
-    assert got["c3"] == session.data.steps[0].result_text
+    assert got["c3"] == model_result(session.data.steps[0])
     assert got["c4"].startswith("error: bad parameters for draw\nhint: ") and "width" in got["c4"]
     assert got["c5"].startswith("error: fetch: clipboard can only be set by the user")
     assert got["c6"].startswith("error: no such artifact: /etc/passwd")
@@ -441,7 +448,7 @@ def test_step_budget(tmp_path):
 
     reason, _ = turn(session, provider, ev, mode="ask_all", step_budget=1, decide=decide)
     assert reason == "done" and [s.status for s in session.data.steps[-3:]] == ["rejected", "done", "done"]
-    assert tool_entries(session)["c7"] == session.data.steps[-2].result_text
+    assert tool_entries(session)["c7"] == model_result(session.data.steps[-2])
 
 
 def test_provider_error_ends_the_turn(tmp_path):
@@ -564,7 +571,7 @@ def test_stop_while_waiting_for_approval(tmp_path, how, note):
     assert [(s.id, s.status) for s in session.data.steps] == [("s1", "done"), ("s2", "rejected")]
     assert ev.of("approval.resolved") == [{"step_id": "s2", "decision": "reject", "note": note}]
     assert ev.names()[-1] == "turn.finished" and ev.of("turn.finished") == [{"reason": "stopped"}]
-    assert tool_entries(session) == {"c1": session.data.steps[0].result_text,
+    assert tool_entries(session) == {"c1": model_result(session.data.steps[0]),
                                      "c2": "not run: stopped by the user",
                                      "c3": "not run: stopped by the user"}
     # The session is whole: the next turn sends a transcript every provider accepts.

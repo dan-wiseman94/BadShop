@@ -83,6 +83,13 @@ def llm_schema(spec: ToolSpec) -> dict:
     schema keeps `additionalProperties: false`, so a model that sends one anyway is off its schema, and
     runner.validate refuses it with a clean error."""
     schema = ui_schema(spec)
+    if spec.name == "text":
+        from badshop.tools.fonts import font_names
+        names = font_names()
+        schema["properties"]["font"] = {
+            "anyOf": ([{"type": "string", "enum": names}] if names else []) + [{"type": "null"}],
+            "default": None, "description": "A discovered font name; omit to use the style's default font.",
+        }
     hidden = user_only_fields(spec.params)
     if not hidden:
         return schema

@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import os
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -22,6 +23,9 @@ from badshop import files
 from badshop.agent import approval
 from badshop.agent.approval import ApprovalGate
 from badshop.agent.fake import ScriptedProvider
+from badshop.agent.provider import Provider, ProviderError
+from badshop.providers import profiles
+from badshop.providers.litellm_provider import LiteLLMProvider, close_clients
 from badshop.agent.loop import TurnConfig, run_turn
 from badshop.engine import assets, manifest
 from badshop.engine.common import fit, has_alpha, to_rgb
@@ -43,7 +47,7 @@ SessionName = Annotated[str, Field(min_length=1, max_length=200)]
 MaxPx = Annotated[int, Field(ge=16, le=4096)]
 Verdict = Literal["approve", "reject", "edit"]
 MAX_IMPORT_BYTES = 200 * 2**20  # a picked file bigger than this is refused before it is read
-NO_PROVIDER_HINT = "set fake_provider_script in the settings (or BADSHOP_FAKE_PROVIDER) to a script file"
+NO_PROVIDER_HINT = "add a profile with providers.save and select it with providers.select, or use badshop chat --model"
 
 
 def _user_path(path: str) -> Path:
@@ -143,9 +147,18 @@ class CoreApp:
         self._subscribers: dict[asyncio.Queue, asyncio.Task] = {}
         self._tasks: set[asyncio.Task] = set()  # background work (auto replays, cleanups)
         self._turn: asyncio.Task | None = None
+        self._starting = False  # a provider/keychain lookup reserved the next turn
+        self._start_generation = 0  # Stop invalidates a lookup even before _turn exists
         self._turn_cfg: TurnConfig | None = None
         self._switching = 0  # session.new / session.open calls under way: no turn may start meanwhile
-        self._provider: ScriptedProvider | None = None
+        self._provider: Provider | None = None
+        self._retry_session: Session | None = None
+        self._profiles_error: EngineError | None = None
+        try:
+            self._profiles = profiles.load_profiles()
+        except EngineError as e:
+            self._profiles, self._profiles_error = {}, e
+            log.warning("provider profiles could not be loaded; tools and sessions remain available")
         self._dirty = False  # the session changed since the last autosave
         self._closed = False
         # Two gates: the in-app turn's (Stop cancels it) and the CLI agents' (only a closed UI, a new or
@@ -304,12 +317,14 @@ class CoreApp:
         """The session as saved (SessionData by alias) plus what the app knows about it."""
         return {**self.session.data.model_dump(mode="json", by_alias=True),
                 "path": str(self.path) if self.path else None,
-                "turn_running": self._turn is not None,
+                "turn_running": self._turn is not None or self._starting,
                 "pending_approvals": self.gate.pending() + self._cli_gate.pending(),
                 "restorable": str(self._restorable) if self._restorable else None}
 
     def _check_idle(self) -> None:
-        if self._turn is not None:
+        if self._closed:
+            raise EngineError("badshop is closing")
+        if self._turn is not None or self._starting:
             raise EngineError("the agent is still working", hint="press Stop, or wait for the turn to finish")
 
     def _cancel_approvals(self, note: str) -> None:
@@ -317,28 +332,55 @@ class CoreApp:
         self.gate.cancel_all(note)
         self._cli_gate.cancel_all(note)
 
-    def _get_provider(self) -> ScriptedProvider:
+    def _get_provider(self) -> Provider:
+        profile_id = self.session.data.provider_profile_id
+        if profile_id:
+            profile = self._profile(profile_id)
+            return self._make_provider(profile)
         if self._provider is None:
             path = self.settings.fake_provider_script or os.environ.get("BADSHOP_FAKE_PROVIDER")
             if not path:
                 raise EngineError("no model provider is set up yet", hint=NO_PROVIDER_HINT)
-            self._provider = ScriptedProvider.from_file(Path(path))  # a bad script is its own EngineError
+            self._provider = ScriptedProvider.from_file(Path(path))
         return self._provider
+
+    def _check_profiles(self) -> None:
+        if self._profiles_error is not None:
+            raise self._profiles_error
+
+    def _profile(self, profile_id: str) -> profiles.Profile:
+        self._check_profiles()
+        if profile_id not in self._profiles:
+            raise EngineError("provider profile not found", hint="select an existing profile or add one")
+        return self._profiles[profile_id]
+
+    @staticmethod
+    def _make_provider(profile: profiles.Profile) -> LiteLLMProvider:
+        return LiteLLMProvider(profile.model, api_base=profile.api_base,
+                              api_key=profiles.resolve_key(profile), actor=f"agent:{profile.id}",
+                              capability_overrides=profile.capability_overrides)
 
     # --- the agent turn -------------------------------------------------------------------------
 
-    async def _turn_main(self, session: Session, provider: ScriptedProvider, text: str,
-                         attachments: list[str], cfg: TurnConfig) -> None:
+    async def _turn_main(self, session: Session, provider: Provider, text: str,
+                         attachments: list[str], cfg: TurnConfig, retry: bool = False) -> None:
         finished = False  # run_turn announced the end itself
 
         def emit(method: str, params: dict) -> None:
             nonlocal finished
             finished = finished or method == "turn.finished"
+            if method == "turn.finished":
+                self._retry_session = session if params.get("reason") == "provider_error" else None
+                self._emit("provider.status", {"profile_id": session.data.provider_profile_id,
+                                               "status": "error" if self._retry_session else "ready",
+                                               "error": params.get("error")})
             self._emit(method, params)
+            if method == "turn.started":
+                self._emit("provider.status", {"profile_id": session.data.provider_profile_id, "status": "busy"})
 
         try:
             await run_turn(session, provider, self.gate, text, attachments, cfg, emit,
-                           blocking=self._blocking)
+                           blocking=self._blocking, retry=retry)
         except asyncio.CancelledError:  # stopped
             if not finished:
                 self._emit("turn.finished", {"reason": "stopped"})
@@ -355,9 +397,11 @@ class CoreApp:
         """Cancel the running turn and wait for it to end. run_turn rejects the steps it left waiting
         (Task 11), and `_reject_waiting` makes sure: a stopped turn never leaves a step "proposed". CLI
         agents' calls are not the turn's and keep waiting. False if no turn was running."""
+        starting = self._starting
+        self._start_generation += 1  # pending provider setup must never start after Stop
         task, session = self._turn, self.session
         if task is None:
-            return False
+            return starting
         task.cancel()
         await asyncio.wait({task})
         if self._turn is task:  # cancelled before it ever ran: its own cleanup never happened
@@ -379,7 +423,8 @@ class CoreApp:
         (a CLI agent's too), so nothing waits for a user who isn't there. The core keeps serving, and
         the next client sees the session as it was left."""
         self._cancel_approvals("the user closed the app")
-        if self._turn is not None:
+        self._start_generation += 1  # also invalidate sends still queued for _lock
+        if self._turn is not None or self._starting:
             self._spawn(self._stop_turn("the user closed the app"))
 
     async def close(self) -> None:
@@ -403,6 +448,7 @@ class CoreApp:
         await asyncio.gather(*pumps, return_exceptions=True)
         if assets.PROGRESS == self._on_progress:
             assets.PROGRESS = self._prev_progress
+        await close_clients()
 
     # --- methods: session -----------------------------------------------------------------------
 
@@ -418,6 +464,13 @@ class CoreApp:
             ("session.set_approval_mode", self._session_set_approval_mode, "user"),
             ("chat.send", self._chat_send, "user"),
             ("chat.stop", self._chat_stop, "user"),
+            ("chat.retry", self._chat_retry, "user"),
+            ("providers.list", self._providers_list, "user"),
+            ("providers.save", self._providers_save, "user"),
+            ("providers.add", self._providers_save, "user"),
+            ("providers.delete", self._providers_delete, "user"),
+            ("providers.select", self._providers_select, "user"),
+            ("providers.test", self._providers_test, "user"),
             ("tools.list", self._tools_list, "any"),
             ("tools.run", self._tools_run, "any"),
             ("steps.edit", self._steps_edit, "user"),
@@ -531,13 +584,64 @@ class CoreApp:
         self._check_idle()
         if self._switching:
             raise EngineError("the session is being replaced", hint="send the message again once it has opened")
-        provider = self._get_provider()
+        # Keep start atomic with provider/session changes, including while keyring is unlocking.
+        generation = self._start_generation
+        async with self._lock:
+            self._check_idle()
+            if self._switching:
+                raise EngineError("the session is being replaced")
+            if generation != self._start_generation:
+                raise EngineError("the provider start was stopped")
+            return await self._prepare_turn(text, attachments or [])
+
+    async def _prepare_turn(self, text: str, attachments: list[str], *, retry: bool = False) -> dict:
+        """Called with _lock held. Reserve setup so Stop also covers a slow keychain unlock.
+
+        A cancelled request must hold the lock until its lookup thread finishes: loading a fake
+        provider writes _provider, and releasing early would let it overwrite newer settings.
+        """
+        self._starting = True
+        self._start_generation += 1
+        generation = self._start_generation
+        future = asyncio.ensure_future(asyncio.to_thread(self._get_provider))
+        try:
+            try:
+                provider = await asyncio.shield(future)
+            except asyncio.CancelledError:
+                while not future.done():
+                    try:
+                        await asyncio.wait({future})
+                    except asyncio.CancelledError:
+                        pass
+                if not future.cancelled():
+                    future.exception()
+                raise
+            if self._closed or generation != self._start_generation:
+                raise EngineError("the provider start was stopped")
+            if self._switching:
+                raise EngineError("the session is being replaced")
+            return self._start_turn(provider, text, attachments, retry=retry)
+        finally:
+            self._starting = False
+
+    def _start_turn(self, provider: Provider, text: str, attachments: list[str], *, retry: bool = False) -> dict:
         session = self.session
         ids = [session.artifacts.resolve(a) for a in attachments or []]  # a bad ref fails now, not mid-turn
         cfg = TurnConfig(approval_mode=session.data.approval_mode, step_budget=self.settings.step_budget)
         self._turn_cfg = cfg
-        self._turn = self._spawn(self._turn_main(session, provider, text, ids, cfg))
+        self._retry_session = None
+        self._turn = self._spawn(self._turn_main(session, provider, text, ids, cfg, retry))
         return {"started": True}
+
+    async def _chat_retry(self, actor: str) -> dict:
+        generation = self._start_generation
+        async with self._lock:
+            self._check_idle()
+            if self._switching or self._retry_session is not self.session:
+                raise EngineError("there is no failed provider turn to retry")
+            if generation != self._start_generation:
+                raise EngineError("the provider start was stopped")
+            return await self._prepare_turn("", [], retry=True)
 
     async def _chat_stop(self, actor: str) -> dict:
         return {"stopped": await self._stop_turn("stopped by the user")}
@@ -668,6 +772,90 @@ class CoreApp:
     async def _export(self, actor: str, artifact_id: str, name: str | None = None) -> dict:
         path = await self._blocking(lambda: self.session.export(artifact_id, name))
         return {"path": str(path)}
+
+    # --- methods: providers -------------------------------------------------------------------
+
+    def _cleanup_key(self, key_ref: str) -> None:
+        try:
+            profiles.delete_key(key_ref)
+        except EngineError:
+            self._log("warning", "an unused provider key could not be removed from the OS keychain")
+
+    async def _providers_list(self, actor: str) -> list[dict]:
+        self._check_profiles()
+        return [p.model_dump(mode="json") for p in self._profiles.values()]
+
+    async def _providers_save(self, actor: str, profile: dict, api_key: str | None = None) -> dict:
+        def save() -> dict:
+            self._check_idle()
+            self._check_profiles()
+            p = profiles.parse_profile(profile)
+            old = self._profiles.get(p.id)
+            if p.api_key_ref is not None and (old is None or p.api_key_ref != old.api_key_ref):
+                raise EngineError("a profile cannot reference another provider's key")
+            new_ref = None
+            if api_key is not None:
+                if not api_key.strip():
+                    raise EngineError("the API key must not be empty")
+                # Write a new key slot so a failed config write cannot replace the working credential.
+                new_ref = f"{p.id}:{uuid.uuid4().hex}"
+                profiles.store_key(new_ref, api_key)
+                p = p.model_copy(update={"api_key_ref": new_ref, "api_key_env": None})
+            elif old and old.api_key_ref and not p.api_key_env:
+                p = p.model_copy(update={"api_key_ref": old.api_key_ref})
+            if p.api_key_env:
+                p = p.model_copy(update={"api_key_ref": None})
+            updated = {**self._profiles, p.id: p}
+            try:
+                profiles.save_profiles(updated)
+            except EngineError:
+                if new_ref:
+                    self._cleanup_key(new_ref)
+                raise
+            self._profiles = updated
+            if old and old.api_key_ref and old.api_key_ref != p.api_key_ref:
+                self._cleanup_key(old.api_key_ref)
+            return p.model_dump(mode="json")
+        return await self._blocking(save)
+
+    async def _providers_select(self, actor: str, profile_id: str) -> dict:
+        def select() -> None:
+            self._check_idle()
+            self._profile(profile_id)
+            self.session.data.provider_profile_id = profile_id
+            self._changed()
+        await self._blocking(select)
+        self._emit("provider.status", {"profile_id": profile_id, "status": "selected"})
+        return self._snapshot()
+
+    async def _providers_delete(self, actor: str, profile_id: str) -> dict:
+        def delete() -> None:
+            self._check_idle()
+            p = self._profile(profile_id)
+            updated = {k: v for k, v in self._profiles.items() if k != profile_id}
+            profiles.save_profiles(updated)
+            self._profiles = updated
+            if p.api_key_ref:
+                self._cleanup_key(p.api_key_ref)
+            if self.session.data.provider_profile_id == profile_id:
+                self.session.data.provider_profile_id = None
+                self._changed()
+        await self._blocking(delete)
+        return {"deleted": True}
+
+    async def _providers_test(self, actor: str, profile_id: str, probe: bool = False) -> dict:
+        # Capability inspection is offline. A paid test completion requires probe=true.
+        try:
+            provider = await self._blocking(lambda: self._make_provider(self._profile(profile_id)))
+            capabilities = await asyncio.to_thread(provider.check_capabilities)
+            if probe:
+                await provider.complete([{"role": "user", "content": "Reply with OK."}], [], lambda _: None)
+            result = {"profile_id": profile_id, "status": "ready", "capabilities": capabilities,
+                      "probed": probe}
+        except (ProviderError, EngineError) as e:
+            result = {"profile_id": profile_id, "status": "error", "error": str(e)}
+        self._emit("provider.status", result)
+        return result
 
     # --- methods: settings and assets -----------------------------------------------------------
 

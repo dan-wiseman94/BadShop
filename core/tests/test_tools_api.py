@@ -184,7 +184,15 @@ def test_llm_schema_is_the_ui_schema_minus_user_only_fields(name):
     spec = REGISTRY[name]
     ui, llm, hidden = ui_schema(spec), llm_schema(spec), user_only_fields(spec.params)
     assert USER_ONLY not in json.dumps(llm)
-    assert llm["properties"] == {k: v for k, v in ui["properties"].items() if k not in hidden}
+    expected = {k: v for k, v in ui["properties"].items() if k not in hidden}
+    if name == "text":
+        # Model callers choose discovered font names; the trusted user can still choose paths.
+        from badshop.tools.fonts import font_names
+        names = font_names()
+        assert llm["properties"]["font"]["anyOf"] == (
+            ([{"type": "string", "enum": names}] if names else []) + [{"type": "null"}])
+        expected["font"] = llm["properties"]["font"]
+    assert llm["properties"] == expected
     assert llm.get("required", []) == [k for k in ui.get("required", []) if k not in hidden]
     assert {k: v for k, v in llm.items() if k not in ("properties", "required")} == {
         k: v for k, v in ui.items() if k not in ("properties", "required")}

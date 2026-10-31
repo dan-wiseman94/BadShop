@@ -127,6 +127,13 @@ The entries below are the record of what was asked.
 
 ## Plan 3: LiteLLM provider and agent
 
+**Progress 2026-10-31:** the finish descriptions, discovered-font restriction, web-data
+boundaries, provider profiles/keyring/API methods, image budgeting, adapted system prompt,
+structured tool results, `provider.status`, and retry method below are implemented.
+See [`2026-10-31-plan-3-provider-agent.md`](2026-10-31-plan-3-provider-agent.md) for validation
+and remaining live checks/JSON fallback; Plan 3 is still in progress. The original handoff
+requirements are retained below for traceability.
+
 - **SP F14: the finish tools describe CLI file semantics.** `save` says "Saved to the user's
   output folder", and `export` says "save and deepfry already do this". In the app these tools
   produce artifacts, and only `export` writes files (spec §5.2), so an in-app agent would claim a
