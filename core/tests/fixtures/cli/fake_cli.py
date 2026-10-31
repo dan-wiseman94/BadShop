@@ -13,7 +13,7 @@ if "--version" in sys.argv:
     raise SystemExit
 if "--help" in sys.argv:
     print("--input-format --output-format --strict-mcp-config --tools --json --sandbox "
-          "--skip-git-repo-check --resume --allowed-mcp-server-names --policy")
+          "--skip-git-repo-check --resume --allowed-mcp-server-names --policy --skip-trust")
     raise SystemExit
 if "debug" in sys.argv:
     print(json.dumps({"models": [{"slug": "fake-model", "shell_type": "unified_exec",

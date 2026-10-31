@@ -64,7 +64,8 @@ def inspect_cli(cli: str, executable: str | None = None) -> dict:
         help_text = _inspect(path, "exec", "--help") if cli == "codex" else _inspect(path, "--help")
         required = {"claude": ("--input-format", "--output-format", "--strict-mcp-config", "--tools"),
                     "codex": ("--json", "--sandbox", "--skip-git-repo-check"),
-                    "gemini": ("--output-format", "--resume", "--allowed-mcp-server-names", "--policy")}[cli]
+                    "gemini": ("--output-format", "--resume", "--allowed-mcp-server-names", "--policy",
+                               "--skip-trust")}[cli]
         missing = [flag for flag in required if flag not in help_text]
         if missing:
             info["error"] = f"upgrade {cli}: this version lacks {', '.join(missing)}"
@@ -232,15 +233,33 @@ class CLIProvider:
                     # every built-in and every other MCP server remains denied.
                     "tools": {"core": [], "allowed": ["mcp_badshop_*"]},
                     "hooks": {"enabled": False}}
-        path = self._write(".gemini/settings.json", json.dumps(settings))
-        # System settings take priority over user settings while OAuth stays in ~/.gemini.
-        self.env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"] = str(path)
+        # Modern Gemini rejects user-owned files masquerading as system settings. A
+        # private CLI home loads only this config; link authentication, never user policy,
+        # tool settings, extensions, skills or hooks from the real Gemini directory.
+        user_gemini = Path(self.env.get("GEMINI_CLI_HOME", str(Path.home()))) / ".gemini"
+        try:
+            auth_type = json.loads((user_gemini / "settings.json").read_text(encoding="utf-8")) \
+                .get("security", {}).get("auth", {}).get("selectedType")
+        except (OSError, ValueError, AttributeError):
+            auth_type = None
+        if auth_type in ("oauth-personal", "gemini-api-key", "vertex-ai"):
+            settings["security"] = {"auth": {"selectedType": auth_type}}
+        self._write(".gemini/settings.json", json.dumps(settings))
+        for filename in ("oauth_creds.json", "google_accounts.json"):
+            source = user_gemini / filename
+            if source.is_file():
+                target = self.cwd / ".gemini" / filename
+                try:
+                    target.symlink_to(source.resolve())
+                except OSError:
+                    os.link(source, target)
+        self.env["GEMINI_CLI_HOME"] = str(self.cwd)
         self.env["GEMINI_SYSTEM_MD"] = str(self._write("system.md", SYSTEM_PROMPT))
         # An explicit empty policy directory replaces ordinary user policy files,
         # whose high-priority tool allows could otherwise defeat the core deny rule.
         self._write("policies/.keep", "")
         return [self.executable, "--output-format", "stream-json", "--allowed-mcp-server-names", "badshop",
-                "--policy", str(self.cwd / "policies"),
+                "--policy", str(self.cwd / "policies"), "--skip-trust",
                 *(["--model", self.profile.model] if self.profile.model else [])]
 
     def command(self, prompt: str) -> list[str]:

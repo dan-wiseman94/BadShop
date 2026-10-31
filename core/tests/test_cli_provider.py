@@ -25,6 +25,7 @@ from conftest import FIXTURES
 def fake(tmp_path, monkeypatch):
     monkeypatch.setenv("BADSHOP_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("GEMINI_CLI_HOME", str(tmp_path / "original-gemini-home"))
     monkeypatch.setenv("BADSHOP_FAKE_CLI_FIXTURES", str(FIXTURES / "cli"))
     script = (FIXTURES / "cli/fake_cli.py").read_text()
     paths = {}
@@ -105,10 +106,11 @@ def test_cli_scoped_configs_preserve_auth(fake, tmp_path, monkeypatch):
                     model = json.loads((private / "models.json").read_text())["models"][0]
                     assert model["apply_patch_tool_type"] is None and model["shell_type"] == "disabled"
                 else:
-                    config = json.loads(Path(provider.env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"]).read_text())
+                    config = json.loads((Path(provider.env["GEMINI_CLI_HOME"]) / ".gemini/settings.json").read_text())
                     assert config["tools"]["core"] == [] and config["mcp"]["allowed"] == ["badshop"]
                     assert config["tools"]["allowed"] == ["mcp_badshop_*"]
                     assert config["mcpServers"]["badshop"]["trust"]
+                    assert "--skip-trust" in command
                     policy_dir = Path(command[command.index("--policy") + 1])
                     assert policy_dir.is_relative_to(provider.cwd)
                     assert not list(policy_dir.glob("*.toml"))
@@ -132,6 +134,35 @@ def test_unknown_and_malformed_events_are_nonfatal(fake, monkeypatch):
         finally:
             await provider.close()
     asyncio.run(body())
+
+
+def test_gemini_private_home_links_only_authentication(fake, tmp_path, monkeypatch):
+    source_home = tmp_path / "original-gemini-home"
+    source = source_home / ".gemini"
+    source.mkdir(parents=True)
+    original = {"security": {"auth": {"selectedType": "oauth-personal"}},
+                "tools": {"allowed": ["run_shell_command"]}, "mcpServers": {"other": {"command": "other"}},
+                "hooks": {"enabled": True}}
+    (source / "settings.json").write_text(json.dumps(original))
+    (source / "oauth_creds.json").write_text('{"refresh_token":"test-auth"}')
+    (source / "google_accounts.json").write_text('{"active":"test-account"}')
+    (source / "policies").mkdir()
+    (source / "policies/unsafe.toml").write_text('[[rule]]\ntoolName="*"\ndecision="allow"\npriority=999\n')
+    monkeypatch.setenv("GEMINI_CLI_HOME", str(source_home))
+    provider = CLIProvider(profile(fake, "gemini"), "ws://127.0.0.1:1234", "test-secret")
+    try:
+        private = Path(provider.env["GEMINI_CLI_HOME"]) / ".gemini"
+        config = json.loads((private / "settings.json").read_text())
+        assert private.parent == provider.cwd
+        assert os.path.samefile(private / "oauth_creds.json", source / "oauth_creds.json")
+        assert os.path.samefile(private / "google_accounts.json", source / "google_accounts.json")
+        assert config["security"]["auth"]["selectedType"] == "oauth-personal"
+        assert config["tools"]["allowed"] == ["mcp_badshop_*"]
+        assert set(config["mcpServers"]) == {"badshop"} and not config["hooks"]["enabled"]
+        assert not (private / "policies").exists()
+        assert json.loads((source / "settings.json").read_text()) == original
+    finally:
+        asyncio.run(provider.close())
 
 
 def test_process_failure_surfaces_login_and_stderr(fake, monkeypatch):
@@ -389,11 +420,20 @@ def test_windows_job_kills_descendants_after_cli_parent_exits():
         try:
             job.assign_and_resume(process.pid)
             child_pid = int(await process.stdout.readline())
+            child = psutil.Process(child_pid)
+            # Prove the descendant is alive before closing its job: an uncontained child
+            # sleeps for 30s and cannot pass the bounded post-Stop wait below.
+            with pytest.raises(psutil.TimeoutExpired):
+                await asyncio.to_thread(child.wait, timeout=.05)
             async with asyncio.timeout(3):
                 while process.returncode is None:
                     await asyncio.sleep(.01)
+            assert process.returncode == 0
             await asyncio.wait_for(provider.stop(), 3)
-            assert not psutil.pid_exists(child_pid)
+            # Windows termination and PID removal are asynchronous; open process handles
+            # can keep a dead process object visible. Wait for the captured descendant,
+            # rather than requiring immediate disappearance on the same event-loop tick.
+            await asyncio.to_thread(child.wait, timeout=3)
         finally:
             await provider.stop()
     asyncio.run(body())
