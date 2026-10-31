@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"claude-fixture"}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Made "}}}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"the meme."}}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Made the meme."}]}}
+{"type":"future_event","payload":{"ok":true}}
+{"type":"result","is_error":false,"result":"Made the meme.","session_id":"claude-fixture"}

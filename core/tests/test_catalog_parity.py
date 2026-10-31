@@ -110,7 +110,7 @@ FORMATS = {
     "text": {"image": IMAGE, "at": POINT, "color": COLOR},
     "cutout": {"image": IMAGE, "box": BOX, "sticker_color": COLOR},
     "paste": {"base": IMAGE, "piece": IMAGE, "at": POINT, "fit_box": BOX, "region": BOX, "seed": SEED},
-    "draw": {"image": IMAGE, "circle": SPOT, "arrow": BOX, "line": BOX, "rect": BOX, "color": COLOR},
+    "draw": {"image": IMAGE, "circle": SPOT, "arrow": "badshop-segment", "line": "badshop-segment", "rect": BOX, "color": COLOR},
     "eyes": {"image": IMAGE, "at": POINT, "color": COLOR},
     "warp": {"image": IMAGE, "at": SPOT},
     "flare": {"image": IMAGE, "at": POINT},

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator, model_validator
 
 from badshop.engine.errors import EngineError
 from badshop.server.settings import config_dir
@@ -20,13 +20,28 @@ class Profile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, pattern=r"^[a-zA-Z0-9_-]{1,100}$")
-    kind: Literal["api", "local", "openai_compatible"] = "api"
+    kind: Literal["api", "local", "openai_compatible", "cli"] = "api"
     label: str = Field(min_length=1, max_length=200)
-    model: str = Field(min_length=1, max_length=200)
+    model: str = Field(default="", max_length=200)
+    cli: Literal["claude", "codex", "gemini"] | None = None
+    executable: str | None = None
     api_base: str | None = None
     api_key_ref: str | None = None
     api_key_env: str | None = Field(None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     capability_overrides: dict[Literal["vision", "tool_calls"], bool] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def provider_kind(self):
+        if self.kind == "cli":
+            if not self.cli:
+                raise ValueError("CLI profiles require a CLI name")
+            if self.api_base or self.api_key_ref or self.api_key_env:
+                raise ValueError("CLI profiles use the CLI's own subscription login")
+        elif not self.model.strip() or self.cli or self.executable:
+            raise ValueError("API profiles require a model; CLI settings require kind=cli")
+        if self.executable and not Path(self.executable).expanduser().is_absolute():
+            raise ValueError("choose an absolute executable path")
+        return self
 
     @field_validator("api_base")
     @classmethod

@@ -1,0 +1,20 @@
+name: dependency-check
+on:
+  schedule:
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  refreshed-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv lock --project core --upgrade
+      - run: uv run --project core pytest core/tests -q
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: candidate-lock
+          path: core/uv.lock

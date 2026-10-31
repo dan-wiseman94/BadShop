@@ -31,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve", help="serve the local API; the first stdout line is the port and token")
     s.add_argument("--port", type=_port, default=0, help="port on 127.0.0.1 (default: a free one)")
+    m = sub.add_parser("mcp", help="serve CLI-scoped MCP tools over stdio")
+    m.add_argument("--connect", required=True)
+    m.add_argument("--token", required=True)
+    m.add_argument("--actor", choices=("cli:claude", "cli:codex", "cli:gemini"), required=True)
+    m.add_argument("--heartbeat-seconds", type=float, default=60, help=argparse.SUPPRESS)
     return p
 
 
@@ -101,6 +106,7 @@ async def _serve(port: int) -> int:
     try:
         app = CoreApp(load_settings())
         server = await serve(app, token, sock=listener)  # from here on the server owns the socket
+        app.set_connection(f"ws://127.0.0.1:{bound_port(server)}", token)
     except BaseException:
         listener.close()
         raise
@@ -120,4 +126,10 @@ async def _serve(port: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     a = build_parser().parse_args(argv)
-    return asyncio.run(_serve(a.port))  # a.cmd is "serve", the only command until Plan 5 adds "mcp"
+    from badshop.diagnostics import configure_logging
+    configure_logging()
+    if a.cmd == "mcp":
+        from badshop.mcp.proxy import run_stdio
+        asyncio.run(run_stdio(a.connect, a.token, a.actor, heartbeat_s=a.heartbeat_seconds))
+        return 0
+    return asyncio.run(_serve(a.port))

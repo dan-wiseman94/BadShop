@@ -9,15 +9,15 @@ from pydantic import Field
 from badshop.engine.common import clamp_box, rgb, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
-from badshop.engine.types import Box, Color, ImageRef, Params, Point, Spot
+from badshop.engine.types import Box, Segment, Color, ImageRef, Params, Point, Spot
 
 
 class DrawParams(Params):
     POSITIONAL: ClassVar = ("image",)
     image: ImageRef = Field(description="image to draw on")
     circle: list[Spot] = Field(default_factory=list, max_length=100, description="circles as X Y R; repeatable")
-    arrow: list[Box] = Field(default_factory=list, max_length=100, description="arrows from X1 Y1 to X2 Y2 (head at the end)")
-    line: list[Box] = Field(default_factory=list, max_length=100, description="lines X1 Y1 X2 Y2")
+    arrow: list[Segment] = Field(default_factory=list, max_length=100, description="arrows from X1 Y1 to X2 Y2 (head at the end)")
+    line: list[Segment] = Field(default_factory=list, max_length=100, description="lines X1 Y1 X2 Y2")
     rect: list[Box] = Field(default_factory=list, max_length=100, description="rectangles X1 Y1 X2 Y2")
     color: Color = Field("red", description="stroke color")
     width: int = Field(6, ge=1, le=1000, description="stroke width in px")

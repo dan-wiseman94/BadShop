@@ -9,6 +9,7 @@ import base64
 import io
 import json
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -34,10 +35,11 @@ NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have
 METHODS = sorted([
     "providers.list", "providers.save", "providers.add", "providers.select", "providers.delete", "providers.test",
     "chat.retry",
+    "providers.detect", "diagnostics.get",
     "session.new", "session.get", "session.open", "session.restore", "session.save", "session.save_as",
     "session.export_recipe", "session.set_approval_mode", "chat.send", "chat.stop", "tools.list",
     "tools.run", "steps.edit", "steps.replay_from", "steps.delete", "approval.respond", "artifacts.get",
-    "artifacts.import", "export", "settings.get", "settings.set", "assets.status", "assets.download",
+    "artifacts.import", "export", "settings.get", "settings.set", "assets.status", "assets.download", "assets.cancel",
 ])
 
 
@@ -422,7 +424,8 @@ def test_untrusted_actor_rules_and_approvals(env):
         assert cli_tools["export"]["writes_files"] and not cli_tools["export"]["mutates"]
         assert cli_tools["find"]["read_only"] and cli_tools["fetch"]["network"]
         assert set(cli_tools["cutout"]) == {"name", "summary", "description", "category", "mutates",
-                                            "network", "read_only", "writes_files", "schema"}
+                                            "network", "read_only", "writes_files", "schema",
+                                            "cli_positionals", "cli_flags"}
 
         with pytest.raises(Failed) as e:  # a path is never an artifact id
             await cli.call("tools.run", tool="info", params={"image": str(TRUMP)})
@@ -1102,6 +1105,47 @@ def test_assets_status_and_download_progress(env, monkeypatch):
 
     run(body)
     assert assets.PROGRESS is before  # close() put the previous listener back
+
+
+@pytest.mark.parametrize("stop", ["rpc", "disconnect", "cancel_request", "close"])
+def test_asset_download_cancellation_reaches_worker(env, monkeypatch, stop):
+    started, finished = threading.Event(), threading.Event()
+    name = manifest.ASSETS[0].name
+    before = assets.CANCEL
+
+    def downloading(asset_name):
+        started.set()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if assets.CANCEL(asset_name):
+                finished.set()
+                raise assets.DownloadCancelled("download cancelled")
+            time.sleep(.005)
+        raise AssertionError("worker never received cancellation")
+
+    monkeypatch.setattr(manifest, "download", downloading)
+
+    async def body(app):
+        c = Client(app)
+        request = asyncio.create_task(c.call("assets.download", name=name))
+        assert await asyncio.to_thread(started.wait, 2)
+        with pytest.raises(Failed, match="already downloading"):
+            await c.call("assets.download", name=name)
+        if stop == "rpc":
+            assert await c.call("assets.cancel", name=name) == {"cancelled": True}
+        elif stop == "disconnect":
+            app.on_client_gone()
+        elif stop == "cancel_request":
+            request.cancel()
+        else:
+            await app.close()
+        await asyncio.gather(request, return_exceptions=True)
+        assert await asyncio.to_thread(finished.wait, 2)
+        await asyncio.gather(*(task for _, task in app._downloads.values()), return_exceptions=True)
+        assert await c.call("assets.cancel", name=name) == {"cancelled": False}
+
+    run(body)
+    assert assets.CANCEL is before
 
 
 def test_close_stops_a_waiting_turn(env):

@@ -47,7 +47,19 @@ def add_tool_parser(sub: argparse._SubParsersAction, spec: ToolSpec) -> None:
     s = sub.add_parser(spec.name, help=spec.summary.replace("%", "%%"), description=spec.summary)
     for name, f in model.model_fields.items():
         kind, inner = _classify(f.annotation)
-        kw: dict[str, Any] = {"help": (f.description or "").replace("%", "%%"), "default": argparse.SUPPRESS}
+        details = []
+        if not f.is_required():
+            default = f.get_default(call_default_factory=True)
+            if default is not None:
+                details.append(f"default {default}")
+        bounds = {key: getattr(meta, key) for meta in f.metadata
+                  for key in ("ge", "le", "gt", "lt") if getattr(meta, key, None) is not None}
+        if "ge" in bounds and "le" in bounds:
+            details.append(f"{bounds['ge']}-{bounds['le']}")
+        else:
+            details.extend(f"{key} {value}" for key, value in bounds.items())
+        help_text = (f.description or "") + (" (" + "; ".join(details) + ")" if details else "")
+        kw: dict[str, Any] = {"help": help_text.replace("%", "%%"), "default": argparse.SUPPRESS}
         if kind == "choice":
             kw.update(choices=inner, type=type(inner[0]))
         elif kind == "list_choice":

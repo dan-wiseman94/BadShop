@@ -37,6 +37,8 @@ Point = Annotated[tuple[Coord, Coord], Field(json_schema_extra=_coordinates(
     "badshop-point", f"X Y in {_AXES}"))]
 Box = Annotated[tuple[Coord, Coord, Coord, Coord], Field(json_schema_extra=_coordinates(
     "badshop-box", f"X1 Y1 X2 Y2 in {_AXES}"))]
+Segment = Annotated[tuple[Coord, Coord, Coord, Coord], Field(json_schema_extra=_coordinates(
+    "badshop-segment", f"X1 Y1 to X2 Y2 (direction preserved) in {_AXES}"))]
 Spot = Annotated[tuple[Coord, Coord, Coord], Field(json_schema_extra=_coordinates(
     "badshop-spot", f"X Y R, a centre and a radius, in {_AXES}"))]
 Color = Annotated[str, Field(max_length=100, json_schema_extra={"format": "color"})]  # Pillow refuses longer

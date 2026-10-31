@@ -1,0 +1,60 @@
+name: desktop
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  frozen-core:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            executable: badshop-core
+          - os: windows-latest
+            executable: badshop-core.exe
+          - os: macos-15
+            executable: badshop-core
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --project core --locked --group build
+      - if: runner.os == 'Windows'
+        run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits -q
+      - run: uv run --project core --group build python packaging/build_core.py
+      - run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/${{ matrix.executable }}
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: uv sync --project core --locked
+      - run: pnpm --dir app install --frozen-lockfile
+      - run: pnpm --dir app test
+      - run: pnpm --dir app build
+      - run: pnpm --dir app exec playwright install --with-deps chromium
+      - run: pnpm --dir app exec playwright test
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: browser-test-results
+          path: app/test-results
+  native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: mkdir -p app/dist packaging/core-dist && echo '<html></html>' > app/dist/index.html
+      - run: cargo test --manifest-path app/src-tauri/Cargo.toml --locked
+      - run: cargo fmt --manifest-path app/src-tauri/Cargo.toml -- --check

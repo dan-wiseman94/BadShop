@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=badshop
+Comment=Deliberately bad photoshops, art-directed by your model
+Exec=badshop-desktop
+Icon=io.github.danwiseman94.badshop
+Terminal=false
+Type=Application
+Categories=Graphics;

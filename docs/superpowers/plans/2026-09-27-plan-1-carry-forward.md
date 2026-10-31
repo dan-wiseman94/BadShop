@@ -11,6 +11,23 @@ Each entry gives what is missing, why it waited, and what the owning plan has to
 refer to the review reports kept with the Plan 1 working notes: SP (spec lens), CO
 (correctness), E2E (end-to-end parity), SEC (security), TRI (triage of deferred minors).
 
+## Completion audit (2026-10-31)
+
+The later implementation record is [`2026-10-31-complete-app.md`](2026-10-31-complete-app.md).
+Original handoff requirements below remain as historical rationale. Their current outcomes:
+
+- Plans 3–5: image-aware providers/JSON fallback, native desktop, directed segment widgets,
+  CLI help defaults/ranges, session recovery, elapsed tool status, MCP/CLI adapters implemented.
+- Downloads: resumable checked partials, explicit cancellation and disconnect/shutdown signals;
+  transient reconnect failures preserve valid partials. UI distinguishes worker and manual downloads.
+- Wikipedia file metadata now supplies licence, creator and file-description provenance when available.
+- Packaging: tested dependency floors, scheduled upgrade CI, bundled Python licence/notices,
+  `freeze_support`, frozen worker smoke and process-death cleanup implemented.
+- Intel macOS is excluded; Apple Silicon requires macOS 14+ because of locked native wheels.
+- BiRefNet measured at 9,328 MiB RSS on Linux for 761×1000 input. Picker explains the 12,288 MB
+  suggested worker limit; other release OS measurements remain release checks.
+- Schema stays at 1; no new persisted session field needs a migration.
+
 ## Plan 2: sessions and local server
 
 **Done** (Plan 2, `2026-09-27-plan-2-sessions-server.md`). Where each item landed:
@@ -131,7 +148,7 @@ The entries below are the record of what was asked.
 boundaries, provider profiles/keyring/API methods, image budgeting, adapted system prompt,
 structured tool results, `provider.status`, and retry method below are implemented.
 See [`2026-10-31-plan-3-provider-agent.md`](2026-10-31-plan-3-provider-agent.md) for validation
-and remaining live checks/JSON fallback; Plan 3 is still in progress. The original handoff
+and the completion follow-up; JSON fallback and cloud/local live checks are now implemented. The original handoff
 requirements are retained below for traceability.
 
 - **SP F14: the finish tools describe CLI file semantics.** `save` says "Saved to the user's

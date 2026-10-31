@@ -1,0 +1,6 @@
+{"type":"init","session_id":"gemini-fixture","model":"test"}
+{"type":"message","role":"assistant","content":"Made ","delta":true}
+{"type":"tool_use","tool_name":"view","tool_id":"tool_1","parameters":{"image":"abc123"}}
+{"type":"tool_result","tool_id":"tool_1","status":"success"}
+{"type":"message","role":"assistant","content":"the meme.","delta":true}
+{"type":"result","status":"success","stats":{"total_tokens":130}}

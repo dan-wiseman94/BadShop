@@ -28,16 +28,21 @@ Read the design spec and `2026-09-27-plan-1-carry-forward.md` alongside this rec
 - `badshop chat`: model/profile setup, streamed text, attached imports, approve/reject/edit,
   save/open/restore/retry and clean EOF/Ctrl-C shutdown through the existing CoreApp.
 
-## Remaining before marking Plan 3 complete
+## Completion follow-up
 
-- Live opt-in checks against a cloud vision model and an Ollama vision/tool model. Offline
-  loopback SSE tests verify the installed SDK's OpenAI-compatible request/response path;
-  they cannot establish model quality or every upstream provider's multimodal behavior.
-- JSON-mode fallback for vision models without native tool calling. These models currently
-  receive an explicit unsupported-capability error; no tools are silently dropped.
-- Exercise the actual OS keychain on each release OS. Tests use an isolated fake keychain.
-  Missing/unlock errors offer an environment variable; plaintext storage is not implemented.
-- The desktop interface remains Plan 4; subscription CLI agents/MCP remain Plan 5.
+The remaining implementation landed in [`2026-10-31-complete-app.md`](2026-10-31-complete-app.md):
+JSON-mode tool fallback, visible capability warnings, desktop UI and CLI/MCP integration.
+Live vision/native-tool smoke passed against Gemini 3.8 Flash and local Ollama Qwen3-VL 2B.
+Claude Code and Codex each passed a real resumed turn that opened an image through MCP.
+Local Ollama also passed the forced JSON fallback.
+The first forced Gemini JSON fallback exceeded the harness's 90-second timeout; a retry
+with a 180-second limit completed in 76 seconds. Both cloud and local fallback checks passed.
+
+Linux Secret Service passed a synthetic credential set/get/delete round-trip. Actual
+Windows/macOS keychain checks remain release validation. Profile unit
+tests use an isolated keychain; missing/unlock errors offer an environment variable, and
+plaintext storage is not implemented. The later completion record supersedes the earlier
+"no paid provider calls" statement below, which describes only the original Plan 3 turn.
 
 No session schema bump: all persistent session fields already existed at schema 1.
 

@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"codex-fixture"}
+{"type":"item.started","item":{"type":"mcp_tool_call","id":"tool_1","server":"badshop","tool":"view"}}
+{"type":"item.updated","item":{"type":"agent_message","id":"message_1","text":"Made "}}
+{"type":"item.completed","item":{"type":"agent_message","id":"message_1","text":"Made the meme."}}
+{"type":"turn.completed","usage":{"input_tokens":120,"output_tokens":10}}
