@@ -81,6 +81,12 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # Jammy's original builder expects appstream-compose, absent from SDK 49.
+          # Upgrade only after the native bundles have been built and tested.
+          sudo add-apt-repository -y ppa:flatpak/stable
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream-compose
+          flatpak-builder --version
           dbus-run-session -- bash -e -c '
             flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
             flatpak install --user -y flathub org.gnome.Platform//49 org.gnome.Sdk//49

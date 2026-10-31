@@ -1,14 +1,24 @@
 """Bundle the already verified Linux .deb, preserving its native resource layout.
 
-Requires flatpak-builder and org.gnome.{Sdk,Platform}//49. No host package installation.
+Requires flatpak-builder >= 1.3.4 and org.gnome.{Sdk,Platform}//49.
+No host package installation.
 """
 import argparse
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def require_builder() -> None:
+    """SDK 49 needs a builder that composes metadata with appstreamcli."""
+    version = subprocess.check_output(['flatpak-builder', '--version'], text=True)
+    match = re.search(r'\b(\d+)\.(\d+)\.(\d+)\b', version)
+    if not match or tuple(map(int, match.groups())) < (1, 3, 4):
+        raise SystemExit('GNOME SDK 49 requires flatpak-builder >= 1.3.4 (appstreamcli compose)')
 
 
 def extract_deb(deb: Path, staging: Path) -> None:
@@ -34,6 +44,8 @@ def main():
     parser.add_argument('deb', type=Path)
     parser.add_argument('--prepare-only', action='store_true')
     args = parser.parse_args()
+    if not args.prepare_only:
+        require_builder()
     staging = ROOT / 'packaging/flatpak-input'
     if staging.exists():
         shutil.rmtree(staging)

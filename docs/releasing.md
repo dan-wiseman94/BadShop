@@ -46,7 +46,11 @@ Installer compression reduces the download; model files add separate optional st
 ## Flatpak
 
 `packaging/build_flatpak.py path/to/badshop.deb` (dpkg-deb or ar + bsdtar) uses the same verified Linux build,
-extracts its resource layout and feeds `packaging/flatpak.json` to flatpak-builder.
+extracts its resource layout and feeds `packaging/flatpak.json` to flatpak-builder >= 1.3.4.
+This version minimum uses `appstreamcli compose` for metadata; SDK 49 no longer supplies
+the legacy `appstream-compose` executable. On Ubuntu 22.04, CI installs the current
+builder and AppStream compose support from the [official Flatpak stable PPA](https://github.com/flatpak/ppa-flatpak)
+after building and testing the .deb and AppImage, preserving their Ubuntu 22.04 baseline.
 Install org.gnome.Platform and org.gnome.Sdk branch 49 in the user Flatpak installation.
 This v1 binary bundle avoids a second cargo/node dependency resolution; the upstream
 Linux build uses committed pnpm/Cargo/uv lockfiles. A future Flathub submission can replace
