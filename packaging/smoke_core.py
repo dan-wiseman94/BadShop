@@ -3,6 +3,8 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -56,7 +58,28 @@ def windows_dialogs(pids: set[int]) -> list[dict]:
     return windows
 
 
-def process_snapshot(pid: int) -> dict:
+def native_stack(pid: int) -> dict:
+    """Bounded, noninvasive debugger attach to a worker already stalled in startup."""
+    cdb = (os.environ.get('BADSHOP_CDB') or shutil.which('cdb')
+           or str(Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))
+                  / 'Windows Kits/10/Debuggers/x64/cdb.exe'))
+    if not Path(cdb).is_file():
+        return {'pid': pid, 'error': 'CDB is not installed', 'searched': cdb}
+    # -pv is noninvasive; -pd preserves the target on unexpected debugger exit;
+    # qd explicitly quits and detaches, leaving the target running after its stacks.
+    try:
+        result = subprocess.run([cdb, '-pv', '-pd', '-p', str(pid), '-c', '~* kb; qd'],
+                                capture_output=True, timeout=20, check=False)
+    except subprocess.TimeoutExpired as error:
+        return {'pid': pid, 'error': 'CDB exceeded 20 seconds',
+                'output': ((error.stdout or b'') + (error.stderr or b'')).decode(errors='replace')[-24000:]}
+    except OSError as error:
+        return {'pid': pid, 'error': type(error).__name__}
+    return {'pid': pid, 'code': result.returncode,
+            'output': (result.stdout + result.stderr).decode(errors='replace')[-24000:]}
+
+
+def process_snapshot(pid: int, debugger: bool = False) -> dict:
     """Native bootstrap evidence, before the core startup watchdog removes its child."""
     parent = psutil.Process(pid)
     processes = [parent, *parent.children(recursive=True)]
@@ -78,6 +101,9 @@ def process_snapshot(pid: int) -> dict:
     result = {'processes': details}
     if os.name == 'nt':
         result['windows'] = windows_dialogs({p.pid for p in processes})
+        workers = [item['pid'] for item in details if '--multiprocessing-fork' in item.get('cmdline', [])]
+        if debugger and workers:
+            result['native_stack'] = native_stack(workers[0])
     return result
 
 
@@ -85,7 +111,7 @@ async def observe_startup(pid: int):
     for delay in (1, 9):
         await asyncio.sleep(delay)
         try:
-            snapshot = await asyncio.to_thread(process_snapshot, pid)
+            snapshot = await asyncio.to_thread(process_snapshot, pid, delay == 9)
             print('Frozen native startup: ' + json.dumps(snapshot), flush=True)
         except (OSError, psutil.Error) as error:
             print('Frozen startup observation failed: ' + type(error).__name__, flush=True)
