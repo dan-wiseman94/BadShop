@@ -157,7 +157,8 @@ Linux runs on Xvfb; AppImage's extraction runner and the installed Flatpak recei
 same lifecycle check. AppImage FUSE mounting is not covered.
 
 The required screenshot catches an empty WebView; the established loopback connection
-proves the renderer executed and authenticated to its bundled core. Screenshots are
+confirms the renderer opened a socket to its bundled core. Authentication and editing
+behavior are verified separately by protocol and browser end-to-end tests. Screenshots are
 uploaded as `desktop-evidence-*`. These checks do **not** claim native file-dialog,
 clipboard image, or every editing-flow coverage: browser end-to-end tests cover editing,
 while native dialogs and clipboard should also receive an interactive release check.

@@ -142,6 +142,9 @@ with native stack capture and retained Windows build artifacts available only af
 - Separate user-save baselines from crash-recovery autosaves. New/open/restore and native
   close offer Save/Discard/Cancel. Monotonic revisions reject stale decisions and stale
   Save/Save As requests under the core lock. macOS Quit follows the same close decision.
+- Reset selections, attachments, cached images and local drafts after a successful project
+  replacement, including reopening an earlier save with the same project ID. Canceled and
+  failed replacements preserve the current workspace.
 - Keep all three panes inside the minimum 900×600 window; retain preferred widths after
   shrinking, provide keyboard resize/reset, and keep the empty chat introduction visible.
 - Bind coordinate picking to the form's actual input image; merge replayed parameters
@@ -150,7 +153,7 @@ with native stack capture and retained Windows build artifacts available only af
   explain step-budget/invalid-tool stops. Render repeatable tool fields and their controls
   without relying on Bootstrap styles or icon fonts.
 - Share installer validation between PR and release CI. Require a visible nonblank native
-  window, authenticated renderer connection, normal exit, child cleanup, and a disposable
+  window, renderer/core socket connection, normal exit, child cleanup, and a disposable
   real-keychain credential round trip before uploading each platform's installer.
 - Keep manual download cancellation available after Settings closes and reopens; offer
   saved-provider selection during first run and an explicit connection probe separate

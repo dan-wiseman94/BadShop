@@ -10,6 +10,7 @@ interface UIState {
   logPath?: string;
   selectedStep: string | null;
   selectedArtifact: string | null;
+  documentGeneration: number;
   settingsOpen: boolean;
   paletteOpen: boolean;
   pick: PickRequest | null;
@@ -23,6 +24,7 @@ export const useUI = create<UIState>()((set) => ({
   status: "starting",
   selectedStep: null,
   selectedArtifact: null,
+  documentGeneration: 0,
   settingsOpen: false,
   paletteOpen: false,
   pick: null,

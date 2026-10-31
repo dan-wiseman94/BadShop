@@ -116,6 +116,9 @@ export default function App() {
     previousSession.current = session?.id;
   }, [session?.id]);
   useEffect(() => {
+    setAttachments([]);
+  }, [ui.documentGeneration]);
+  useEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
     const apply = () =>
       (document.documentElement.dataset.theme =
@@ -562,6 +565,7 @@ export default function App() {
           }}
         >
           <Chat
+            key={`chat-${ui.documentGeneration}`}
             attachments={attachments}
             onAttachments={setAttachments}
             onImport={importImages}
@@ -574,7 +578,10 @@ export default function App() {
             onResize={(delta) => resize("left", delta)}
             onReset={reset}
           />
-          <Viewer onImport={importImages} />
+          <Viewer
+            key={`viewer-${ui.documentGeneration}`}
+            onImport={importImages}
+          />
           <Resizer
             side="right"
             value={widths.right}
@@ -582,7 +589,7 @@ export default function App() {
             onResize={(delta) => resize("right", delta)}
             onReset={reset}
           />
-          <Timeline />
+          <Timeline key={`timeline-${ui.documentGeneration}`} />
         </main>
       )}
       <footer className="app-footer">

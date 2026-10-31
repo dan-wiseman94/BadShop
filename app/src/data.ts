@@ -100,6 +100,20 @@ export async function action<K extends keyof MethodMap>(
         );
     }
   }
+  if (["session.new", "session.open", "session.restore"].includes(method)) {
+    queries.removeQueries({ queryKey: ["artifact"] });
+    queries.setQueryData<Session>(["session.get"], {
+      ...(value as Session),
+      stream_text: "",
+    });
+    useUI.getState().set({
+      documentGeneration: useUI.getState().documentGeneration + 1,
+      selectedStep: null,
+      selectedArtifact: null,
+      pick: null,
+      paletteOpen: false,
+    });
+  }
   await queries.invalidateQueries({ queryKey: ["session.get"] });
   if (method.startsWith("providers."))
     await queries.invalidateQueries({ queryKey: ["providers.list"] });

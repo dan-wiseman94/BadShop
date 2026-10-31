@@ -56,13 +56,6 @@ fn launch(app: &tauri::AppHandle) -> Result<Launch, Box<dyn std::error::Error>> 
         .join("badshop-core")
         .join(executable);
     let log_path = app.path().app_log_dir()?.join("shell.log");
-    if bundled.is_file() {
-        return Ok(Launch {
-            program: bundled,
-            args: vec!["serve".into()],
-            log_path,
-        });
-    }
     if cfg!(debug_assertions) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()

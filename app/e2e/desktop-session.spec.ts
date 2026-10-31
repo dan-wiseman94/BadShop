@@ -1,4 +1,4 @@
-import { test, expect, type Core } from "./fixtures";
+import { test, expect, root, type Core } from "./fixtures";
 import type { Page } from "@playwright/test";
 import type { Session } from "../src/types";
 import { mkdir, stat } from "node:fs/promises";
@@ -138,4 +138,60 @@ test("all desktop panes fit after resizing, preserve preferences, and support th
   await expect(separator).toHaveAttribute("aria-valuenow", String(before + 16));
   await separator.dblclick();
   await expect(separator).toHaveAttribute("aria-valuenow", "318");
+});
+
+test("reopening an earlier save of the same session clears discarded image selections and attachments", async ({
+  page,
+  core,
+}) => {
+  await connect(page, core);
+  const initial = (await core.call("session.get")) as Session;
+  const project = path.join(core.folder, "same-session.badshop");
+  await page.locator(".session-name").click();
+  page.once("dialog", (picker) => picker.accept(project));
+  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await expect
+    .poll(
+      async () => ((await core.call("session.get")) as Session).unsaved_changes,
+    )
+    .toBe(false);
+  await page
+    .getByLabel("Import image files", { exact: true })
+    .setInputFiles(path.join(root, "core/tests/fixtures/trump.png"));
+  await expect(page.locator(".attachments img")).toHaveCount(1);
+  await expect(page.locator(".canvas-image")).toHaveAttribute("alt", /trump/);
+  await page
+    .getByLabel("Message your agent")
+    .fill("Keep this draft until I discard.");
+  await page.locator(".session-name").click();
+  page.once("dialog", (picker) => picker.dismiss());
+  await page.getByRole("button", { name: /^Open session/ }).click();
+  await expect(page.locator(".attachments img")).toHaveCount(1);
+  await expect(page.getByLabel("Message your agent")).toHaveValue(
+    "Keep this draft until I discard.",
+  );
+  await page.locator(".session-name").click();
+  page.once("dialog", (picker) => picker.accept(project));
+  await page.getByRole("button", { name: /^Open session/ }).click();
+  await page
+    .getByRole("dialog", { name: /Save changes to/ })
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await expect(page.locator(".attachments img")).toHaveCount(1);
+  await expect(page.locator(".canvas-image")).toHaveAttribute("alt", /trump/);
+  await page.locator(".session-name").click();
+  page.once("dialog", (picker) => picker.accept(project));
+  await page.getByRole("button", { name: /^Open session/ }).click();
+  await page
+    .getByRole("dialog", { name: /Save changes to/ })
+    .getByRole("button", { name: "Discard changes", exact: true })
+    .click();
+  await expect
+    .poll(async () =>
+      Object.keys(((await core.call("session.get")) as Session).artifacts),
+    )
+    .toEqual(Object.keys(initial.artifacts));
+  await expect(page.locator(".attachments img")).toHaveCount(0);
+  await expect(page.getByLabel("Message your agent")).toHaveValue("");
+  await expect(page.locator(".canvas-image")).toHaveAttribute("alt", /lincoln/);
 });
