@@ -126,7 +126,7 @@ selected model/CLI behavior, not compatibility with every upstream version or ac
 To repeat native Linux lifecycle checks on an isolated display:
 
 ```sh
-xvfb-run -a uv run --project core python packaging/smoke_desktop.py -- /path/to/badshop-desktop
+xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_desktop.py -- /path/to/badshop-desktop
 ```
 
 This needs Xvfb, xdotool and ImageMagick. The script requires a visible application

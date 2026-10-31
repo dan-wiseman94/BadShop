@@ -158,5 +158,5 @@ with native stack capture and retained Windows build artifacts available only af
 
 Local follow-up validation: 1,502 Python tests passed before the final two queued-Save
 regressions were added; all 64 focused document/server tests then passed. Frontend validation
-covers 42 unit/component tests, 19 real-core browser workflows, and the production build.
+covers 43 unit/component tests, 20 real-core browser workflows, and the production build.
 The frozen Linux core passed keychain, image-tool, Save, EOF, and forced-death cleanup probes.

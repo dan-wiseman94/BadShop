@@ -58,7 +58,7 @@ jobs:
       - run: pnpm --dir app exec tauri build --bundles ${{ matrix.bundles }}
       - name: Installed desktop window, renderer, normal exit (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a uv run --project core python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
+        run: xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
       - name: Installed desktop window, renderer, normal exit (Windows)
         if: runner.os == 'Windows'
         run: uv run --project core python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
@@ -68,7 +68,7 @@ jobs:
       - name: AppImage runtime
         if: runner.os == 'Linux'
         shell: bash
-        run: xvfb-run -a uv run --project core python packaging/smoke_desktop.py --screenshot packaging/appimage-smoke.png -- app/src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract-and-run
+        run: xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_desktop.py --screenshot packaging/appimage-smoke.png -- app/src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract-and-run
       - name: Flatpak bundle and runtime
         if: runner.os == 'Linux'
         shell: bash
@@ -78,7 +78,7 @@ jobs:
             flatpak install --user -y flathub org.gnome.Platform//49 org.gnome.Sdk//49
             uv run --project core python packaging/build_flatpak.py app/src-tauri/target/release/bundle/deb/*.deb
             flatpak install --user -y packaging/badshop.flatpak
-            xvfb-run -a uv run --project core python packaging/smoke_desktop.py --screenshot packaging/flatpak-smoke.png -- flatpak run io.github.danwiseman94.badshop
+            xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_desktop.py --screenshot packaging/flatpak-smoke.png -- flatpak run io.github.danwiseman94.badshop
           '
       - uses: actions/upload-artifact@v6
         if: always()

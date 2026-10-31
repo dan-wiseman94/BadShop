@@ -132,7 +132,7 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
                 time.sleep(3)  # allow the connected renderer to paint its first frame
                 capture_window(window, shot.resolve())
                 with Image.open(shot) as frame:
-                    assert frame.width >= 500 and frame.height >= 300, 'Window capture is too small'
+                    assert frame.width >= 900 and frame.height >= 600, 'Window capture is smaller than the app minimum'
                     # Exclude window chrome: a created but unpainted webview is not a pass.
                     content = frame.crop((40, 100, frame.width - 40, frame.height - 40)).convert('L')
                     assert content.entropy() > 1, 'Webview screenshot is blank'
