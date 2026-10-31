@@ -60,6 +60,17 @@ def main() -> None:
             info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
             executable = app / 'Contents/MacOS' / info['CFBundleExecutable']
         assert executable.is_file(), f'Installed executable missing: {executable}'
+        requested = executable
+        # Tauri intentionally rejects symlink ancestors on macOS. tempfile may
+        # return /var/folders while /var aliases /private/var, so launch the real
+        # path rather than disabling that protection in the application.
+        executable = executable.resolve(strict=True)
+        print(f'Installed executable: {requested}; resolved: {executable}', flush=True)
+        if sys.platform == 'darwin':
+            resources = executable.parent.parent / 'Resources'
+            core = resources / 'core-dist/badshop-core/badshop-core'
+            assert core.is_file(), f'Installed macOS core missing: {core}'
+            print(f'Installed macOS resource directory: {resources}', flush=True)
         try:
             smoke([str(executable)], args.screenshot)
         finally:
