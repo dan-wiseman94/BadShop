@@ -21,9 +21,39 @@ export function useCoreQuery<K extends keyof MethodMap>(method: K) {
   const ready = useUI((s) => s.status === "ready");
   return useQuery({
     queryKey: [method],
-    queryFn: ({ signal }) => rpc.request(method, undefined, signal),
+    queryFn: async ({ signal }) => {
+      const value = await rpc.request(method, undefined, signal);
+      return (
+        method === "session.get"
+          ? reconcileSessionSnapshot(
+              value as Session,
+              queries.getQueryData<Session>(["session.get"]),
+            )
+          : value
+      ) as MethodMap[K][1];
+    },
     enabled: ready,
   });
+}
+/** A snapshot can observe persistence before message.done reaches this socket. */
+export function reconcileSessionSnapshot(
+  snapshot: Session,
+  previous?: Session,
+): Session {
+  if (previous?.id !== snapshot.id) return { ...snapshot, stream_text: "" };
+  const knownAssistantIds = new Set(
+    previous.messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.id),
+  );
+  const completedReply = snapshot.messages.some(
+    (message) =>
+      message.role === "assistant" && !knownAssistantIds.has(message.id),
+  );
+  return {
+    ...snapshot,
+    stream_text: completedReply ? "" : (previous.stream_text ?? ""),
+  };
 }
 export function useSession() {
   return useCoreQuery("session.get");
@@ -56,9 +86,13 @@ export function run<T>(work: () => Promise<T>) {
 }
 function applyEvent({ method, params }: CoreEvent) {
   if (method === "message.delta") {
-    queries.setQueryData<string>(
-      ["stream"],
-      (old) => (old ?? "") + String(params.text ?? ""),
+    queries.setQueryData<Session>(["session.get"], (old) =>
+      old
+        ? {
+            ...old,
+            stream_text: (old.stream_text ?? "") + String(params.text ?? ""),
+          }
+        : old,
     );
     return;
   }
@@ -98,7 +132,7 @@ function applyEvent({ method, params }: CoreEvent) {
         ...old.messages.filter((m) => m.id !== message.id),
         message,
       ];
-      queries.setQueryData(["stream"], "");
+      next.stream_text = "";
     }
     if (params.step) {
       const step = params.step as unknown as Step;
@@ -131,10 +165,13 @@ function applyEvent({ method, params }: CoreEvent) {
       next.pending_approvals = old.pending_approvals.filter(
         (id) => id !== params.step_id,
       );
-    if (method === "turn.started") next.turn_running = true;
+    if (method === "turn.started") {
+      next.turn_running = true;
+      next.stream_text = "";
+    }
     if (method === "turn.finished") {
       next.turn_running = false;
-      queries.setQueryData(["stream"], "");
+      next.stream_text = "";
       if (params.error) useUI.getState().set({ error: String(params.error) });
     }
     return next;
@@ -174,7 +211,9 @@ export function startCore() {
       current = next;
       attempt = 0;
       failed = false;
-      queries.setQueryData(["stream"], "");
+      queries.setQueryData<Session>(["session.get"], (old) =>
+        old ? { ...old, stream_text: "" } : old,
+      );
       await queries.invalidateQueries();
       if (restarted) {
         const session = await rpc.request("session.get");

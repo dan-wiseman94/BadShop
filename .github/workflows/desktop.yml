@@ -27,7 +27,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
       - run: uv sync --project core --locked --group build
       - if: runner.os == 'Windows'
-        run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits -q
+        run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits core/tests/test_worker.py::test_a_real_tool_gives_the_same_outcome_as_in_process -q
       - run: uv run --project core --group build python packaging/build_core.py
       - run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/${{ matrix.executable }}
   frontend:

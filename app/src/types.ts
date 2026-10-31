@@ -48,6 +48,8 @@ export interface Message {
   step_ids: string[];
 }
 export interface Session {
+  /** Transient event-cache state, never sent to or saved by the core. */
+  stream_text?: string;
   id: string;
   name: string;
   path: string | null;

@@ -103,7 +103,10 @@ model measurement is separate from the lightweight installer smoke test.
 - Local Ollama `qwen3-vl:2b`: vision plus native tools and forced JSON fallback both passed.
 - Claude Code and Codex: initial turn plus resumed image inspection via the actual MCP proxy passed.
 - Modern Gemini CLI 0.66.0: isolated policy-engine check confirms badshop tools allowed and
-  built-in/other-server tools denied; the preinstalled 0.1.13 is correctly rejected.
+  built-in/other-server tools denied; the preinstalled 0.1.13 is correctly rejected. A real
+  model invoked MCP `view` and consumed the image. Full reply/resume remains unverified:
+  the final bounded probe received upstream HTTP 503 high-demand errors and exhausted
+  240 seconds of retries. Gemini CLI remains experimental.
 - Linux .deb and Flatpak: visible native UI, renderer/core connection and clean window-close
   shutdown passed under isolated Xvfb. AppImage also passed via its extraction runner (FUSE mount not exercised); native runtime
   smoke is separately tracked from the browser editing tests.

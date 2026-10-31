@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Grid2X2,
   ScanFace,
@@ -84,11 +83,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const id = before && inputId ? inputId : afterId;
   const { data, error } = useArtifact(id);
   const meta = data?.meta;
-  const { data: progress } = useQuery<string>({
-    queryKey: ["stream"],
-    queryFn: () => "",
-    enabled: false,
-  });
+  const progress = session?.stream_text;
   useEffect(() => {
     const node = stage.current;
     if (!node) return;

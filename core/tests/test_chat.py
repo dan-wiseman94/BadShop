@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 
 import pytest
 from PIL import Image
@@ -271,7 +272,9 @@ def test_terminal_restore_open_keep_saved_profile_and_clear_attachments(private_
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows console Ctrl-C is not subprocess SIGINT")
-def test_terminal_sigint_while_input_waits_exits(private_env, monkeypatch):
+@pytest.mark.parametrize("attempt", range(3))
+@pytest.mark.parametrize("stage", ["initial", "approval"])
+def test_terminal_sigint_while_input_waits_exits(private_env, monkeypatch, attempt, stage):
     script = private_env / "script.json"
     script.write_text(json.dumps([{"tool_calls": [{"name": "fetch", "arguments": {
         "query": "never fetched"}}]}]))
@@ -279,27 +282,131 @@ def test_terminal_sigint_while_input_waits_exits(private_env, monkeypatch):
     with subprocess.Popen([sys.executable, "-m", "badshop", "chat"], stdin=subprocess.PIPE,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as proc:
         ready = threading.Event()
-        chunks = []
+        chunks, errors = [], []
 
         def read():
             while char := proc.stdout.read(1):
                 chunks.append(char)
-                if "Approve [y]" in "".join(chunks):
+                if ("Approve [y]" if stage == "approval" else "badshop> ") in "".join(chunks):
                     ready.set()
 
-        worker = threading.Thread(target=read, daemon=True)
+        def drain_errors():
+            errors.append(proc.stderr.read())
+
+        worker = threading.Thread(target=read)
+        error_worker = threading.Thread(target=drain_errors)
         worker.start()
+        error_worker.start()
         try:
-            proc.stdin.write("do it\n")
-            proc.stdin.flush()
-            assert ready.wait(10), "terminal did not ask for approval"
+            if stage == "approval":
+                proc.stdin.write("do it\n")
+                proc.stdin.flush()
+            assert ready.wait(10), "terminal did not display its input prompt"
+            # Ensure cancellation also covers a reader already blocked inside stdin,
+            # rather than only the small interval between displaying and reading a prompt.
+            time.sleep(.02)
             proc.send_signal(signal.SIGINT)
-            assert proc.wait(timeout=5) == 130
+            code = proc.wait(timeout=5)
             worker.join(timeout=5)
-            assert not worker.is_alive()
-            assert "Traceback" not in proc.stderr.read()
+            error_worker.join(timeout=5)
+            assert not worker.is_alive() and not error_worker.is_alive()
+            stderr = "".join(errors)
+            assert code == 130, stderr
+            assert "Traceback" not in stderr and "Fatal Python error" not in stderr, stderr
         finally:
             if proc.poll() is None:
                 proc.kill()
                 proc.wait(timeout=5)
             worker.join(timeout=5)
+            error_worker.join(timeout=5)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX fd readiness cancellation contract")
+def test_cancelled_terminal_input_removes_reader_without_waiting_for_stdin(monkeypatch):
+    from badshop.cli.chat import read_input
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "r", encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", stream)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    async def run():
+        task = asyncio.create_task(read_input("prompt> "))
+        await asyncio.sleep(.02)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not any(t.name == "badshop-input" and t.is_alive() for t in threading.enumerate())
+    try:
+        asyncio.run(run())
+    finally:
+        os.close(write_fd)
+        for thread in threading.enumerate():
+            if thread.name == "badshop-input":
+                thread.join(timeout=1)
+        stream.close()
+
+
+@pytest.mark.parametrize("regular_file", [False, True])
+def test_terminal_raw_input_preserves_unicode_crlf_and_eof(private_env, regular_file):
+    script = '''import asyncio,json
+from badshop.cli.chat import read_input
+async def main():
+    lines=[await read_input("") for _ in range(3)]
+    try: await read_input("")
+    except EOFError: pass
+    else: raise AssertionError("missing EOF")
+    print(json.dumps(lines,ensure_ascii=True))
+asyncio.run(main())
+'''
+    content = "雪🙂\r\ncafé\nlast line"
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    if regular_file:
+        path = private_env / "input.txt"
+        path.write_bytes(content.encode("utf-8"))
+        with path.open("rb") as stream:
+            result = subprocess.run([sys.executable, "-c", script], stdin=stream,
+                                    capture_output=True, text=True, encoding="utf-8", timeout=5, env=env)
+    else:
+        result = subprocess.run([sys.executable, "-c", script], input=content,
+                                capture_output=True, text=True, encoding="utf-8", timeout=5, env=env)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == ["雪🙂", "café", "last line"]
+    assert "Fatal Python error" not in result.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX canonical TTY input")
+def test_terminal_tty_keeps_unicode_and_native_line_editing(private_env):
+    import pty
+    master, slave = pty.openpty()
+    script = '''import asyncio,json
+from badshop.cli.chat import read_input
+print(json.dumps(asyncio.run(read_input("")),ensure_ascii=True))
+'''
+    try:
+        with subprocess.Popen([sys.executable, "-c", script], stdin=slave,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              env={**os.environ, "PYTHONIOENCODING": "utf-8"}) as proc:
+            os.close(slave)
+            slave = None
+            # Canonical terminal editing removes the final ASCII x before the app sees it.
+            os.write(master, "café🙂x\x7f\n".encode("utf-8"))
+            stdout, stderr = proc.communicate(timeout=5)
+            assert proc.returncode == 0, stderr.decode("utf-8", "replace")
+            assert json.loads(stdout) == "café🙂"
+    finally:
+        os.close(master)
+        if slave is not None:
+            os.close(slave)
+
+
+def test_windows_raw_console_adapter_keeps_wide_unicode():
+    from types import SimpleNamespace
+    from badshop.cli.chat import _raw_line
+    class _WindowsConsoleIO:
+        def __init__(self):
+            self.characters = iter("雪🙂\r\n")
+        def read(self, size):
+            assert size >= 4  # CPython's UTF-8 console adapter needs space for a full codepoint.
+            return next(self.characters).encode("utf-8")
+    stream = SimpleNamespace(encoding="utf-8", errors="strict",
+                             buffer=SimpleNamespace(raw=_WindowsConsoleIO()))
+    assert _raw_line(stream) == "雪🙂"

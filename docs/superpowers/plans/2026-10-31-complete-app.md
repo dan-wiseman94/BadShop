@@ -88,13 +88,15 @@
   one network test deselected. Independent review fixes have focused regression coverage.
 - Core/native: three Rust lifecycle tests; frozen core handshake, tool discovery, spawned
   face detector, save, EOF shutdown and forced-core-death worker cleanup passed.
-- Frontend: strict production build, **14 component/RPC tests**, **10 real-core browser flows**,
+- Frontend: strict production build, **18 component/RPC tests**, **10 real-core browser flows**,
   and built frontend under the exact native CSP. Independent review findings corrected.
 - Live: Gemini 3.8 Flash and Ollama Qwen3-VL 2B vision/native tools and JSON fallback passed;
   Claude Code and Codex resumed image inspection via MCP passed. Gemini fallback initially
   timed out at 90 seconds; retry with a 180-second harness limit completed in 76 seconds.
 - Gemini CLI 0.66.0 policy engine was exercised in an isolated installation; scoped badshop
   tools allowed, built-in and unrelated MCP tools denied. Old installed CLI is refused.
+  Actual Gemini MCP image delivery passed; complete reply/resume is unverified because
+  the final probe hit upstream HTTP 503 high-demand retries (240-second bound).
 - Linux Secret Service: synthetic credential write/read/delete passed; no existing entry changed.
 - Linux deb, AppImage extraction runner and Flatpak Platform49: visible native window,
   renderer/core connection, normal close and no surviving descendants passed.
@@ -113,3 +115,16 @@ and account. No tag, public release or PyPI publication is part of this developm
 
 The shipped standalone Claude skill is `skills/badshop/SKILL.md`, targeting the installed CLI;
 the original reference remains a parity fixture. No persistent session schema change was needed.
+
+
+CI follow-up: a real WebSocket ordering regression reproduced duplicate persisted/streaming
+chat text during retry. The UI now updates both atomically; the unchanged strict assertion
+passed five repeated runs, with all 18 component/RPC tests and 10 browser flows passing.
+Windows native Job Object cleanup passed after replacing an immediate PID-existence assertion
+with a bounded process wait. Linux/macOS frozen worker smoke passed in CI; Windows smoke now
+uses the core's full startup/execution budget and retains timeout diagnostics.
+
+Terminal CI fix: the daemon `input()` thread could hold stdout's buffered lock at interpreter
+shutdown (reproduced SIGABRT with `_enter_buffered_busy`). Prompt writes now stay on the
+main thread; POSIX uses cancellable descriptor readiness and Windows uses unbuffered reads.
+All 29 chat tests pass, including repeated exact-130 SIGINT exits, Unicode and PTY editing.

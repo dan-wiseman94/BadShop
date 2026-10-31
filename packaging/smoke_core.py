@@ -18,6 +18,8 @@ async def smoke(executable: Path, crash: bool = False):
                'BADSHOP_DATA_DIR': folder + '/data', 'BADSHOP_OUT': folder + '/out',
                'BADSHOP_LOG_DIR': folder + '/logs'}
         env.pop('BADSHOP_FAKE_PROVIDER', None)
+        if os.name == 'nt':
+            env['BADSHOP_SMOKE_TRACE'] = '1'  # retained stderr explains a stalled frozen worker
         proc = await asyncio.create_subprocess_exec(str(executable.resolve()), 'serve',
                                                    stdin=asyncio.subprocess.PIPE,
                                                    stdout=asyncio.subprocess.PIPE,
@@ -35,7 +37,9 @@ async def smoke(executable: Path, crash: bool = False):
                     counter += 1
                     await ws.send(json.dumps({'jsonrpc': '2.0', 'id': counter, 'method': method, 'params': params}))
                     while True:
-                        result = json.loads(await asyncio.wait_for(ws.recv(), 60))
+                        # Worker startup (60s), tool execution (120s), and cleanup (5s)
+                        # must finish before this harness deadline, including on cold CI hosts.
+                        result = json.loads(await asyncio.wait_for(ws.recv(), 195))
                         if result.get('id') == counter:
                             assert 'error' not in result, result
                             return result['result']
@@ -59,6 +63,15 @@ async def smoke(executable: Path, crash: bool = False):
             assert not [p for p in alive if p.status() != psutil.STATUS_ZOMBIE], 'orphaned core worker'
             print('Frozen core smoke passed: handshake, tools, spawned find, save, ' +
                   ('forced core death' if crash else 'clean EOF exit') + ' and no orphan worker')
+        except BaseException:
+            if proc.returncode is None:
+                for child in psutil.Process(proc.pid).children(recursive=True):
+                    try:
+                        print(json.dumps({'child_pid': child.pid, 'name': child.name(),
+                                          'status': child.status(), 'rss_mb': child.memory_info().rss / 2**20}))
+                    except psutil.Error:
+                        pass
+            raise
         finally:
             if proc.returncode is None:
                 proc.kill()

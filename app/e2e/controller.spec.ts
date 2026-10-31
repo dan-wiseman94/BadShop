@@ -239,6 +239,33 @@ test("rejects an agent proposal with a note and exposes provider failures for re
   page,
   core,
 }) => {
+  // Let a real session snapshot overtake the final notification, as in the CI race.
+  let completionHeld = false;
+  const withheld: (string | Buffer)[] = [];
+  let releaseCompletion = () => {};
+  await page.routeWebSocket(`ws://127.0.0.1:${core.port}/`, (client) => {
+    const server = client.connectToServer();
+    releaseCompletion = () => {
+      completionHeld = false;
+      for (const frame of withheld.splice(0)) client.send(frame);
+    };
+    server.onMessage((frame) => {
+      const message = JSON.parse(String(frame));
+      if (
+        message.method === "message.done" &&
+        message.params?.message?.role === "assistant" &&
+        message.params.message.content.some(
+          (part: { text?: string }) => part.text === "Ready after retry.",
+        )
+      )
+        completionHeld = true;
+      if (completionHeld && message.method) {
+        withheld.push(frame);
+        return;
+      }
+      client.send(frame);
+    });
+  });
   await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
@@ -270,7 +297,16 @@ test("rejects an agent proposal with a note and exposes provider failures for re
     .getByRole("alert")
     .getByRole("button", { name: "Retry turn" })
     .click();
+  await expect.poll(() => completionHeld).toBe(true);
+  await page.getByLabel("Approval mode").selectOption("auto");
+  await expect(
+    page
+      .locator(".message.assistant:not(.streaming)")
+      .filter({ hasText: "Ready after retry." }),
+  ).toHaveCount(1);
   await expect(page.getByText("Ready after retry.")).toBeVisible();
+  releaseCompletion();
+  await expect(page.getByText("Ready after retry.")).toHaveCount(1);
 });
 
 test("manual coordinate picking reaches the viewer and restores the form", async ({

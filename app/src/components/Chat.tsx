@@ -31,11 +31,7 @@ export function Chat({
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
-  const { data: stream } = useQuery<string>({
-    queryKey: ["stream"],
-    queryFn: () => "",
-    enabled: false,
-  });
+  const stream = session?.stream_text ?? "";
   const { data: providerEvents } = useQuery<Params[]>({
     queryKey: ["provider-events"],
     queryFn: () => [],
