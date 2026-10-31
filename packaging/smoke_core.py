@@ -19,12 +19,13 @@ async def smoke(executable: Path, crash: bool = False):
                'BADSHOP_LOG_DIR': folder + '/logs'}
         env.pop('BADSHOP_FAKE_PROVIDER', None)
         if os.name == 'nt':
-            env['BADSHOP_SMOKE_TRACE'] = '1'  # retained stderr explains a stalled frozen worker
+            env['BADSHOP_SMOKE_TRACE'] = '1'  # independent per-PID files survive worker termination
         proc = await asyncio.create_subprocess_exec(str(executable.resolve()), 'serve',
                                                    stdin=asyncio.subprocess.PIPE,
                                                    stdout=asyncio.subprocess.PIPE,
                                                    stderr=asyncio.subprocess.PIPE, env=env)
         stderr = asyncio.create_task(proc.stderr.read())
+        failed = False
         try:
             hello = json.loads(await asyncio.wait_for(proc.stdout.readline(), 45))
             assert 0 < hello['port'] < 65536 and len(hello['token']) >= 16
@@ -64,6 +65,7 @@ async def smoke(executable: Path, crash: bool = False):
             print('Frozen core smoke passed: handshake, tools, spawned find, save, ' +
                   ('forced core death' if crash else 'clean EOF exit') + ' and no orphan worker')
         except BaseException:
+            failed = True
             if proc.returncode is None:
                 for child in psutil.Process(proc.pid).children(recursive=True):
                     try:
@@ -77,8 +79,16 @@ async def smoke(executable: Path, crash: bool = False):
                 proc.kill()
                 await proc.wait()
             errors = (await stderr).decode(errors='replace')
-            if proc.returncode and not crash:
+            if failed or (proc.returncode and not crash):
                 print(errors[-8000:])
+                # The failing startup watchdog may already have killed the child. Its
+                # private descriptor still leaves a trace even when stderr was not inherited.
+                for trace in sorted((Path(folder) / 'logs').glob('frozen-*.trace.log')):
+                    print(f'--- frozen process trace: {trace.name} ---')
+                    try:
+                        print(trace.read_text(encoding='utf-8', errors='replace')[-16000:])
+                    except OSError as error:
+                        print(f'could not read frozen trace: {type(error).__name__}')
 
 
 async def main(executable: Path):
