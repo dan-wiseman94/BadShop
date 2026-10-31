@@ -10,8 +10,11 @@ supported. The retired macos-13 CI runner from the initial spec is replaced with
 ## Local development
 
 Install Python 3.12, uv, Node 22, pnpm 10, Rust stable and Tauri's native prerequisites.
-On Linux the build needs GTK 3, WebKitGTK 4.1, OpenSSL, a C toolchain and the app indicator
-library. Development startup is `pnpm --dir app tauri dev`; Rust starts `uv run --project
+On Linux the build needs GTK 3, WebKitGTK 4.1, OpenSSL, a C toolchain, the app indicator
+library, and the TBB runtime (`libtbb12` on Ubuntu). TBB satisfies the bundled numba
+plugin's ELF dependency; AppImage packaging checks even optional native plugins.
+
+Development startup is `pnpm --dir app tauri dev`; Rust starts `uv run --project
 core badshop-core serve` and holds its stdin pipe open. Set BADSHOP_UV to an absolute uv
 path if a GUI launcher has a minimal PATH.
 

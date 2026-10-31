@@ -46,8 +46,10 @@ def main() -> None:
         else:
             mount = root / 'volume'
             mount.mkdir()
+            # The bundle embeds this repository's MIT license. hdiutil requires
+            # explicit acceptance on stdin even for a noninteractive test mount.
             subprocess.run(['hdiutil', 'attach', str(artifact), '-readonly', '-nobrowse',
-                            '-mountpoint', str(mount)], check=True, timeout=60)
+                            '-mountpoint', str(mount)], input=b'Y\n', check=True, timeout=60)
             try:
                 applications = list(mount.glob('*.app'))
                 assert len(applications) == 1, f'Expected one application in {artifact}'

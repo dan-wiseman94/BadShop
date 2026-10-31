@@ -36,8 +36,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
+          cache-on-failure: true
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 flatpak-builder xvfb xdotool imagemagick gnome-keyring dbus-x11
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 flatpak-builder libtbb12 xvfb xdotool imagemagick gnome-keyring dbus-x11
       - run: uv sync --project core --locked --group build
       - if: runner.os == 'Windows'
         run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits core/tests/test_worker.py::test_a_real_tool_gives_the_same_outcome_as_in_process core/tests/test_server_ws.py::test_the_core_stops_cleanly_when_its_stdin_closes -q
@@ -55,7 +56,12 @@ jobs:
         env:
           BADSHOP_SMOKE_TRACE: '0'
       - run: pnpm --dir app install --frozen-lockfile
-      - run: pnpm --dir app exec tauri build --bundles ${{ matrix.bundles }}
+      - name: Build native installers
+        id: desktop-build
+        run: pnpm --dir app exec tauri build --verbose --bundles ${{ matrix.bundles }} > packaging/native-build.log 2>&1
+      - name: Native build diagnostics
+        if: always()
+        run: uv run --project core python -c "from pathlib import Path; p = Path('packaging/native-build.log'); print(p.read_text(encoding='utf-8', errors='replace')[-40000:] if p.exists() else 'Native build was not reached')"
       - name: Installed desktop window, renderer, normal exit (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
@@ -86,6 +92,18 @@ jobs:
           name: desktop-evidence-${{ matrix.label }}
           path: packaging/*smoke.png
           if-no-files-found: warn
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: desktop-failure-${{ matrix.label }}
+          path: |
+            packaging/native-build.log
+            app/src-tauri/target/release/bundle/deb/*.deb
+            app/src-tauri/target/release/bundle/nsis/*.exe
+            app/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 0
       - uses: actions/upload-artifact@v6
         with:
           name: badshop-${{ matrix.label }}
