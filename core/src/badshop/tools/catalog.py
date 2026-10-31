@@ -12,7 +12,8 @@ register(ToolSpec(
                  "picture ('labrador retriever sitting', not 'dog for meme'). Returns numbered candidates and "
                  "a contact sheet: look at the sheet and pick the one with the part you need at a usable "
                  "angle. query may also be an image URL or a web page URL (its preview image is used). "
-                 "clipboard=true takes what the user copied. For a named person or thing prefer wiki."),
+                 "To use an image the user copied, ask them to paste it into the chat. For a named person "
+                 "or thing prefer wiki."),
 ))
 
 register(ToolSpec(
@@ -189,7 +190,7 @@ register(ToolSpec(
     run=lambda p, s: finish.save(p, s.load(p.image)),
     summary="write a crunchy low-quality JPEG, or a dithered GIF",
     description=("Finish as a low-quality JPEG (quality, passes to recompress, lowres for potato quality) or a "
-                 "dithered GIF. Saved to the user's output folder; give a descriptive name."),
+                 "dithered GIF artifact in the session. Give a descriptive name; call export to write it to disk."),
 ))
 
 register(ToolSpec(
@@ -198,7 +199,7 @@ register(ToolSpec(
     summary="deep-fried meme treatment, written as a JPEG",
     description=("Deep-fry: red/yellow cast, blown-out saturation and contrast, oversharpened halos, grain, "
                  "rounds of low-quality JPEG. level 1-5 from how strongly the user put it (fried=3, "
-                 "nuked=5). Replaces save. Give a descriptive name."),
+                 "nuked=5). Replaces save. Creates a session artifact; call export to write it to disk."),
 ))
 
 register(ToolSpec(
@@ -207,14 +208,14 @@ register(ToolSpec(
     summary="animated GIF: flip between images, shake, flash, zoom, spin",
     description=("Make an animated GIF. Several images alternate (e.g. with and without lasers for flashing "
                  "laser eyes). effect shake/flash/zoom/spin; zoom with at=[x,y] and fry=5 is the classic "
-                 "zoom-and-deep-fry. Give a descriptive name."),
+                 "zoom-and-deep-fry. Creates a session artifact; call export to write it to disk."),
 ))
 
 register(ToolSpec(
-    name="export", params=basic.ExportParams, category="finish", mutates=False,
+    name="export", params=basic.ExportParams, category="finish", mutates=False, writes_files=True,
     run=lambda p, s: EngineResult(lines=[f"exported: {s.export(p.image, p.name)}"]),
     summary="copy a finished image into the output folder",
     description=("Copy a finished image, unchanged (animation included), into the user's output folder "
-                 "under a descriptive name, never overwriting. save and deepfry already do this; use export "
-                 "for anything else the user wants to keep."),
+                 "under a descriptive name, never overwriting. Only export writes a file in the app; use it "
+                 "after save, deepfry or animate, or for any other artifact the user wants to keep."),
 ))

@@ -7,7 +7,7 @@ from typing import Any
 
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult
-from badshop.engine.types import Params
+from badshop.engine.types import USER_ONLY, Params
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,8 @@ class ToolSpec:
     category: str  # sources | inspect | cut | compose | text | effects | finish
     mutates: bool = True  # produces new images
     network: bool = False
-    read_only: bool = False
+    read_only: bool = False  # changes nothing: "ask for changes" runs it without asking (spec 7)
+    writes_files: bool = False  # writes a file into the user's output folder (export)
 
 
 REGISTRY: dict[str, ToolSpec] = {}
@@ -66,5 +67,35 @@ def image_fields(params_cls: type[Params]) -> dict[str, bool]:
     return found
 
 
-def llm_schema(spec: ToolSpec) -> dict:
+def user_only_fields(params_cls: type[Params]) -> set[str]:
+    """Fields only the user may set: marked `json_schema_extra={USER_ONLY: True}`."""
+    return {name for name, f in params_cls.model_fields.items()
+            if isinstance(f.json_schema_extra, dict) and f.json_schema_extra.get(USER_ONLY) is True}
+
+
+def ui_schema(spec: ToolSpec) -> dict:
+    """The full parameter schema, for the UI's forms: user-only fields included and marked USER_ONLY."""
     return spec.params.model_json_schema()
+
+
+def llm_schema(spec: ToolSpec) -> dict:
+    """The schema a model sees (the in-app agent, CLI agents over MCP): user-only fields left out. The
+    schema keeps `additionalProperties: false`, so a model that sends one anyway is off its schema, and
+    runner.validate refuses it with a clean error."""
+    schema = ui_schema(spec)
+    if spec.name == "text":
+        from badshop.tools.fonts import font_names
+        names = font_names()
+        schema["properties"]["font"] = {
+            "anyOf": ([{"type": "string", "enum": names}] if names else []) + [{"type": "null"}],
+            "default": None, "description": "A discovered font name; omit to use the style's default font.",
+        }
+    hidden = user_only_fields(spec.params)
+    if not hidden:
+        return schema
+    schema["properties"] = {k: v for k, v in schema["properties"].items() if k not in hidden}
+    if "required" in schema:
+        schema["required"] = [k for k in schema["required"] if k not in hidden]
+        if not schema["required"]:  # leave the key out, as pydantic does for a model with no required field
+            del schema["required"]
+    return schema

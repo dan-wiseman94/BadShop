@@ -1,5 +1,9 @@
 """Image sources: Commons + Openverse search, Wikipedia lead images, Twemoji, Imgflip templates, the
-clipboard, and plain image or page URLs. Ported from reference/badshop.py."""
+clipboard, and plain image or page URLs. Ported from reference/badshop.py.
+
+Every tool here also returns `data["sources"]`: one provenance dict per output, in output order (None
+for the contact sheet), with exactly the keys in SOURCE_KEYS. Sessions store it as the artifact's source
+(spec §6); the CLI never prints it."""
 
 import difflib
 import functools
@@ -13,6 +17,7 @@ import sys
 import time
 import urllib.error
 import urllib.parse
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal
@@ -24,7 +29,7 @@ from badshop.engine.assets import http_get  # always called as a module global, 
 from badshop.engine.common import WEB_FORMATS, font, has_alpha, load_image, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EXT, EngineResult, Output
-from badshop.engine.types import Params
+from badshop.engine.types import USER_ONLY, Params
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 OPENVERSE_API = "https://api.openverse.org/v1/images/"
@@ -36,6 +41,9 @@ NET_ERRORS = (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPExce
 NET_HINT = "check the internet connection, or use a local file"
 MAX_TEXT = 5 * 2**20  # bytes of an API reply, and of a web page parsed for its preview image
 MAX_WEB_PIXELS = 64_000_000  # a fetched image bigger than this is refused before it is decoded
+SOURCE_KEYS = ("kind", "url", "page", "title", "license", "creator")
+TWEMOJI_LICENSE = "CC-BY 4.0"
+TWEMOJI_CREATOR = "Twitter/X and Twemoji contributors"
 
 
 class FetchParams(Params):
@@ -44,7 +52,9 @@ class FetchParams(Params):
     query: str | None = Field(None, max_length=4096, description='search words like "labrador retriever sitting", or an image or web page URL')
     source: Literal["all", "commons", "openverse"] = Field("all", description="where to search (all interleaves Commons and Openverse)")
     n: int = Field(6, ge=1, le=12, description="how many candidates to download")
-    clipboard: bool = Field(False, description="use the image (or image link) on the clipboard")
+    # The clipboard is the user's input: a model could read a password-manager screenshot or a login link.
+    clipboard: bool = Field(False, description="use the image (or image link) on the clipboard",
+                            json_schema_extra={USER_ONLY: True})
 
 
 class WikiParams(Params):
@@ -75,17 +85,21 @@ def _hint(reasons: list[str], advice: str) -> str:
 
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_SURROGATE = re.compile(r"[\ud800-\udfff]")
 
 
 def _clean(text: str) -> str:
-    """Control characters (terminal escapes, carriage returns, bells) become spaces."""
-    return _CONTROL.sub(" ", text)
+    """Control characters (terminal escapes, carriage returns, bells) become spaces, and lone surrogates
+    become U+FFFD: json.loads makes one of a "\\ud800" escape, and UTF-8 (the CLI's stdout, the server's
+    JSON) can't encode it."""
+    return _SURROGATE.sub("�", _CONTROL.sub(" ", text))
 
 
 def _scrubbed(tool):
-    """Web text (titles, creators, licences, page links, server messages) reaches the lines, captions
-    and error text these tools return. Replace its control characters, so a server can't rewrite the
-    user's terminal (an escape sequence plus a carriage return can erase a line and print a fake one)."""
+    """Web text (titles, creators, licences, page links, server messages) reaches the lines, captions,
+    provenance and error text these tools return. Replace its control characters, so a server can't
+    rewrite the user's terminal (an escape sequence plus a carriage return can erase a line and print a
+    fake one), nor the app's step details."""
     @functools.wraps(tool)
     def run(p):
         try:
@@ -97,8 +111,63 @@ def _scrubbed(tool):
         r.lines = [_clean(l) for l in r.lines]
         for o in r.outputs:
             o.caption = _clean(o.caption)
+        if "sources" in r.data:  # stripped again: a value of only control characters is None, not blank
+            r.data["sources"] = [s and {k: _text(_clean(v)) if isinstance(v, str) else v
+                                        for k, v in s.items()} for s in r.data["sources"]]
         return r
     return run
+
+
+def _text(value) -> str | None:
+    """A remote value as provenance text: a non-blank string, stripped; anything else (a server may send
+    numbers, lists or objects) is None."""
+    return (value.strip() or None) if isinstance(value, str) else None
+
+
+def provenance(kind: str, url: str | None = None, *,
+               page=None, title=None, license=None, creator=None) -> dict:
+    """One output's structured source (spec §6 Artifact.source): exactly SOURCE_KEYS, each value a
+    non-blank string or None. `url` is the link that delivered the bytes, `page` the page to credit."""
+    return {"kind": kind, "url": _text(url), "page": _text(page), "title": _text(title),
+            "license": _text(license), "creator": _text(creator)}
+
+
+_TAG = re.compile(r"<[^>]*>")
+
+
+def html_text(value) -> str | None:
+    """The text of an HTML snippet on one line (Commons' extmetadata values are HTML, e.g.
+    `<a href="//commons.wikimedia.org/wiki/User:Barras">Barras</a>`); None if there is none."""
+    if not isinstance(value, str):
+        return None
+    return " ".join(unescape(_TAG.sub(" ", value)).split()) or None
+
+
+def _extmeta(info: dict, key: str):
+    """One Commons extmetadata value, or None when the reply lacks it or has an odd shape."""
+    meta = info.get("extmetadata")
+    field = meta.get(key) if isinstance(meta, dict) else None
+    return field.get("value") if isinstance(field, dict) else None
+
+
+def openverse_license(code, version) -> str | None:
+    """Openverse's licence code by its usual name: ("by-nc", "2.0") -> "CC BY-NC 2.0", ("cc0", "1.0") ->
+    "CC0 1.0", ("pdm", "1.0") -> "Public Domain Mark 1.0"."""
+    code = _text(code)
+    if code is None:
+        return None
+    name = {"cc0": "CC0", "pdm": "Public Domain Mark"}.get(code.lower(), f"CC {code.upper()}")
+    return f"{name} {_text(version) or ''}".strip()
+
+
+def wiki_page(lang: str, title) -> str | None:
+    """A Wikipedia article's address, spelled as MediaWiki links it: spaces become underscores, and
+    everything but `;@$!*(),/~:` is percent-encoded."""
+    title = _text(title)
+    if title is None:
+        return None
+    return f"https://{lang}.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"),
+                                                                       safe=";@$!*(),/~:")
 
 
 def _bad_link(url: str, e: Exception) -> EngineError:
@@ -127,7 +196,8 @@ def commons_search(query, n):
         "action": "query", "format": "json",
         "generator": "search", "gsrsearch": f"{query} filetype:bitmap",
         "gsrnamespace": 6, "gsrlimit": n * 2,  # over-fetch; some hits are odd formats
-        "prop": "imageinfo", "iiprop": "url|mime|size", "iiurlwidth": 1200,
+        "prop": "imageinfo", "iiprop": "url|mime|size|extmetadata", "iiurlwidth": 1200,
+        "iiextmetadatafilter": "LicenseShortName|Artist",  # the licence and author, for provenance
     }
     data, _ = http_get(COMMONS_API + "?" + urllib.parse.urlencode(params), max_bytes=MAX_TEXT)
     pages = json.loads(data).get("query", {}).get("pages", {})
@@ -136,10 +206,14 @@ def commons_search(query, n):
         info = (page.get("imageinfo") or [{}])[0]
         if info.get("mime") not in IMAGE_MIMES:
             continue
+        title = page.get("title", "").removeprefix("File:")
         hits.append({
-            "title": page.get("title", "").removeprefix("File:"),
+            "title": title,
             "url": info.get("thumburl") or info.get("url"),
             "note": "commons",
+            "source": provenance("commons", page=info.get("descriptionurl"), title=title,
+                                 license=html_text(_extmeta(info, "LicenseShortName")),
+                                 creator=html_text(_extmeta(info, "Artist"))),
         })
     return hits[:n]
 
@@ -157,6 +231,9 @@ def openverse_search(query, n):
             "title": r.get("title") or "untitled",
             "url": r["url"], "fallback": r.get("thumbnail"),
             "note": f"openverse, {lic}, by {r.get('creator') or 'unknown'}",
+            "source": provenance("openverse", page=r.get("foreign_landing_url"), title=r.get("title"),
+                                 license=openverse_license(r.get("license"), r.get("license_version")),
+                                 creator=r.get("creator")),
         })
     return hits[:n]
 
@@ -196,9 +273,11 @@ def contact_sheet(panels, cols=4, cell=300):
 
 
 def download_candidates(hits, slug, source_line=None) -> EngineResult:
-    """Download each hit as a numbered output, plus a contact sheet when there's a choice."""
+    """Download each hit as a numbered output, plus a contact sheet when there's a choice. A hit's
+    "source" (from provenance(); a plain link when absent) becomes its output's data["sources"] entry,
+    with the URL that delivered the bytes; the sheet's entry is None."""
     # reference/badshop.py download_candidates
-    outputs, lines, panels = [], [], []
+    outputs, lines, panels, found = [], [], [], []
     for i, h in enumerate(hits, 1):
         im = None
         for url in (h["url"], h.get("fallback")):
@@ -219,13 +298,15 @@ def download_candidates(hits, slug, source_line=None) -> EngineResult:
         note = f"  [{h['note']}]" if h.get("note") else ""
         outputs.append(Output(str(i), kept, f"fetch/{slug}_{i}{EXT[fmt]}", fmt=fmt,
                               caption=f"({im.width}x{im.height}) {h['title']}{note}"))
+        found.append({**(h.get("source") or provenance("url", title=h["title"])), "url": url})
     if not panels:
         raise EngineError("every candidate failed to download", hint=_hint(lines, "try other words or another source"))
     if len(panels) > 1:
         outputs.append(Output("sheet", contact_sheet(panels), f"fetch/{slug}_sheet.png"))
+        found.append(None)
     if source_line:
         lines.append(source_line)
-    return EngineResult(outputs=outputs, lines=lines)
+    return EngineResult(outputs=outputs, lines=lines, data={"sources": found})
 
 
 class _PageImage(HTMLParser):
@@ -281,12 +362,14 @@ def fetch_url(url, follow=True) -> EngineResult:
             if found:
                 r = fetch_url(found, follow=False)
                 r.lines.insert(0, f"page image: {found}")
+                r.data["sources"][0]["page"] = url
                 return r
             raise EngineError("that page doesn't advertise a preview image (no og:image)",
                               hint="right-click the picture and copy the image address instead")
         raise EngineError(f"that URL returned {ctype or 'something'} that isn't an image")
     name = "fetch/" + slugify(Path(urllib.parse.urlparse(url).path).stem) + ".png"
-    return EngineResult(outputs=[Output("fetched", _keep(im), name)], lines=[f"size: {im.width}x{im.height}"])
+    return EngineResult(outputs=[Output("fetched", _keep(im), name)], lines=[f"size: {im.width}x{im.height}"],
+                        data={"sources": [provenance("url", url)]})
 
 
 CLIPBOARD_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")  # what try_image decodes
@@ -331,11 +414,13 @@ def fetch_clipboard() -> EngineResult:
         if im is None:
             raise EngineError("the clipboard has image data that couldn't be decoded")
         out = Output("fetched", _keep(im), f"fetch/clipboard_{time.strftime('%H%M%S')}.png")
-        return EngineResult(outputs=[out], lines=[f"size: {im.width}x{im.height}"])
+        return EngineResult(outputs=[out], lines=[f"size: {im.width}x{im.height}"],
+                            data={"sources": [provenance("clipboard")]})
     text = (text or "").strip()
     if re.match(r"https?://\S+$", text):
         r = fetch_url(text)
         r.lines.insert(0, f"clipboard holds a link: {text}")
+        r.data["sources"][0]["kind"] = "clipboard"
         return r
     raise EngineError("the clipboard has no image or link", hint="copy an image (or its address) and try again")
 
@@ -388,7 +473,8 @@ def wiki(p: WikiParams) -> EngineResult:
     try:
         data, _ = http_get(api + "?" + urllib.parse.urlencode(params), max_bytes=MAX_TEXT)
         pages = sorted(json.loads(data).get("query", {}).get("pages", {}).values(), key=lambda q: q.get("index", 0))
-        hits = [{"title": q["title"], "url": q["thumbnail"]["source"], "note": "wikipedia lead image"}
+        hits = [{"title": q["title"], "url": q["thumbnail"]["source"], "note": "wikipedia lead image",
+                 "source": provenance("wikipedia", page=wiki_page(p.lang, q["title"]), title=q["title"])}
                 for q in pages if q.get("thumbnail")][:p.n]
     except Exception as e:
         raise EngineError(f"Wikipedia search failed ({e})", hint=NET_HINT) from None
@@ -422,7 +508,7 @@ def emoji_code(s) -> str:
 def emoji(p: EmojiParams) -> EngineResult:
     # reference/badshop.py cmd_emoji
     suggestion = "try the emoji character itself, or one of: " + ", ".join(sorted(EMOJI_NAMES))
-    outputs, lines, missing = [], [], []
+    outputs, lines, missing, found = [], [], [], []
     for e in p.emoji:
         code = emoji_code(e)
         url = TWEMOJI_URL.format(code)
@@ -438,12 +524,15 @@ def emoji(p: EmojiParams) -> EngineResult:
             continue
         if p.size:
             im = im.convert("RGBA").resize((p.size, p.size), Image.NEAREST)
+        shown = EMOJI_NAMES.get(e.lower().strip(':'), e)
         outputs.append(Output("emoji", _keep(im), f"fetch/emoji_{code}.png",
-                              caption=f"({im.width}x{im.height}) {EMOJI_NAMES.get(e.lower().strip(':'), e)}"))
+                              caption=f"({im.width}x{im.height}) {shown}"))
+        found.append(provenance("twemoji", url, title=shown,
+                                license=TWEMOJI_LICENSE, creator=TWEMOJI_CREATOR))
     if not outputs:
         raise EngineError("no emoji downloaded", hint=_hint(missing, suggestion))
     lines.append("source: Twemoji (CC-BY 4.0), transparent PNGs; paste scales them with hard pixels")
-    return EngineResult(outputs=outputs, lines=lines)
+    return EngineResult(outputs=outputs, lines=lines, data={"sources": found})
 
 
 @_scrubbed
@@ -456,7 +545,7 @@ def template(p: TemplateParams) -> EngineResult:
         raise EngineError(f"Imgflip template list failed ({e})", hint=NET_HINT) from None
     if p.list_all or not p.name:
         return EngineResult(lines=[f"{m['name']}  ({m['width']}x{m['height']}, {m['box_count']} text boxes)"
-                                   for m in memes])
+                                   for m in memes], data={"sources": []})
     q = p.name.lower()
 
     def score(m):
@@ -466,5 +555,6 @@ def template(p: TemplateParams) -> EngineResult:
         return (q in name) * 2 + overlap + difflib.SequenceMatcher(None, q, name).ratio()
 
     best = sorted(memes, key=score, reverse=True)[:p.n]
-    hits = [{"title": m["name"], "url": m["url"], "note": f"{m['box_count']} text boxes"} for m in best]
+    hits = [{"title": m["name"], "url": m["url"], "note": f"{m['box_count']} text boxes",
+             "source": provenance("imgflip", title=m["name"])} for m in best]
     return download_candidates(hits, "template_" + slugify(p.name), "source: imgflip.com top-100 meme templates")

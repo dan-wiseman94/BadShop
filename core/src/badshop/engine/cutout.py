@@ -6,7 +6,7 @@ from typing import ClassVar, Literal
 from PIL import Image, ImageDraw, ImageFilter
 from pydantic import Field
 
-from badshop.engine import assets
+from badshop.engine import manifest
 from badshop.engine.common import check_size, clamp_box, has_alpha, rgb, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
@@ -19,6 +19,41 @@ from badshop.engine.types import Box, Color, ImageRef, Params
 #   birefnet-general -> MIT        -> https://github.com/ZhengPeng7/BiRefNet
 # Never rembg's own default, bria-rmbg (BRIA licence: commercial use needs a paid agreement).
 RembgModel = Literal["u2net", "u2net_human_seg", "isnet-anime", "birefnet-general"]
+
+_SESSIONS: dict[str, object] = {}  # model -> rembg session; at most one, kept until another model is used
+
+
+def rembg_session(model: str) -> object:
+    """rembg's session for `model`, reused while the process lives: building one takes 1-2 s and about
+    400 MB of memory (birefnet-general several times that), so only the last model used stays loaded.
+    The weights come through manifest.ensure_rembg_model, so a first download reports progress and
+    rembg's own downloader never runs or prints."""
+    session = _SESSIONS.get(model)
+    if session is not None:
+        return session
+    drop_sessions()  # free the other model before loading this one
+    try:
+        manifest.ensure_rembg_model(model)  # imports rembg, after pointing it at our data dir
+        from rembg import new_session
+    except ImportError:
+        raise EngineError("rembg is not installed", hint='pip install "rembg[cpu]", or use no_ai') from None
+    except EngineError as e:  # the download failed: same message as any asset download, plus no_ai
+        raise EngineError(e.message, hint=f"{e.hint}, or use no_ai" if e.hint else "use no_ai") from e
+    try:
+        session = new_session(model)
+    # OSError: the weights vanished after the download and rembg's own download failed (requests'
+    # errors are OSErrors). ValueError: rembg's own checksum check failed then.
+    except (OSError, ValueError) as e:
+        raise EngineError(f"couldn't download the {model} background-removal model ({e})",
+                          hint="check the internet connection; it is only downloaded once, "
+                               "or use no_ai") from None
+    _SESSIONS[model] = session
+    return session
+
+
+def drop_sessions() -> None:
+    """Forget every cached rembg session (frees their memory once nothing else holds them)."""
+    _SESSIONS.clear()
 
 
 def dilate(alpha, n):
@@ -61,21 +96,9 @@ def cutout(p: CutoutParams, image: Image.Image) -> EngineResult:
     elif p.no_ai:
         piece = piece.convert("RGBA")
     else:
-        try:
-            assets.configure_rembg()
-            from rembg import new_session, remove
-        except ImportError:
-            raise EngineError("rembg is not installed",
-                              hint='pip install "rembg[cpu]", or use no_ai') from None
-        try:
-            session = new_session(p.model)
-        # OSError: offline, or the first-run model download failed (requests' errors are OSErrors).
-        # ValueError: pooch's checksum check failed, e.g. a Wi-Fi login page came back instead of the model.
-        # (new_session's other ValueError, an unknown model, can't happen: RembgModel is a Literal.)
-        except (OSError, ValueError) as e:
-            raise EngineError(f"couldn't download the {p.model} background-removal model ({e})",
-                              hint="check the internet connection; it is only downloaded once, "
-                                   "or use no_ai") from None
+        session = rembg_session(p.model)
+        from rembg import remove  # importable: rembg_session imported rembg
+
         mask = remove(piece.convert("RGB"), session=session).getchannel("A")
         alpha = mask.point(lambda v: 255 if v >= p.threshold else 0)
         if p.grow:
