@@ -19,7 +19,7 @@ async def smoke(executable: Path, crash: bool = False):
                'BADSHOP_LOG_DIR': folder + '/logs'}
         env.pop('BADSHOP_FAKE_PROVIDER', None)
         if os.name == 'nt':
-            env['BADSHOP_SMOKE_TRACE'] = '1'  # independent per-PID files survive worker termination
+            env.setdefault('BADSHOP_SMOKE_TRACE', '1')  # set 0 to verify startup without instrumentation
         proc = await asyncio.create_subprocess_exec(str(executable.resolve()), 'serve',
                                                    stdin=asyncio.subprocess.PIPE,
                                                    stdout=asyncio.subprocess.PIPE,

@@ -24,6 +24,7 @@ for dist in distributions():
 
 a = Analysis([str(root / 'packaging/frozen_entry.py')], pathex=[str(root / 'core/src')],
              binaries=binaries, datas=datas, hiddenimports=hidden,
+             runtime_hooks=[str(root / 'packaging/trace_runtime.py')],
              excludes=['tkinter', 'IPython', 'notebook', 'matplotlib', 'torch', 'tensorflow', 'pytest'],
              noarchive=False)
 pyz = PYZ(a.pure)
