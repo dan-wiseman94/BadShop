@@ -467,7 +467,7 @@ def wiki(p: WikiParams) -> EngineResult:
     api = f"https://{p.lang}.wikipedia.org/w/api.php"
     params = {
         "action": "query", "format": "json", "generator": "search", "gsrsearch": p.title,
-        "gsrnamespace": 0, "gsrlimit": p.n * 3, "prop": "pageimages", "piprop": "thumbnail",
+        "gsrnamespace": 0, "gsrlimit": p.n * 3, "prop": "pageimages", "piprop": "thumbnail|name",
         "pithumbsize": 1200, "pilimit": "max",
     }
     try:
@@ -480,6 +480,26 @@ def wiki(p: WikiParams) -> EngineResult:
         raise EngineError(f"Wikipedia search failed ({e})", hint=NET_HINT) from None
     if not hits:
         raise EngineError(f"no Wikipedia article with an image matched {p.title!r}", hint="try `fetch` instead")
+    # Shared Wikimedia files resolve through this wiki's imageinfo API. Metadata is optional:
+    # an unavailable attribution endpoint must not discard otherwise useful search results.
+    filenames = {q["title"]: q.get("pageimage") for q in pages if q.get("pageimage")}
+    if filenames:
+        try:
+            query = {"action": "query", "format": "json", "prop": "imageinfo",
+                     "iiprop": "url|extmetadata", "titles": "|".join(
+                         "File:" + filenames[h["title"]] for h in hits if h["title"] in filenames)}
+            metadata, _ = http_get(api + "?" + urllib.parse.urlencode(query), max_bytes=MAX_TEXT)
+            entries = json.loads(metadata).get("query", {}).get("pages", {}).values()
+            by_name = {entry.get("title", "").removeprefix("File:"): entry.get("imageinfo", [{}])[0]
+                       for entry in entries if entry.get("imageinfo")}
+            for hit in hits:
+                info = by_name.get(filenames.get(hit["title"]), {})
+                hit["source"].update({"license": _text(html_text(_extmeta(info, "LicenseShortName"))),
+                                      "creator": _text(html_text(_extmeta(info, "Artist")))})
+                if info.get("descriptionurl"):
+                    hit["source"]["page"] = _text(info["descriptionurl"])
+        except (EngineError, OSError, ValueError, TypeError, KeyError, AttributeError):
+            pass
     return download_candidates(hits, "wiki_" + slugify(p.title),
                                f"source: {p.lang}.wikipedia.org lead images (mostly from Wikimedia Commons)")
 

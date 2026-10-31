@@ -3,6 +3,8 @@
 import argparse
 import asyncio
 import json
+import io
+import os
 import sys
 import threading
 from collections.abc import Awaitable, Callable
@@ -39,31 +41,86 @@ def add_parser(sub) -> None:
     p.add_argument("--image", action="append", default=[], metavar="PATH", help="import an image (repeatable)")
 
 
-async def read_input(prompt: str) -> str:
-    """Keep terminal input off the event loop, including while a call awaits approval.
+def _decode_line(data: bytes, stream) -> str:
+    if not data:
+        raise EOFError
+    return data.decode(stream.encoding or "utf-8", errors=stream.errors or "strict").removesuffix("\n").removesuffix("\r")
 
-    A daemon reader lets Ctrl-C exit even while stdin is waiting for a line. A cancelled
-    default-executor input() would keep asyncio.run's executor shutdown waiting indefinitely.
-    The application exits after cancellation, so no subsequent prompt competes with that reader.
+
+def _raw_line(stream) -> str:
+    """Read without acquiring a Python buffered-stdio lock.
+
+    Windows consoles need CPython's raw wide-character console adapter for Unicode and
+    native line editing. Its four-byte minimum can hold one full UTF-8 character. Redirected
+    pipes and files use os.read, honoring the text stream's configured codec on decode.
     """
+    raw = getattr(getattr(stream, "buffer", None), "raw", None)
+    console = type(raw).__name__ == "_WindowsConsoleIO"
+    fd = None if console else stream.fileno()
+    data = bytearray()
+    while chunk := raw.read(4) if console else os.read(fd, 1):
+        data.extend(chunk)
+        if data.endswith(b"\n"):
+            break
+    return _decode_line(bytes(data), stream)
+
+
+async def read_input(prompt: str) -> str:
+    """Cancelable terminal input with no background ownership of buffered stdio.
+
+    POSIX uses fd readiness and removes its reader on cancellation. Windows' event loop
+    cannot watch console/pipe fds, so its daemon reads only raw bytes; a cancelled request
+    never retains a buffered stdin/stdout lock during interpreter shutdown.
+    """
+    print(prompt, end="", flush=True)  # only the event-loop thread writes buffered stdout
+    stream = sys.stdin
+    if isinstance(stream, io.StringIO):
+        line = stream.readline()
+        if not line:
+            raise EOFError
+        return line.removesuffix("\n").removesuffix("\r")
     loop = asyncio.get_running_loop()
     result = loop.create_future()
 
-    def finish(value, error):
+    def finish(value=None, error=None):
         if not result.done():
             if error is not None:
                 result.set_exception(error)
             else:
                 result.set_result(value)
 
+    if os.name != "nt":
+        fd = stream.fileno()
+        data = bytearray()
+
+        def ready():
+            try:
+                chunk = os.read(fd, 1)
+                data.extend(chunk)
+                if not chunk or chunk == b"\n":
+                    loop.remove_reader(fd)
+                    finish(_decode_line(bytes(data), stream))
+            except Exception as exc:
+                loop.remove_reader(fd)
+                finish(error=exc)
+
+        try:
+            loop.add_reader(fd, ready)
+        except PermissionError:  # epoll cannot watch a redirected regular file; its reads never wait
+            return _raw_line(stream)
+        try:
+            return await result
+        finally:
+            loop.remove_reader(fd)
+
     def read():
         try:
-            value, error = input(prompt), None
-        except (EOFError, OSError) as e:
-            value, error = None, e
+            value, error = _raw_line(stream), None
+        except Exception as exc:
+            value, error = None, exc
         try:
             loop.call_soon_threadsafe(finish, value, error)
-        except RuntimeError:  # the cancelled terminal client has already closed its loop
+        except RuntimeError:  # cancellation closed the loop while an unbuffered Windows read waited
             pass
 
     threading.Thread(target=read, daemon=True, name="badshop-input").start()

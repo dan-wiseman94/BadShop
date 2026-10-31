@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import os
+import threading
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -26,6 +27,8 @@ from badshop.agent.fake import ScriptedProvider
 from badshop.agent.provider import Provider, ProviderError
 from badshop.providers import profiles
 from badshop.providers.litellm_provider import LiteLLMProvider, close_clients
+from badshop.providers.cli_provider import CLIProvider, discover_clis, inspect_cli
+from badshop.providers.cli_turn import run_cli_turn
 from badshop.agent.loop import TurnConfig, run_turn
 from badshop.engine import assets, manifest
 from badshop.engine.common import fit, has_alpha, to_rgb
@@ -128,6 +131,7 @@ def _tool_entry(spec: registry.ToolSpec, trusted: bool) -> dict:
     return {"name": spec.name, "summary": spec.summary, "description": spec.description,
             "category": spec.category, "mutates": spec.mutates, "network": spec.network,
             "read_only": spec.read_only, "writes_files": spec.writes_files,
+            "cli_positionals": list(spec.params.POSITIONAL), "cli_flags": spec.params.FLAGS,
             "schema": registry.ui_schema(spec) if trusted else registry.llm_schema(spec)}
 
 
@@ -152,6 +156,13 @@ class CoreApp:
         self._turn_cfg: TurnConfig | None = None
         self._switching = 0  # session.new / session.open calls under way: no turn may start meanwhile
         self._provider: Provider | None = None
+        self._connection: tuple[str, str] | None = None
+        self._cli_providers: dict[tuple[str, str], CLIProvider] = {}
+        self._retired_clis: list[CLIProvider] = []
+        self._cli_turn_actor: str | None = None
+        self._cli_message_id: str | None = None
+        self._cli_remaining: int | None = None
+        self._cli_cancels: dict[str, threading.Event] = {}
         self._retry_session: Session | None = None
         self._profiles_error: EngineError | None = None
         try:
@@ -170,6 +181,9 @@ class CoreApp:
         self._dirty = False  # nothing autosaves until the session changes: an untouched core leaves none
         self._prev_progress = assets.PROGRESS
         assets.PROGRESS = self._on_progress
+        self._downloads: dict[str, tuple[threading.Event, asyncio.Task]] = {}
+        self._prev_cancel = assets.CANCEL
+        assets.CANCEL = self._download_cancelled
         self.dispatcher = Dispatcher()
         self._register()
 
@@ -354,8 +368,25 @@ class CoreApp:
             raise EngineError("provider profile not found", hint="select an existing profile or add one")
         return self._profiles[profile_id]
 
-    @staticmethod
-    def _make_provider(profile: profiles.Profile) -> LiteLLMProvider:
+    def set_connection(self, url: str, token: str) -> None:
+        """The listener supplies its loopback address before CLI providers may launch MCP proxies."""
+        from badshop.diagnostics import register_secret
+        register_secret(token)
+        self._connection = (url, token)
+
+    def _make_provider(self, profile: profiles.Profile) -> LiteLLMProvider | CLIProvider:
+        if profile.kind == "cli":
+            if self._connection is None:
+                raise EngineError("the local core connection is not ready")
+            key = (self.session.data.id, profile.id)
+            cached = self._cli_providers.get(key)
+            if cached and cached.profile == profile:
+                return cached
+            provider = CLIProvider(profile, *self._connection)
+            if cached:
+                self._retired_clis.append(cached)
+            self._cli_providers[key] = provider
+            return provider
         return LiteLLMProvider(profile.model, api_base=profile.api_base,
                               api_key=profiles.resolve_key(profile), actor=f"agent:{profile.id}",
                               capability_overrides=profile.capability_overrides)
@@ -379,8 +410,11 @@ class CoreApp:
                 self._emit("provider.status", {"profile_id": session.data.provider_profile_id, "status": "busy"})
 
         try:
-            await run_turn(session, provider, self.gate, text, attachments, cfg, emit,
-                           blocking=self._blocking, retry=retry)
+            if isinstance(provider, CLIProvider):
+                await run_cli_turn(self, session, provider, text, attachments, cfg, emit, retry=retry)
+            else:
+                await run_turn(session, provider, self.gate, text, attachments, cfg, emit,
+                               blocking=self._blocking, retry=retry)
         except asyncio.CancelledError:  # stopped
             if not finished:
                 self._emit("turn.finished", {"reason": "stopped"})
@@ -399,23 +433,27 @@ class CoreApp:
         agents' calls are not the turn's and keep waiting. False if no turn was running."""
         starting = self._starting
         self._start_generation += 1  # pending provider setup must never start after Stop
-        task, session = self._turn, self.session
+        task, session, cli_actor = self._turn, self.session, self._cli_turn_actor
         if task is None:
             return starting
+        if self._cli_turn_actor:
+            for step_id, cancel in self._cli_cancels.items():
+                if session.step(step_id).actor == cli_actor:
+                    cancel.set()
         task.cancel()
         await asyncio.wait({task})
         if self._turn is task:  # cancelled before it ever ran: its own cleanup never happened
             self._turn = self._turn_cfg = None
             self._emit("turn.finished", {"reason": "stopped"})
-        await self._blocking(self._reject_waiting, session, note)
+        await self._blocking(self._reject_waiting, session, note, cli_actor)
         return True
 
     @staticmethod
-    def _reject_waiting(session: Session, note: str) -> None:
+    def _reject_waiting(session: Session, note: str, cli_actor: str | None = None) -> None:
         """The safety net behind run_turn's own wind-up: an agent step still proposed is rejected. Under
         the lock, so two stops at once (a closed client, then close()) reject each step once."""
         for step in list(session.data.steps):
-            if step.status == "proposed" and step.actor.startswith("agent:"):
+            if step.status == "proposed" and (step.actor.startswith("agent:") or step.actor == cli_actor):
                 session.reject(step.id, note)
 
     def on_client_gone(self) -> None:
@@ -423,6 +461,8 @@ class CoreApp:
         (a CLI agent's too), so nothing waits for a user who isn't there. The core keeps serving, and
         the next client sees the session as it was left."""
         self._cancel_approvals("the user closed the app")
+        for signal, _ in self._downloads.values():
+            signal.set()
         self._start_generation += 1  # also invalidate sends still queued for _lock
         if self._turn is not None or self._starting:
             self._spawn(self._stop_turn("the user closed the app"))
@@ -432,8 +472,15 @@ class CoreApp:
         if self._closed:
             return
         self._closed = True
+        downloads = list(self._downloads.values())
+        for signal, _ in downloads:
+            signal.set()
         self._cancel_approvals("badshop is closing")
         await self._stop_turn("badshop is closing")
+        await asyncio.gather(*(p.close() for p in [*self._cli_providers.values(), *self._retired_clis]),
+                             return_exceptions=True)
+        self._cli_providers.clear()
+        self._retired_clis.clear()
         tasks = list(self._tasks)
         for task in tasks:
             task.cancel()
@@ -446,8 +493,11 @@ class CoreApp:
         for pump in pumps:
             pump.cancel()
         await asyncio.gather(*pumps, return_exceptions=True)
+        await asyncio.gather(*(task for _, task in downloads), return_exceptions=True)
         if assets.PROGRESS == self._on_progress:
             assets.PROGRESS = self._prev_progress
+        if assets.CANCEL == self._download_cancelled:
+            assets.CANCEL = self._prev_cancel
         await close_clients()
 
     # --- methods: session -----------------------------------------------------------------------
@@ -471,6 +521,8 @@ class CoreApp:
             ("providers.delete", self._providers_delete, "user"),
             ("providers.select", self._providers_select, "user"),
             ("providers.test", self._providers_test, "user"),
+            ("providers.detect", self._providers_detect, "user"),
+            ("diagnostics.get", self._diagnostics_get, "user"),
             ("tools.list", self._tools_list, "any"),
             ("tools.run", self._tools_run, "any"),
             ("steps.edit", self._steps_edit, "user"),
@@ -484,6 +536,7 @@ class CoreApp:
             ("settings.set", self._settings_set, "user"),
             ("assets.status", self._assets_status, "user"),
             ("assets.download", self._assets_download, "user"),
+            ("assets.cancel", self._assets_cancel, "user"),
         ):
             self.dispatcher.method(name, actors=actors)(handler)
 
@@ -503,6 +556,10 @@ class CoreApp:
             self._switching -= 1
             if self.session is not before:
                 self._cancel_approvals(note)
+                for key, provider in list(self._cli_providers.items()):
+                    if key[0] != self.session.data.id:
+                        self._cli_providers.pop(key)
+                        await provider.close()
         return self._snapshot()
 
     async def _session_new(self, actor: str, name: SessionName = "Untitled") -> dict:
@@ -669,8 +726,19 @@ class CoreApp:
         got: dict[str, Any] = {}
 
         def propose() -> Step:
+            if actor == self._cli_turn_actor and self._cli_remaining is not None:
+                if self._cli_remaining <= 0:
+                    raise EngineError("this turn's tool budget is used up", hint="ask the user to continue")
+                self._cli_remaining -= 1
             got["session"] = self.session  # read under the lock: the session the step really went into
             got["step"] = self.session.propose(tool, raw, actor)
+            if actor == self._cli_turn_actor and self._cli_message_id:
+                message = next((m for m in self.session.data.messages if m.id == self._cli_message_id), None)
+                if message:
+                    message.step_ids.append(got["step"].id)
+                    self._emit("message.done", {"message": message.model_dump(mode="json")})
+            got["cancel"] = threading.Event()
+            self._cli_cancels[got["step"].id] = got["cancel"]
             return got["step"]
 
         try:
@@ -682,12 +750,21 @@ class CoreApp:
                     step = await self._blocking(self._settle, session, step.id, decision.note)
                     return step.model_dump(mode="json")
                 edited = decision.params if decision.decision == "edit" else None
-            step = await self._blocking(self._run_or_reject, session, step.id, edited)
+            task = asyncio.create_task(self._blocking(self._run_or_reject, session, step.id, edited, got["cancel"]))
+            got["task"] = task
+            step = await asyncio.shield(task)
             return step.model_dump(mode="json")
         except asyncio.CancelledError:
+            if "cancel" in got:
+                got["cancel"].set()
+            if "task" in got:
+                await asyncio.shield(got["task"])
             if "step" in got:  # proposed, and maybe still waiting: settle it before letting go
                 await self._blocking(self._settle, got["session"], got["step"].id, "the agent stopped waiting")
             raise
+        finally:
+            if "step" in got:
+                self._cli_cancels.pop(got["step"].id, None)
 
     @staticmethod
     def _settle(session: Session, step_id: str, note: str | None) -> Step:
@@ -696,13 +773,14 @@ class CoreApp:
         return session.reject(step_id, note) if step.status in RUNNABLE else step
 
     @staticmethod
-    def _run_or_reject(session: Session, step_id: str, params: dict | None) -> Step:
+    def _run_or_reject(session: Session, step_id: str, params: dict | None,
+                       cancel: threading.Event | None = None) -> Step:
         """Run an approved (or user-edited) CLI step, with the fallback in the same locked call. The gate
         already checks an edit (valid as the user's, image ids in the session); should `Session.run` still
         refuse one, it does so before it changes the step, which would leave the step `proposed` with
         nothing waiting for it. It is rejected instead, as Task 11's `_execute` does for the in-app turn."""
         try:
-            return session.run(step_id, params)
+            return session.run(step_id, params, cancel=cancel)
         except EngineError as e:
             if params is None:  # a proposed step runs on its own params: nothing to fall back to
                 raise
@@ -790,6 +868,8 @@ class CoreApp:
             self._check_idle()
             self._check_profiles()
             p = profiles.parse_profile(profile)
+            if p.kind == "cli" and api_key is not None:
+                raise EngineError("CLI profiles use the CLI's own subscription login")
             old = self._profiles.get(p.id)
             if p.api_key_ref is not None and (old is None or p.api_key_ref != old.api_key_ref):
                 raise EngineError("a profile cannot reference another provider's key")
@@ -801,7 +881,7 @@ class CoreApp:
                 new_ref = f"{p.id}:{uuid.uuid4().hex}"
                 profiles.store_key(new_ref, api_key)
                 p = p.model_copy(update={"api_key_ref": new_ref, "api_key_env": None})
-            elif old and old.api_key_ref and not p.api_key_env:
+            elif p.kind != "cli" and old and old.api_key_ref and not p.api_key_env:
                 p = p.model_copy(update={"api_key_ref": old.api_key_ref})
             if p.api_key_env:
                 p = p.model_copy(update={"api_key_ref": None})
@@ -846,16 +926,31 @@ class CoreApp:
     async def _providers_test(self, actor: str, profile_id: str, probe: bool = False) -> dict:
         # Capability inspection is offline. A paid test completion requires probe=true.
         try:
+            profile = self._profile(profile_id)
+            if profile.kind == "cli":
+                info = await asyncio.to_thread(inspect_cli, profile.cli, profile.executable)
+                result = {"profile_id": profile_id, "status": "ready" if info["supported"] else "error",
+                          **info, "capabilities": {"vision": True, "tool_calls": True}, "probed": False,
+                          "warnings": ["Gemini CLI support is experimental"] if profile.cli == "gemini" else []}
+                self._emit("provider.status", result)
+                return result
             provider = await self._blocking(lambda: self._make_provider(self._profile(profile_id)))
             capabilities = await asyncio.to_thread(provider.check_capabilities)
             if probe:
                 await provider.complete([{"role": "user", "content": "Reply with OK."}], [], lambda _: None)
             result = {"profile_id": profile_id, "status": "ready", "capabilities": capabilities,
-                      "probed": probe}
+                      "probed": probe, "warnings": getattr(provider, "warnings", [])}
         except (ProviderError, EngineError) as e:
             result = {"profile_id": profile_id, "status": "error", "error": str(e)}
         self._emit("provider.status", result)
         return result
+
+    async def _providers_detect(self, actor: str) -> list[dict]:
+        return await asyncio.to_thread(discover_clis)
+
+    async def _diagnostics_get(self, actor: str) -> dict:
+        from badshop.diagnostics import diagnostic_report
+        return await asyncio.to_thread(diagnostic_report)
 
     # --- methods: settings and assets -----------------------------------------------------------
 
@@ -890,4 +985,34 @@ class CoreApp:
     async def _assets_download(self, actor: str, name: str) -> dict:
         # Not under the lock: a 170 MB model download must not hold up tools. Progress arrives as
         # asset.progress events through assets.PROGRESS.
-        return {"path": str(await asyncio.to_thread(manifest.download, name))}
+        manifest.get_asset(name)
+        if self._closed:
+            raise EngineError("badshop is closing")
+        if name in self._downloads:
+            raise EngineError("this asset is already downloading")
+        signal = threading.Event()
+        task = asyncio.create_task(asyncio.to_thread(manifest.download, name))
+        self._downloads[name] = (signal, task)
+
+        def finished(done: asyncio.Task) -> None:
+            self._downloads.pop(name, None)
+            if not done.cancelled():
+                done.exception()  # observe a failure even if the requesting socket has gone away
+
+        task.add_done_callback(finished)
+        try:
+            return {"path": str(await asyncio.shield(task))}
+        except asyncio.CancelledError:
+            signal.set()  # cancelling an asyncio waiter cannot interrupt its worker thread
+            raise
+
+    def _download_cancelled(self, name: str) -> bool:
+        pending = self._downloads.get(name)
+        return bool(pending and pending[0].is_set())
+
+    async def _assets_cancel(self, actor: str, name: str) -> dict:
+        pending = self._downloads.get(name)
+        active = pending is not None and not pending[1].done()
+        if active:
+            pending[0].set()
+        return {"cancelled": active}

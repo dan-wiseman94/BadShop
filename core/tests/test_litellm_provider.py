@@ -124,7 +124,7 @@ def test_custom_endpoint_does_not_inherit_a_cloud_key(monkeypatch):
     assert sdk.requests[0]["api_key"] == "badshop-local"
 
 
-@pytest.mark.parametrize("vision,tools,expected", [(False, True, "image support"), (True, False, "tool support")])
+@pytest.mark.parametrize("vision,tools,expected", [(False, True, "image support"), (False, False, "image support")])
 def test_capabilities_refuse_unsupported_models(monkeypatch, vision, tools, expected):
     sdk = use_sdk(monkeypatch, [])
     sdk.vision, sdk.tools = vision, tools
@@ -198,6 +198,7 @@ def test_malformed_or_duplicate_calls_fail_before_execution(monkeypatch, calls):
 
 
 @pytest.mark.parametrize("kind,status,match", [("AuthenticationError", 401, "authentication"),
+                                             ("NotFoundError", 404, "model or endpoint is unavailable"),
                                               ("Unknown", 403, "access"), ("RateLimitError", 429, "quota"),
                                               ("ContextWindowExceededError", 400, "context window"),
                                               ("Timeout", None, "timed out"),

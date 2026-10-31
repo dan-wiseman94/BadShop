@@ -10,6 +10,8 @@ import signal
 import socket
 import sys
 import threading
+import time
+from collections.abc import Callable
 
 from badshop import __version__
 from badshop.server.app import CoreApp
@@ -31,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve", help="serve the local API; the first stdout line is the port and token")
     s.add_argument("--port", type=_port, default=0, help="port on 127.0.0.1 (default: a free one)")
+    m = sub.add_parser("mcp", help="serve CLI-scoped MCP tools over stdio")
+    m.add_argument("--connect", required=True)
+    m.add_argument("--token", required=True)
+    m.add_argument("--actor", choices=("cli:claude", "cli:codex", "cli:gemini"), required=True)
+    m.add_argument("--heartbeat-seconds", type=float, default=60, help=argparse.SUPPRESS)
     return p
 
 
@@ -52,6 +59,41 @@ def _install_stop() -> asyncio.Event:
         except NotImplementedError:  # Windows event loops have no signal handlers
             signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop.set))
     return stop
+
+
+def _windows_pipe_eof(fd: int, stopped: Callable[[], bool]) -> bool | None:
+    """Watch a Windows pipe without a pending ReadFile; None selects normal file reads.
+
+    A blocked read on inherited stdin can stall a spawned Python interpreter's initial
+    tell/seek checks (CPython bpo-34780). This watcher is the pipe's only reader, so it can
+    safely drain exactly the available bytes without holding an empty synchronous read.
+    """
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetFileType.argtypes = [wintypes.HANDLE]
+    kernel.GetFileType.restype = wintypes.DWORD
+    kernel.PeekNamedPipe.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
+                                    ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD),
+                                    ctypes.POINTER(wintypes.DWORD)]
+    kernel.PeekNamedPipe.restype = wintypes.BOOL
+    handle = msvcrt.get_osfhandle(fd)  # borrowed handle; fd retains ownership
+    if kernel.GetFileType(handle) != 3:  # FILE_TYPE_PIPE
+        return None
+    available = wintypes.DWORD()
+    while not stopped():
+        if not kernel.PeekNamedPipe(handle, None, 0, None, ctypes.byref(available), None):
+            # Other failures preserve the existing behavior for unreadable stdin.
+            # Never fall back to a blocking read after a failed pipe query.
+            return ctypes.get_last_error() in (109, 233)  # BROKEN_PIPE, PIPE_NOT_CONNECTED
+        if available.value:
+            if not os.read(fd, min(available.value, 65536)):
+                return True
+        else:
+            time.sleep(.05)
+    return False
 
 
 def _stop_at_stdin_eof(stop: asyncio.Event) -> None:
@@ -79,8 +121,12 @@ def _stop_at_stdin_eof(stop: asyncio.Event) -> None:
 
     def wait_for_eof() -> None:
         try:
-            while os.read(fd, 65536):
-                pass
+            pipe_eof = _windows_pipe_eof(fd, stop.is_set) if os.name == "nt" else None
+            if pipe_eof is False:
+                return
+            if pipe_eof is None:
+                while os.read(fd, 65536):
+                    pass
         except OSError:  # an unreadable stdin (GNU nohup gives it /dev/null opened write-only)
             return
         with contextlib.suppress(RuntimeError):  # the loop has closed: the core stopped already
@@ -101,6 +147,7 @@ async def _serve(port: int) -> int:
     try:
         app = CoreApp(load_settings())
         server = await serve(app, token, sock=listener)  # from here on the server owns the socket
+        app.set_connection(f"ws://127.0.0.1:{bound_port(server)}", token)
     except BaseException:
         listener.close()
         raise
@@ -120,4 +167,10 @@ async def _serve(port: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     a = build_parser().parse_args(argv)
-    return asyncio.run(_serve(a.port))  # a.cmd is "serve", the only command until Plan 5 adds "mcp"
+    from badshop.diagnostics import configure_logging
+    configure_logging()
+    if a.cmd == "mcp":
+        from badshop.mcp.proxy import run_stdio
+        asyncio.run(run_stdio(a.connect, a.token, a.actor, heartbeat_s=a.heartbeat_seconds))
+        return 0
+    return asyncio.run(_serve(a.port))

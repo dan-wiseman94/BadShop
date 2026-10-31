@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "badshop",
+  "version": "0.1.0",
+  "identifier": "io.github.danwiseman94.badshop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "badshop",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:*; script-src 'self' 'unsafe-eval'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "shortDescription": "Deliberately bad photoshops, art-directed by your model",
+    "category": "GraphicsAndDesign",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "licenseFile": "../../LICENSE",
+    "resources": {
+      "../../packaging/core-dist/": "core-dist/",
+      "../../packaging/THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    }
+  }
+}

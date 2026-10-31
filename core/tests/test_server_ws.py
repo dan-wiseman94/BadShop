@@ -386,7 +386,8 @@ async def core(root: Path, script: list | None = None, data: Path | None = None)
             line = await asyncio.wait_for(proc.stdout.readline(), WAIT_S)
             assert line, f"the core exited before its handshake:\n{log.read_text(encoding='utf-8')}"
             hello = json.loads(line)
-            assert line == f'{{"port": {hello["port"]}, "token": "{hello["token"]}"}}\n'.encode()
+            expected = f'{{"port": {hello["port"]}, "token": "{hello["token"]}"}}'.encode()
+            assert line in (expected + b"\n", expected + b"\r\n")  # native Windows text newline
             assert len(hello["token"]) >= 32
             running = Core(proc, hello["port"], hello["token"])
             yield running

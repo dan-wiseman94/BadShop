@@ -138,6 +138,42 @@ def test_wiki_requests_all_page_images(web):
     assert run.result.outputs[0].caption.endswith("Abraham Lincoln  [wikipedia lead image]")
 
 
+@pytest.mark.parametrize("metadata_available", [True, False, "malformed"])
+def test_wiki_attaches_file_attribution_when_available(monkeypatch, metadata_available):
+    captured = []
+
+    def get(url, **kwargs):
+        if "prop=imageinfo" in url:
+            if not metadata_available:
+                raise EngineError("attribution endpoint unavailable")
+            reply = {"query": {"pages": {"2": {"title": "File:Portrait.jpg", "imageinfo": [{
+                "descriptionurl": "https://commons.wikimedia.org/wiki/File:Portrait.jpg",
+                "extmetadata": {"Artist": {"value": "<b>Photographer</b>"},
+                                "LicenseShortName": {"value": "CC BY-SA 4.0"}}}]}}}}
+            if metadata_available == "malformed":
+                reply = {"query": {"pages": []}}
+        else:
+            reply = {"query": {"pages": {"1": {"title": "Portrait", "pageimage": "Portrait.jpg",
+                                                "thumbnail": {"source": "https://example.com/image.jpg"}}}}}
+        return json.dumps(reply).encode(), "application/json"
+
+    monkeypatch.setattr(sources, "http_get", get)
+    def candidates(hits, *args):
+        captured.extend(hits)
+        return sources.EngineResult()
+
+    monkeypatch.setattr(sources, "download_candidates", candidates)
+    sources.wiki(sources.WikiParams(title="Portrait", n=1))
+    assert len(captured) == 1
+    provenance = captured[0]["source"]
+    if metadata_available is True:
+        assert provenance["license"] == "CC BY-SA 4.0"
+        assert provenance["creator"] == "Photographer"
+        assert provenance["page"] == "https://commons.wikimedia.org/wiki/File:Portrait.jpg"
+    else:
+        assert provenance["page"] == "https://en.wikipedia.org/wiki/Portrait"
+
+
 @pytest.mark.parametrize("given,code", [("😂", "1f602"), ("🅱️", "1f171"), ("🇺🇸", "1f1fa-1f1f8"),
                                         ("skull", "1f480"), (":joy:", "1f602"), ("1f525", "1f525"),
                                         ("👨‍💻", "1f468-200d-1f4bb")])

@@ -9,3 +9,19 @@ badshop_work/
 *.egg-info/
 .superpowers/
 core/.test-cache/
+
+# Desktop and release build outputs
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+app/test-results/
+app/playwright-report/
+packaging/core-dist/
+packaging/build/
+core/dist/
+packaging/flatpak-input/
+packaging/flatpak-build/
+packaging/flatpak-repo/
+packaging/.flatpak-builder/
+packaging/*.flatpak

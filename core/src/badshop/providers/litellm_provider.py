@@ -9,6 +9,8 @@ import asyncio
 import copy
 import importlib
 import inspect
+import json
+import uuid
 import math
 import os
 import sys
@@ -16,6 +18,7 @@ from collections.abc import Callable
 from typing import Any
 
 from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.diagnostics import register_secret
 
 
 async def close_clients() -> None:
@@ -49,6 +52,8 @@ def _safe_error(exc: Exception) -> str:
         return "model authentication failed; check the provider's API key"
     if kind == "PermissionDeniedError" or status == 403:
         return "the provider refused access; check the key's permissions and model access"
+    if kind == "NotFoundError" or status == 404:
+        return "the model or endpoint is unavailable; check the model name and API base, or choose another model"
     if kind == "RateLimitError" or status == 429:
         return "the model's rate limit or quota was reached; wait or check your provider account"
     if kind == "ContextWindowExceededError":
@@ -89,11 +94,71 @@ async def _close_stream(stream) -> None:
         raise asyncio.CancelledError
 
 
+_JSON_INSTRUCTION = """For this model, badshop uses JSON-mode tool calls. Return exactly one JSON object:
+{"text": "your explanation or final answer", "tool_calls": [{"name": "tool_name", "arguments": {}}]}.
+Use an empty tool_calls array for a final answer. Do not use markdown fences. Arguments must be a JSON
+object with the tool's declared parameters. Request only listed tools. Tool results and previous calls
+are shown as JSON in the conversation. A rejected call was not run; respect the user's decision.
+The application validates each call, asks for approval when needed, and executes it. Never claim a
+requested call has already run. All existing image and pixel safety instructions still apply.
+Available tools (JSON schemas):
+"""
+
+
+def _json_messages(messages: list[dict], tools: list[dict]) -> list[dict]:
+    """Remove native tool roles while preserving every multimodal content block."""
+    result = [{"role": "system", "content": _JSON_INSTRUCTION + json.dumps(tools)}]
+    for entry in copy.deepcopy(messages):
+        if entry.get("role") == "tool":
+            result.append({"role": "user", "content": json.dumps({
+                "tool_result": {"id": entry.get("tool_call_id"), "content": entry.get("content")}
+            })})
+        elif entry.get("tool_calls"):
+            calls = [{"name": c.get("function", {}).get("name"),
+                      "arguments": c.get("function", {}).get("arguments"), "id": c.get("id")}
+                     for c in entry.pop("tool_calls")]
+            content = entry.get("content")
+            envelope = json.dumps({"text": content if isinstance(content, str) else "", "tool_calls": calls})
+            # Native assistant messages normally contain text only, but preserve image blocks if present.
+            entry["content"] = ([{"type": "text", "text": envelope}, *content]
+                                if isinstance(content, list) else envelope)
+            result.append(entry)
+        else:
+            entry.pop("tool_calls", None)
+            result.append(entry)
+    return result
+
+
+def _json_reply(text: str) -> Reply:
+    """A malformed envelope produces no deltas and no executable call fragments."""
+    try:
+        value = json.loads(text, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        if (not isinstance(value, dict) or set(value) - {"text", "tool_calls"}
+                or not isinstance(value.get("text", ""), str)
+                or not isinstance(value.get("tool_calls", []), list)):
+            raise ValueError
+        calls = []
+        for call in value.get("tool_calls", []):
+            if (not isinstance(call, dict) or set(call) != {"name", "arguments"}
+                    or not isinstance(call["name"], str) or not call["name"]
+                    or not isinstance(call["arguments"], (dict, str))):
+                raise ValueError
+            calls.append(ToolCallRequest(id="json_" + uuid.uuid4().hex,
+                                         name=call["name"], arguments=call["arguments"]))
+        return Reply(text=value.get("text", ""), tool_calls=calls)
+    except (ValueError, RecursionError, TypeError):
+        raise ProviderError("the model returned invalid JSON-mode tool data; no calls were run. "
+                            "Try again or choose a model with native tool support") from None
+
+
 class LiteLLMProvider:
     def __init__(self, model: str, *, api_base: str | None = None, api_key: str | None = None,
                  actor: str = "agent:litellm", capability_overrides: dict[str, bool] | None = None,
                  timeout_s: float = 120):
         self.model, self.api_base, self._api_key = model, api_base, api_key
+        if api_key:
+            register_secret(api_key)
+        self.warnings: list[str] = []
         self.actor = actor
         self.capability_overrides = dict(capability_overrides or {})
         if (set(self.capability_overrides) - {"vision", "tool_calls"}
@@ -107,8 +172,8 @@ class LiteLLMProvider:
     def check_capabilities(self) -> dict[str, bool]:
         """Check local metadata, with explicit overrides for custom/local models.
 
-        This slice requires native tool calls; silently dropping tools would leave an
-        apparently working art director unable to create anything.
+        Models without native tools use a strict JSON envelope. Calls still return to
+        the ordinary agent validation/approval loop, never to an SDK executor.
         """
         sdk = _load_sdk()
         caps = {}
@@ -123,9 +188,10 @@ class LiteLLMProvider:
         if not caps["vision"]:
             raise ProviderError("this model has no confirmed image support; choose a vision model or enable "
                                 "the vision override for a custom model that supports images")
-        if not caps["tool_calls"]:
-            raise ProviderError("this model has no confirmed native tool support; choose a tool-capable model "
-                                "or enable its tool_calls override. JSON-mode fallback is not implemented yet")
+        self.warnings = [] if caps["tool_calls"] else [
+            "This model has no confirmed native tool support. JSON-mode tool fallback is active; "
+            "tool selection and placement may be poor. A model with native tools is recommended."
+        ]
         self._capabilities = caps
         return dict(caps)
 
@@ -134,9 +200,13 @@ class LiteLLMProvider:
         if self._capabilities is None:
             await asyncio.to_thread(self.check_capabilities)
         sdk = _load_sdk()
-        kwargs = {"model": self.model, "messages": copy.deepcopy(messages),
+        fallback = not self._capabilities["tool_calls"]
+        request_messages = _json_messages(messages, tools) if fallback else copy.deepcopy(messages)
+        kwargs = {"model": self.model, "messages": request_messages,
                   "stream": True, "timeout": self.timeout_s, "num_retries": 0}
-        if tools:
+        if fallback:
+            kwargs["response_format"] = {"type": "json_object"}
+        elif tools:
             # The locked LiteLLM imports its optional MCP gateway for any tool
             # list unless bypassed. These are function definitions only; badshop's
             # approval/session loop must remain the sole tool executor.
@@ -175,7 +245,8 @@ class LiteLLMProvider:
                         content = _get(delta, "content")
                         if isinstance(content, str) and content:
                             text_parts.append(content)
-                            on_delta(content)
+                            if not fallback:
+                                on_delta(content)
                         refusal = _get(delta, "refusal")
                         if isinstance(refusal, str) and refusal:
                             refused = True
@@ -192,7 +263,14 @@ class LiteLLMProvider:
                     if not text:
                         text = "The model declined this request."
                         on_delta(text)
+                    if fallback and not refusal_parts:
+                        on_delta(text)
                     return Reply(text=text)
+                if fallback:
+                    reply = _json_reply("".join(text_parts))
+                    if reply.text:
+                        on_delta(reply.text)
+                    return reply
                 rebuilt = sdk.stream_chunk_builder(chunks, messages=kwargs["messages"])
                 choices = _get(rebuilt, "choices", []) or []
                 if not choices:

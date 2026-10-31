@@ -4,12 +4,49 @@ A desktop app where any vision-capable LLM makes deliberately bad, 2005-forum-st
 photoshops — hard-edged cut-and-paste, Impact captions, laser eyes, deep-frying — while
 you watch every step, edit its parameters, run tools yourself, or approve each call.
 
-**Status:** the deterministic engine and headless session/server are built (Plans 1 and 2).
-Plan 3 now adds streaming model providers, image-aware agent context, saved profiles, and a
-terminal chat client. Live provider checks and the non-native-tool fallback remain; the
-Tauri desktop shell is next (Plan 4). Start with the
-[design spec](docs/superpowers/specs/2026-09-26-badshop-app-design.md) and
-[Plan 3 progress](docs/superpowers/plans/2026-10-31-plan-3-provider-agent.md).
+![badshop desktop with chat, image viewer, and editable timeline](docs/screenshots/badshop.png)
+
+The desktop app, deterministic engine, model providers, terminal client, and MCP bridge are
+implemented. The app keeps every edit as an inspectable step: change parameters, replay from
+an earlier step, or run the same tools manually. Models direct the tools; image-generation
+models never produce the pixels.
+
+## Desktop
+
+Build from source until the first release is published:
+
+```sh
+uv sync --project core --locked
+pnpm --dir app install --frozen-lockfile
+pnpm --dir app tauri dev
+```
+
+Development needs Python 3.12, uv, Node 22, pnpm 10, Rust, and Tauri's native libraries.
+See [build and release instructions](docs/releasing.md) for prerequisites and standalone
+installers. Release targets are Linux x86-64 (deb, AppImage, Flatpak), Windows x86-64 (NSIS),
+and Apple Silicon macOS 14+ (dmg). Windows/macOS runtime checks run on their CI hosts; releases
+also need the [live validation checklist](docs/releasing.md#release-checks-needing-actual-environments).
+
+On first launch, add a provider in Settings or use the tools manually. Import an image with
+the file picker, drag-and-drop, or clipboard. The three panes show conversation, image, and
+editable steps. Use the tool palette for manual edits, click/drag image coordinates into
+forms, compare before/after, and export the selected image. Projects use `.badshop` files;
+autosave recovery is offered after a previous run and restored automatically after a core
+restart. Diagnostics, appearance, tool limits, and cancellable model downloads live in Settings.
+
+Choose an API provider, a local OpenAI-compatible vision server, or an authenticated Claude
+Code/Codex CLI. Gemini CLI support is experimental and requires a recent version with
+streaming JSON and resume support. Subscription CLIs use a private MCP configuration and
+badshop's approval gate. Models without native tool calls use a validated JSON fallback,
+with a capability warning. API keys use the system keychain or a named environment variable.
+
+The default cutout model is u2net. BiRefNet is optional and needs much more RAM: the Linux
+measurement peaked at 9,328 MiB on a 1000-pixel image. Set Tool memory to at least 12,288 MB
+for BiRefNet and allow headroom for the rest of the app. Results vary by platform.
+
+See the [design](docs/superpowers/specs/2026-09-26-badshop-app-design.md),
+[implementation record](docs/superpowers/plans/2026-10-31-complete-app.md), and
+[model licences and attribution](docs/model-licenses.md).
 
 ## Running the command line
 
@@ -74,7 +111,7 @@ file aside as `autosave/previous.badshop` and offers it: `session.get` reports i
 
 ## Terminal chat and providers
 
-From the repository root, choose a vision model with native tool calling:
+From the repository root, choose a vision model:
 
 ```sh
 uv run --project core badshop chat --model openai/YOUR_MODEL --api-key-env OPENAI_API_KEY --image photo.jpg
@@ -105,10 +142,21 @@ tools. Use `--approval-mode auto` to allow tools without prompts.
   provider request, which may incur API charges.
 - `chat.retry {}` resumes the latest failed provider request in this core process.
 
-Profiles contain `id`, `label`, `kind` (`api`, `local`, `openai_compatible`), LiteLLM `model`,
+Profiles contain `id`, `label`, `kind` (`api`, `local`, `openai_compatible`, or `cli`), LiteLLM `model`,
 optional `api_base` and `api_key_env`, and optional boolean `capability_overrides`
 (`vision`, `tool_calls`). `api_key_ref` is managed by the core. Supplying `api_key` stores
 it through [keyring](https://keyring.readthedocs.io/en/stable/) in the OS keychain; an
 unavailable keychain produces an error suggesting `api_key_env`, never plaintext storage.
 Only user clients may manage profiles. Custom endpoints require explicit credentials when
 authenticated; unrelated ambient cloud credentials are not forwarded to them.
+
+
+CLI profiles set `kind: "cli"`, `cli: "claude" | "codex" | "gemini"`, and optionally an
+absolute `executable` path. `providers.detect` reports installed CLIs and compatibility.
+Authenticate the CLI separately before selecting it. The MCP bridge is also available as
+`badshop-core mcp --connect ws://127.0.0.1:PORT --token TOKEN --actor cli:claude` for a core
+that is already running. Treat the local connection token as a secret.
+
+For Claude Code's standalone image-editing workflow, install `core` as a tool and copy
+[`skills/badshop`](skills/badshop) into your skills directory. It calls the packaged `badshop`
+CLI; `reference/` remains the original parity fixture.

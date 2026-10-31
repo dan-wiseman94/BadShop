@@ -1,0 +1,14 @@
+{
+  "app-id": "io.github.danwiseman94.badshop",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "command": "badshop-desktop",
+  "finish-args": ["--socket=wayland", "--socket=fallback-x11", "--device=dri", "--share=ipc", "--share=network", "--filesystem=home", "--talk-name=org.freedesktop.secrets"],
+  "modules": [{"name": "badshop", "buildsystem": "simple", "build-commands": [
+    "cp -a usr/. /app/",
+    "install -Dm644 io.github.danwiseman94.badshop.desktop /app/share/applications/io.github.danwiseman94.badshop.desktop",
+    "install -Dm644 io.github.danwiseman94.badshop.metainfo.xml /app/share/metainfo/io.github.danwiseman94.badshop.metainfo.xml",
+    "install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/io.github.danwiseman94.badshop.png"
+  ], "sources": [{"type": "dir", "path": "flatpak-input"}]}]
+}

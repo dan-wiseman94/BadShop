@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.danwiseman94.badshop</id>
+  <name>badshop</name>
+  <summary>Deliberately bad photoshops, art-directed by your model</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description><p>A desktop controller for deterministic image tools, with model-driven chat, visible steps, editable parameters, approvals and replayable project files.</p></description>
+  <launchable type="desktop-id">io.github.danwiseman94.badshop.desktop</launchable>
+  <url type="homepage">https://github.com/dan-wiseman94/BadShop</url>
+  <url type="bugtracker">https://github.com/dan-wiseman94/BadShop/issues</url>
+  <provides><binary>badshop-desktop</binary></provides>
+  <content_rating type="oars-1.1"/>
+  <releases><release version="0.1.0" date="2026-10-31"/></releases>
+</component>
