@@ -61,6 +61,8 @@ jobs:
         run: pnpm --dir app exec tauri build --verbose --bundles ${{ matrix.bundles }} > packaging/native-build.log 2>&1
       - name: Native build diagnostics
         if: always()
+        env:
+          PYTHONIOENCODING: utf-8
         run: uv run --project core python -c "from pathlib import Path; p = Path('packaging/native-build.log'); print(p.read_text(encoding='utf-8', errors='replace')[-40000:] if p.exists() else 'Native build was not reached')"
       - name: Installed desktop window, renderer, normal exit (Linux)
         if: runner.os == 'Linux'
