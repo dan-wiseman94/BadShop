@@ -84,7 +84,7 @@
 
 ## Validation record
 
-- Final full Python suite: **1,473 passed**, five opt-in/platform skips,
+- Final full Python suite: **1,484 passed**, five opt-in/platform skips,
   one network test deselected. Independent review fixes have focused regression coverage.
 - Core/native: three Rust lifecycle tests; frozen core handshake, tool discovery, spawned
   face detector, save, EOF shutdown and forced-core-death worker cleanup passed.

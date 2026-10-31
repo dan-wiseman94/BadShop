@@ -12,6 +12,85 @@ from websockets.asyncio.client import connect
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def windows_dialogs(pids: set[int]) -> list[dict]:
+    """Read only windows owned by the smoke's process tree (including modal errors)."""
+    import ctypes
+    from ctypes import wintypes
+
+    user = ctypes.WinDLL('user32', use_last_error=True)
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+    user.EnumWindows.restype = wintypes.BOOL
+    user.EnumChildWindows.argtypes = [wintypes.HWND, callback_type, wintypes.LPARAM]
+    user.EnumChildWindows.restype = wintypes.BOOL
+    user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user.GetWindowTextW.restype = ctypes.c_int
+    windows = []
+
+    def text(hwnd):
+        buffer = ctypes.create_unicode_buffer(4096)
+        user.GetWindowTextW(hwnd, buffer, len(buffer))
+        return buffer.value
+
+    @callback_type
+    def window(hwnd, _):
+        owner = wintypes.DWORD()
+        user.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value in pids:
+            controls = []
+
+            @callback_type
+            def control(child, _):
+                value = text(child)
+                if value:
+                    controls.append(value)
+                return True
+
+            user.EnumChildWindows(hwnd, control, 0)
+            windows.append({'pid': owner.value, 'title': text(hwnd), 'controls': controls})
+        return True
+
+    user.EnumWindows(window, 0)
+    return windows
+
+
+def process_snapshot(pid: int) -> dict:
+    """Native bootstrap evidence, before the core startup watchdog removes its child."""
+    parent = psutil.Process(pid)
+    processes = [parent, *parent.children(recursive=True)]
+    details = []
+    for process in processes:
+        item = {'pid': process.pid}
+        try:
+            item.update(parent=process.ppid(), exe=process.exe(), cmdline=process.cmdline(),
+                        status=process.status(), rss_mb=process.memory_info().rss / 2**20,
+                        cpu=process.cpu_times()._asdict(), threads=process.num_threads())
+            try:
+                item['modules'] = sorted({m.path for m in process.memory_maps()
+                                          if m.path.lower().endswith(('.dll', '.pyd', '.exe'))})
+            except psutil.Error as error:
+                item['modules_error'] = type(error).__name__
+        except psutil.Error as error:
+            item['process_error'] = type(error).__name__
+        details.append(item)
+    result = {'processes': details}
+    if os.name == 'nt':
+        result['windows'] = windows_dialogs({p.pid for p in processes})
+    return result
+
+
+async def observe_startup(pid: int):
+    for delay in (1, 9):
+        await asyncio.sleep(delay)
+        try:
+            snapshot = await asyncio.to_thread(process_snapshot, pid)
+            print('Frozen native startup: ' + json.dumps(snapshot), flush=True)
+        except (OSError, psutil.Error) as error:
+            print('Frozen startup observation failed: ' + type(error).__name__, flush=True)
+
+
 async def smoke(executable: Path, crash: bool = False):
     with tempfile.TemporaryDirectory(prefix='badshop-smoke-') as folder:
         env = {**os.environ, 'BADSHOP_CONFIG_DIR': folder + '/config',
@@ -48,7 +127,15 @@ async def smoke(executable: Path, crash: bool = False):
                 assert {'find', 'view', 'paste'}.issubset({t['name'] for t in tools})
                 image = await rpc('artifacts.import', path=str(ROOT / 'core/tests/fixtures/lincoln.png'))
                 # Haar requires no network and still verifies bundled OpenCV data and spawned worker.
-                step = await rpc('tools.run', tool='find', params={'image': image['working']['id'], 'detector': 'haar'})
+                observer = (asyncio.create_task(observe_startup(proc.pid))
+                            if env.get('BADSHOP_SMOKE_TRACE') == '1' else None)
+                try:
+                    step = await rpc('tools.run', tool='find',
+                                     params={'image': image['working']['id'], 'detector': 'haar'})
+                finally:
+                    if observer:
+                        observer.cancel()
+                        await asyncio.gather(observer, return_exceptions=True)
                 assert step['status'] == 'done', step
                 saved = await rpc('session.save_as', path=str(Path(folder) / 'smoke.badshop'))
                 assert Path(saved['path']).is_file()

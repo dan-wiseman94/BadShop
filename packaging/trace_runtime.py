@@ -17,5 +17,12 @@ if os.environ.get("BADSHOP_SMOKE_TRACE") == "1":
     print(f"pid={os.getpid()} parent={os.getppid()} "
           f"spawn_worker={'--multiprocessing-fork' in sys.argv} before PyInstaller package runtime hooks",
           file=_badshop_bootstrap_trace)
+    print(f"executable={sys.executable!r} base_executable={getattr(sys, '_base_executable', None)!r} "
+          f"prefix={sys.prefix!r} frozen={getattr(sys, 'frozen', False)!r}",
+          file=_badshop_bootstrap_trace)
+    for _badshop_env_name in ('_PYI_ARCHIVE_FILE', '_PYI_PARENT_PROCESS_LEVEL',
+                             '_PYI_APPLICATION_HOME_DIR', 'PYINSTALLER_RESET_ENVIRONMENT'):
+        print(f"{_badshop_env_name}={os.environ.get(_badshop_env_name)!r}",
+              file=_badshop_bootstrap_trace)
     faulthandler.enable(file=_badshop_bootstrap_trace, all_threads=True)
     faulthandler.dump_traceback_later(15, repeat=True, file=_badshop_bootstrap_trace)
