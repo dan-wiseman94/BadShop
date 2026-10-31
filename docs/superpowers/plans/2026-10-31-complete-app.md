@@ -108,8 +108,9 @@
 ## Release validation and limitations
 
 Windows/macOS frozen smoke and Windows CLI process containment run in the added CI matrix.
-Actual GUI/keychain checks and BiRefNet measurements on those OSes remain release-hardware
-checks. Intel macOS is excluded; supported Apple Silicon minimum is macOS 14. AppImage FUSE
+The follow-up desktop matrix builds and launches each installed GUI and exercises its real
+OS keychain; native dialogs, clipboard images, and BiRefNet memory measurements still need
+interactive release-hardware checks. Intel macOS is excluded; supported Apple Silicon minimum is macOS 14. AppImage FUSE
 mounting was not exercised (its extraction runner was). Model/CLI behavior can vary by version
 and account. No tag, public release or PyPI publication is part of this development PR.
 
@@ -135,3 +136,27 @@ bpo-34780 startup contention while preserving data discard, EOF shutdown and wor
 Six polling regressions and the existing real-server stdin/worker lifecycle test pass locally;
 the Windows CI preflight now includes that lifecycle test. Frozen smoke runs without tracing,
 with native stack capture and retained Windows build artifacts available only after failure.
+
+## Desktop completion follow-up
+
+- Separate user-save baselines from crash-recovery autosaves. New/open/restore and native
+  close offer Save/Discard/Cancel. Monotonic revisions reject stale decisions and stale
+  Save/Save As requests under the core lock. macOS Quit follows the same close decision.
+- Keep all three panes inside the minimum 900×600 window; retain preferred widths after
+  shrinking, provide keyboard resize/reset, and keep the empty chat introduction visible.
+- Bind coordinate picking to the form's actual input image; merge replayed parameters
+  into a draft without losing unrelated edits and require a choice on conflicting values.
+- Show errors within their active dialogs, limit retry actions to provider failures, and
+  explain step-budget/invalid-tool stops. Render repeatable tool fields and their controls
+  without relying on Bootstrap styles or icon fonts.
+- Share installer validation between PR and release CI. Require a visible nonblank native
+  window, authenticated renderer connection, normal exit, child cleanup, and a disposable
+  real-keychain credential round trip before uploading each platform's installer.
+- Keep manual download cancellation available after Settings closes and reopens; offer
+  saved-provider selection during first run and an explicit connection probe separate
+  from offline setup inspection.
+
+Local follow-up validation: 1,502 Python tests passed before the final two queued-Save
+regressions were added; all 64 focused document/server tests then passed. Frontend validation
+covers 42 unit/component tests, 19 real-core browser workflows, and the production build.
+The frozen Linux core passed keychain, image-tool, Save, EOF, and forced-death cleanup probes.

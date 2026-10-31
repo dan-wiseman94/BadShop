@@ -48,6 +48,8 @@ export interface Message {
   step_ids: string[];
 }
 export interface Session {
+  unsaved_changes: boolean;
+  document_revision: number;
   /** Transient event-cache state, never sent to or saved by the core. */
   stream_text?: string;
   id: string;
@@ -122,11 +124,11 @@ export interface ArtifactPayload {
 }
 export interface MethodMap {
   "session.get": [undefined, Session];
-  "session.new": [{ name?: string }, Session];
-  "session.open": [{ path: string }, Session];
-  "session.restore": [undefined, Session];
-  "session.save": [undefined, { path: string }];
-  "session.save_as": [{ path: string }, { path: string }];
+  "session.new": [{ name?: string; expected_revision?:number; discard_unsaved?:boolean }, Session];
+  "session.open": [{ path: string; expected_revision?:number; discard_unsaved?:boolean }, Session];
+  "session.restore": [{expected_revision?:number;discard_unsaved?:boolean}|undefined, Session];
+  "session.save": [{ expected_revision?: number } | undefined, { path: string }];
+  "session.save_as": [{ path: string; expected_revision?: number }, { path: string }];
   "session.export_recipe": [{ path: string }, { path: string }];
   "session.set_approval_mode": [{ mode: ApprovalMode }, Session];
   "chat.send": [{ text: string; attachments?: string[] }, { started: boolean }];

@@ -9,6 +9,8 @@ const reply = (id: string, text: string): Message => ({
 });
 const session = (messages: Message[], stream_text = ""): Session => ({
   id: "session",
+  unsaved_changes: false,
+  document_revision: 0,
   name: "test",
   path: null,
   provider_profile_id: null,

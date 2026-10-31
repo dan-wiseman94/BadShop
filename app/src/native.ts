@@ -4,8 +4,15 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Connection } from "./types";
 export const native = isTauri();
+export const onCloseRequested = (confirm: () => Promise<boolean>) =>
+  native
+    ? getCurrentWindow().onCloseRequested(async (event) => {
+        if (!(await confirm())) event.preventDefault();
+      })
+    : Promise.resolve(() => {});
 export async function getConnection(): Promise<Connection> {
   if (native) return invoke<Connection>("core_connection");
   if (

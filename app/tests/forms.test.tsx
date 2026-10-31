@@ -86,6 +86,12 @@ describe("registry forms", () => {
       formData: [10, 20, 30, 40],
       onChange: changed,
       fieldPathId: { $id: "arrow", path: ["arrow"] },
+      registry: {
+        formContext: {
+          coordinateImageId: "input",
+          coordinateImageLabel: "Input image",
+        },
+      },
     } as unknown as FieldProps;
     render(<Coordinates {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Pick on image" }));

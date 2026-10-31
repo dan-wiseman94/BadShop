@@ -14,6 +14,7 @@ import {
 import { action, run, useSession } from "../data";
 import { useUI } from "../store";
 import { ArtifactThumb } from "./Viewer";
+import { openLink } from "../native";
 import type { Params } from "../types";
 export function Chat({
   attachments,
@@ -30,7 +31,10 @@ export function Chat({
   const [text, setText] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
-  const bottom = useRef<HTMLDivElement>(null);
+  const history = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const viewedSession = useRef<string | undefined>(undefined);
+  const errorAction = useUI((state) => state.errorAction);
   const stream = session?.stream_text ?? "";
   const { data: providerEvents } = useQuery<Params[]>({
     queryKey: ["provider-events"],
@@ -39,11 +43,36 @@ export function Chat({
   });
   const ready = useUI((s) => s.status === "ready");
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [session?.messages.length, stream, session?.pending_approvals.length]);
+    const node = history.current;
+    if (!node) return;
+    if (viewedSession.current !== session?.id) {
+      viewedSession.current = session?.id;
+      following.current = true;
+      node.scrollTop = 0;
+    }
+    if (
+      !session?.messages.length &&
+      !stream &&
+      !session?.pending_approvals.length
+    )
+      return;
+    if (following.current) node.scrollTop = node.scrollHeight;
+  }, [
+    session?.id,
+    session?.messages.length,
+    stream,
+    session?.pending_approvals.length,
+  ]);
   const send = () =>
     run(async () => {
-      if (!text.trim() || sending) return;
+      if (
+        (!text.trim() && !attachments.length) ||
+        sending ||
+        session?.turn_running ||
+        !ready
+      )
+        return;
+      following.current = true;
       setSending(true);
       try {
         await action("chat.send", { text, attachments });
@@ -61,7 +90,16 @@ export function Chat({
           {ready ? "Connected" : "Connecting"}
         </span>
       </div>
-      <div className="chat-history">
+      <div
+        className="chat-history"
+        ref={history}
+        onScroll={() => {
+          const node = history.current;
+          if (node)
+            following.current =
+              node.scrollHeight - node.clientHeight - node.scrollTop < 40;
+        }}
+      >
         {!session?.messages.length && (
           <div className="chat-welcome">
             <div className="little-logo">
@@ -126,7 +164,17 @@ export function Chat({
                   ]}
                   components={{
                     a: ({ href, children }) => (
-                      <a href={href} target="_blank" rel="noopener noreferrer">
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(event) => {
+                          if (href && /^https?:\/\//.test(href)) {
+                            event.preventDefault();
+                            run(() => openLink(href));
+                          }
+                        }}
+                      >
                         {children}
                       </a>
                     ),
@@ -259,7 +307,7 @@ export function Chat({
             ))}
           </details>
         )}
-        <div ref={bottom} />
+        <div aria-hidden="true" />
       </div>
       <div className="composer">
         <div className="attachments">
@@ -284,7 +332,11 @@ export function Chat({
           onChange={(e) => setText(e.target.value)}
           onPaste={onPaste}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
               event.preventDefault();
               send();
             }
@@ -311,7 +363,9 @@ export function Chat({
             <button
               className="send"
               aria-label="Send message"
-              disabled={!ready || !text.trim() || sending}
+              disabled={
+                !ready || (!text.trim() && !attachments.length) || sending
+              }
               onClick={send}
             >
               <ArrowUp size={19} />
@@ -321,13 +375,16 @@ export function Chat({
       </div>
       <div className="chat-foot">
         <span>You can change every step.</span>
-        <button
-          title="Retry failed provider turn"
-          onClick={() => run(() => action("chat.retry"))}
-        >
-          <RotateCcw size={11} />
-          Retry turn
-        </button>
+        {errorAction === "retry-turn" && (
+          <button
+            disabled={session?.turn_running || sending}
+            title="Retry failed provider turn"
+            onClick={() => run(() => action("chat.retry"))}
+          >
+            <RotateCcw size={11} />
+            Retry turn
+          </button>
+        )}
       </div>
     </section>
   );

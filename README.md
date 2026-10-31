@@ -34,6 +34,12 @@ forms, compare before/after, and export the selected image. Projects use `.badsh
 autosave recovery is offered after a previous run and restored automatically after a core
 restart. Diagnostics, appearance, tool limits, and cancellable model downloads live in Settings.
 
+Save with Ctrl/Cmd+S; use Ctrl/Cmd+Shift+S for Save As and Ctrl/Cmd+O to open a project.
+The dot beside the session name marks unsaved changes. Opening, creating, restoring, or
+closing a session offers Save, Discard, and Cancel; canceling a file picker keeps your work.
+Autosave is crash recovery and does not replace saving a project file. Drag a pane divider
+or use its arrow keys to resize; double-click a divider to reset the layout.
+
 Choose an API provider, a local OpenAI-compatible vision server, or an authenticated Claude
 Code/Codex CLI. Gemini CLI support is experimental and requires a recent version with
 streaming JSON and resume support. Subscription CLIs use a private MCP configuration and

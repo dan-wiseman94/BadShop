@@ -113,7 +113,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("can't initialize badshop desktop")
         .run(|app, event| {
-            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            if let tauri::RunEvent::ExitRequested { api: _api, .. } = event {
+                // macOS Quit arrives without a window-close request. Route it through
+                // the same unsaved-project decision as the titlebar close button.
+                // Once the frontend destroys the window, the next exit can proceed.
+                #[cfg(target_os = "macos")]
+                if let Some(window) = app.get_webview_window("main") {
+                    _api.prevent_exit();
+                    let _ = window.close();
+                    return;
+                }
                 app.state::<Core>().0.stop();
             }
         });

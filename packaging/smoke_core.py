@@ -117,7 +117,7 @@ async def observe_startup(pid: int):
             print('Frozen startup observation failed: ' + type(error).__name__, flush=True)
 
 
-async def smoke(executable: Path, crash: bool = False):
+async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
     with tempfile.TemporaryDirectory(prefix='badshop-smoke-') as folder:
         env = {**os.environ, 'BADSHOP_CONFIG_DIR': folder + '/config',
                'BADSHOP_DATA_DIR': folder + '/data', 'BADSHOP_OUT': folder + '/out',
@@ -151,6 +151,9 @@ async def smoke(executable: Path, crash: bool = False):
                             return result['result']
                 tools = await rpc('tools.list')
                 assert {'find', 'view', 'paste'}.issubset({t['name'] for t in tools})
+                if keychain:
+                    from smoke_keychain import exercise_keychain
+                    await exercise_keychain(rpc)
                 image = await rpc('artifacts.import', path=str(ROOT / 'core/tests/fixtures/lincoln.png'))
                 # Haar requires no network and still verifies bundled OpenCV data and spawned worker.
                 observer = (asyncio.create_task(observe_startup(proc.pid))
@@ -204,12 +207,14 @@ async def smoke(executable: Path, crash: bool = False):
                         print(f'could not read frozen trace: {type(error).__name__}')
 
 
-async def main(executable: Path):
-    await smoke(executable)
+async def main(executable: Path, keychain: bool = False):
+    await smoke(executable, keychain=keychain)
     await smoke(executable, crash=True)
 
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('executable', type=Path)
-    asyncio.run(main(p.parse_args().executable))
+    p.add_argument('--keychain', action='store_true', help='require a real OS keychain round-trip')
+    args = p.parse_args()
+    asyncio.run(main(args.executable, args.keychain))

@@ -1,0 +1,98 @@
+name: installed desktop
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: deb,appimage
+            executable: badshop-core
+            label: linux-x64
+          - os: windows-latest
+            bundles: nsis
+            executable: badshop-core.exe
+            label: windows-x64
+          - os: macos-15
+            bundles: dmg
+            executable: badshop-core
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 flatpak-builder xvfb xdotool imagemagick gnome-keyring dbus-x11
+      - run: uv sync --project core --locked --group build
+      - if: runner.os == 'Windows'
+        run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits core/tests/test_worker.py::test_a_real_tool_gives_the_same_outcome_as_in_process core/tests/test_server_ws.py::test_the_core_stops_cleanly_when_its_stdin_closes -q
+      - run: uv run --project core --group build python packaging/build_core.py
+      - name: Frozen core and real keychain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- bash -e -c '
+            printf "\n" | gnome-keyring-daemon --unlock --components=secrets
+            uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/badshop-core --keychain
+          '
+      - name: Frozen core and real keychain (Windows/macOS)
+        if: runner.os != 'Linux'
+        run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/${{ matrix.executable }} --keychain
+        env:
+          BADSHOP_SMOKE_TRACE: '0'
+      - run: pnpm --dir app install --frozen-lockfile
+      - run: pnpm --dir app exec tauri build --bundles ${{ matrix.bundles }}
+      - name: Installed desktop window, renderer, normal exit (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a uv run --project core python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
+      - name: Installed desktop window, renderer, normal exit (Windows)
+        if: runner.os == 'Windows'
+        run: uv run --project core python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
+      - name: Installed desktop window, renderer, normal exit (macOS)
+        if: runner.os == 'macOS'
+        run: uv run --project core --with pyobjc-framework-Cocoa --with pyobjc-framework-Quartz python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
+      - name: AppImage runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        run: xvfb-run -a uv run --project core python packaging/smoke_desktop.py --screenshot packaging/appimage-smoke.png -- app/src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract-and-run
+      - name: Flatpak bundle and runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -e -c '
+            flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+            flatpak install --user -y flathub org.gnome.Platform//49 org.gnome.Sdk//49
+            uv run --project core python packaging/build_flatpak.py app/src-tauri/target/release/bundle/deb/*.deb
+            flatpak install --user -y packaging/badshop.flatpak
+            xvfb-run -a uv run --project core python packaging/smoke_desktop.py --screenshot packaging/flatpak-smoke.png -- flatpak run io.github.danwiseman94.badshop
+          '
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: desktop-evidence-${{ matrix.label }}
+          path: packaging/*smoke.png
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v6
+        with:
+          name: badshop-${{ matrix.label }}
+          path: |
+            app/src-tauri/target/release/bundle/**/*.deb
+            app/src-tauri/target/release/bundle/**/*.AppImage
+            app/src-tauri/target/release/bundle/**/*.exe
+            app/src-tauri/target/release/bundle/**/*.dmg
+            packaging/*.flatpak
+          if-no-files-found: error

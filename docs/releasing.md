@@ -54,8 +54,8 @@ profile if a host CLI is unavailable there.
 
 ## Release workflow
 
-`release.yml` builds and smoke-tests each supported target, uploads installers, and on a
-`v*` tag creates a draft GitHub release. A manual dispatch builds artifacts without publishing.
+`native-desktop.yml` is shared by PR CI and `release.yml`: it builds and tests each
+supported installer before uploading it. On a `v*` tag, `release.yml` creates a draft GitHub release. A manual dispatch builds artifacts without publishing.
 The PyPI job runs only on version tags after all bundle jobs pass, through the protected
 `pypi` GitHub environment and trusted publishing. Configure the repository/environment as
 a trusted PyPI publisher before its first release. Match the tag to Python, frontend and
@@ -70,10 +70,17 @@ Run anyway. Only bypass these prompts for builds whose source and release you tr
 
 Run the opt-in `test_live_provider.py` smoke against the intended provider and model; cloud
 calls require an explicit environment opt-in. Authenticate each supported subscription CLI
-outside badshop and test a real image/approval turn. Confirm the actual OS keychain on each
-platform (Linux Secret Service synthetic credential round-trip passed locally). Run `packaging/measure_model.py --model birefnet-general` for worker memory needs
-on release hardware. CI validates each platform's frozen core; local Linux validation alone
-is not evidence that Windows/macOS installers have run successfully.
+outside badshop and test a real image/approval turn.
+
+The required frozen-core keychain smoke stores a unique synthetic credential, retrieves it
+inside the frozen executable to authenticate to a loopback-only endpoint, then deletes it
+and verifies absence. Linux CI supplies a private D-Bus Secret Service; Windows and macOS
+use their real OS credential stores. No cloud account or provider quota is involved.
+
+Run `packaging/measure_model.py --model birefnet-general` for worker memory needs on release
+hardware. The installed-desktop job additionally launches each platform's packaged GUI; passing
+core tests alone does not satisfy that job. Missing GUI or keychain access fails rather
+than silently skipping a platform.
 
 The reference engine and skill remain unchanged as parity fixtures. Installed users can
 call `badshop` after `uv tool install ./core` (or the published PyPI package after release).
@@ -122,7 +129,27 @@ To repeat native Linux lifecycle checks on an isolated display:
 xvfb-run -a uv run --project core python packaging/smoke_desktop.py -- /path/to/badshop-desktop
 ```
 
-This needs Xvfb and xdotool. The script verifies a visible window, a renderer connection to
-the bundled core, window-manager close, and process cleanup. `--screenshot PATH` additionally
-requires ImageMagick. Use the extracted .deb binary, or pass an AppImage followed by
+This needs Xvfb, xdotool and ImageMagick. The script requires a visible application
+window, a renderer connection to the bundled core, a nonblank screenshot of the content,
+window-manager close, and process cleanup. `--screenshot PATH` retains the screenshot. Use the extracted .deb binary, or pass an AppImage followed by
 `--appimage-extract-and-run`. Run it on its own display, not the active desktop.
+
+
+## Native installer checks
+
+`packaging/smoke_installer.py --screenshot packaging/native-smoke.png` discovers the one
+installer for the current OS. It extracts the .deb payload without root, silently installs
+the Windows NSIS package into a temporary directory, or mounts the macOS DMG and copies
+its .app out before launching. Windows sends the normal `WM_CLOSE` request; macOS uses
+`NSRunningApplication.terminate()` (normal application quit). Both require exit status 0
+and no surviving core/WebView children. macOS's harness uses PyObjC Cocoa/Quartz and an
+actual logged-in graphical session; CI installs these harness dependencies separately.
+Linux runs on Xvfb; AppImage's extraction runner and the installed Flatpak receive the
+same lifecycle check. AppImage FUSE mounting is not covered.
+
+The required screenshot catches an empty WebView; the established loopback connection
+proves the renderer executed and authenticated to its bundled core. Screenshots are
+uploaded as `desktop-evidence-*`. These checks do **not** claim native file-dialog,
+clipboard image, or every editing-flow coverage: browser end-to-end tests cover editing,
+while native dialogs and clipboard should also receive an interactive release check.
+No test driver or automation endpoint is added to the shipped application.
