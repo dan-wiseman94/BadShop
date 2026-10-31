@@ -128,3 +128,10 @@ Terminal CI fix: the daemon `input()` thread could hold stdout's buffered lock a
 shutdown (reproduced SIGABRT with `_enter_buffered_busy`). Prompt writes now stay on the
 main thread; POSIX uses cancellable descriptor readiness and Windows uses unbuffered reads.
 All 29 chat tests pass, including repeated exact-130 SIGINT exits, Unicode and PTY editing.
+
+Windows worker startup follow-up: the desktop-lifetime stdin monitor now polls pipe availability
+instead of leaving a synchronous read pending on an empty pipe. This avoids the CPython
+bpo-34780 startup contention while preserving data discard, EOF shutdown and worker cleanup.
+Six polling regressions and the existing real-server stdin/worker lifecycle test pass locally;
+the Windows CI preflight now includes that lifecycle test. Frozen smoke runs without tracing,
+with native stack capture and retained Windows build artifacts available only after failure.

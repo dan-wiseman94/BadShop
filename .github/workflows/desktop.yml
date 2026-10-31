@@ -27,13 +27,14 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
       - run: uv sync --project core --locked --group build
       - if: runner.os == 'Windows'
-        run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits core/tests/test_worker.py::test_a_real_tool_gives_the_same_outcome_as_in_process -q
+        run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits core/tests/test_worker.py::test_a_real_tool_gives_the_same_outcome_as_in_process core/tests/test_server_ws.py::test_the_core_stops_cleanly_when_its_stdin_closes -q
       - run: uv run --project core --group build python packaging/build_core.py
       - run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/${{ matrix.executable }}
+        id: frozen-smoke
         env:
           BADSHOP_SMOKE_TRACE: '0'
       - name: Prepare Windows native startup diagnostics
-        if: failure() && runner.os == 'Windows'
+        if: failure() && runner.os == 'Windows' && steps.frozen-smoke.outcome == 'failure'
         shell: pwsh
         run: |
           $debugger = "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe"
@@ -46,7 +47,7 @@ jobs:
           if (-not (Test-Path $debugger)) { throw 'CDB was not installed' }
           "BADSHOP_CDB=$debugger" >> $env:GITHUB_ENV
       - name: Diagnose failed Windows worker startup
-        if: failure() && runner.os == 'Windows'
+        if: failure() && runner.os == 'Windows' && steps.frozen-smoke.outcome == 'failure'
         run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/badshop-core.exe
         env:
           BADSHOP_SMOKE_TRACE: '1'

@@ -65,10 +65,10 @@ def native_stack(pid: int) -> dict:
                   / 'Windows Kits/10/Debuggers/x64/cdb.exe'))
     if not Path(cdb).is_file():
         return {'pid': pid, 'error': 'CDB is not installed', 'searched': cdb}
-    # -pv is noninvasive; -pd preserves the target on unexpected debugger exit;
-    # qd explicitly quits and detaches, leaving the target running after its stacks.
+    # -pv is noninvasive; qd explicitly quits and detaches after collecting stacks.
+    # -pd is incompatible with noninvasive sessions on current Windows debuggers.
     try:
-        result = subprocess.run([cdb, '-pv', '-pd', '-p', str(pid), '-c', '~* kb; qd'],
+        result = subprocess.run([cdb, '-pv', '-p', str(pid), '-c', '~* kb; qd'],
                                 capture_output=True, timeout=20, check=False)
     except subprocess.TimeoutExpired as error:
         return {'pid': pid, 'error': 'CDB exceeded 20 seconds',
