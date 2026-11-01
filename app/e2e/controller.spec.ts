@@ -1,5 +1,5 @@
 import { test, expect, root } from "./fixtures";
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 test("chat, approval, edit, replay, save, open, manual tools and export use the real core", async ({
   page,
@@ -69,9 +69,8 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await page.locator(".step").first().click();
   const toast = page.getByRole("button", { name: "Dismiss notification" });
   if (await toast.isVisible()) await toast.click();
-  await mkdir(path.join(root, "docs/screenshots"), { recursive: true });
   await page.screenshot({
-    path: path.join(root, "docs/screenshots/badshop.png"),
+    path: test.info().outputPath("badshop.png"),
   });
   const errors = await page.evaluate(
     () => document.querySelectorAll(".error-banner").length,

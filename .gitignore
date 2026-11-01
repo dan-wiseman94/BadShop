@@ -26,3 +26,7 @@ packaging/flatpak-build/
 packaging/flatpak-repo/
 packaging/.flatpak-builder/
 packaging/*.flatpak
+
+# Local verification evidence and isolated task checkouts
+artifacts/verification/
+.worktrees/

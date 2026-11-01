@@ -13,12 +13,28 @@ models never produce the pixels.
 
 ## Desktop
 
-Build from source until the first release is published:
+Run from source until the first release is published. On Linux or macOS, start the desktop
+app with one command from the repository root:
+
+```sh
+./start.sh
+```
+
+The launcher checks for required tools, syncs Python and frontend dependencies using the
+lockfiles, and opens the desktop app in development mode. It uses pnpm if installed, or
+Corepack's pnpm 10 otherwise. The first run needs internet access and can take several
+minutes to download dependencies and compile the Rust shell; later runs reuse cached builds.
+Keep the terminal open; close the app or press Ctrl+C to stop it. No separate core server
+command is needed.
+
+You can also run `/path/to/badshop/start.sh` from any directory. Use `./start.sh --help`
+for a quick reminder. If port 1420 is busy, use `BADSHOP_DEV_PORT=1422 ./start.sh`.
+On Windows, or to run the steps manually:
 
 ```sh
 uv sync --project core --locked
 pnpm --dir app install --frozen-lockfile
-pnpm --dir app tauri dev
+pnpm --dir app tauri dev --config src-tauri/tauri.source.conf.json
 ```
 
 Development needs Python 3.12, uv, Node 22, pnpm 10, Rust, and Tauri's native libraries.
@@ -53,6 +69,21 @@ for BiRefNet and allow headroom for the rest of the app. Results vary by platfor
 See the [design](docs/superpowers/specs/2026-09-26-badshop-app-design.md),
 [implementation record](docs/superpowers/plans/2026-10-31-complete-app.md), and
 [model licences and attribution](docs/model-licenses.md).
+
+## Developing and testing
+
+```sh
+./verify.sh doctor    # Check local tools and Linux desktop prerequisites
+./verify.sh quick     # Core/frontend tests, lint, frontend build, Rust tests
+./verify.sh browser   # Browser workflows against a real, isolated Python core
+./verify.sh desktop   # Real Linux desktop + ./start.sh on a private Xvfb display
+./verify.sh all       # Run every local verification layer
+```
+
+Results and logs are kept in `artifacts/verification/`; native runs also save screenshots,
+and failed browser tests retain traces. Model downloads and live provider calls are separate.
+See [development and testing](docs/development.md) for setup, acceptance criteria, isolated
+worktrees, and the limits of each test layer.
 
 ## Running the command line
 

@@ -22,4 +22,6 @@ jobs:
           key: test-cache-${{ hashFiles('core/uv.lock') }}
       - run: uv sync --locked  # fail if uv.lock is stale rather than resolve afresh
       - run: uv run ruff check .
+      - run: uv run ruff check --config pyproject.toml ../scripts ../packaging/smoke_desktop.py
+      - run: uv run python -m unittest discover -s ../scripts/tests
       - run: uv run pytest -q
