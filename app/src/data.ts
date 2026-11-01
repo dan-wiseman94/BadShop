@@ -149,7 +149,7 @@ export async function action<K extends keyof MethodMap>(
         );
     }
   }
-  if (["session.new", "session.open", "session.restore"].includes(method)) {
+  if (["session.new", "session.open", "session.restore", "branches.create", "branches.switch"].includes(method)) {
     acceptSessionReplacement(value as Session);
   }
   await queries.invalidateQueries({ queryKey: ["session.get"] });
@@ -159,6 +159,16 @@ export async function action<K extends keyof MethodMap>(
     await queries.invalidateQueries({ queryKey: ["settings.get"] });
   if (method.startsWith("assets."))
     await queries.invalidateQueries({ queryKey: ["assets.status"] });
+  if (method.startsWith("library.") || method.startsWith("packs.")) {
+    await queries.invalidateQueries({ queryKey: ["library.list"] });
+    queries.removeQueries({ queryKey: ["library.thumbnail"] });
+  }
+  if (method.startsWith("collections."))
+    await queries.invalidateQueries({ queryKey: ["collections.list"] });
+  if (method.startsWith("novelty."))
+    await queries.invalidateQueries({ queryKey: ["novelty.recent"] });
+  if (method.startsWith("branches.") || method.startsWith("session."))
+    await queries.invalidateQueries({ queryKey: ["branches.list"] });
   return value;
 }
 export function run<T>(work: () => Promise<T>) {

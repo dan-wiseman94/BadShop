@@ -1,0 +1,9 @@
+.idea-cards { margin-top: 16px; }
+.idea-cards pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.5; }
+.idea-cards p { margin: 4px 0; }
+.idea-cards summary { cursor: pointer; font-size: 12px; }
+.collection-status { margin: 12px 0; font-size: 12px; }
+.collection-status summary { cursor: pointer; }
+.collection-status table { width: 100%; text-align: left; border-collapse: collapse; }
+.collection-status th, .collection-status td { padding: 6px 8px; vertical-align: top; border-bottom: 1px solid var(--border); }
+.collection-status code { overflow-wrap: anywhere; }

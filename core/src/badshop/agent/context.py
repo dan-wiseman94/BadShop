@@ -9,6 +9,7 @@ import re
 from PIL import Image
 
 from badshop.engine.errors import EngineError
+from badshop.agent.creative import direction_prompt
 
 from badshop.session.artifacts import short
 from badshop.session.models import ArtifactMeta, Step
@@ -41,10 +42,16 @@ Rules:
 - The user can see, edit, reject and replay each step. Adapt to rejection notes and user edits.
 
 Workflow:
-1. Use the user's supplied images. For named people, places, artwork or breeds, start with wiki
-   (n=2); for generic subjects use fetch with short literal keywords. Use template for named meme
-   formats and emoji for emoji. A pasted link can be fetched. Inspect contact sheets and pick an
-   angle and size that works. After one or two unsuccessful searches, ask the user for an image.
+1. Use the user's supplied images. For image selection use discover, describing the shot needed
+   with literal keywords plus its purpose, pose and expression when supported by its schema.
+   When seeking several pictures of a named subject, use discover's same-subject search: wiki
+   returns lead images from matching articles, which may depict related subjects rather than
+   different poses of one person. Inspect the contact sheet for recognizable identity, expression,
+   facing direction, visible body parts, usable subject size and space for text or pasted objects.
+   Candidate metadata is a hint, not proof: verify visually. Use acquire to import selected
+   candidates; the contact sheet itself is not an editing source. Use fetch for a direct image
+   or page link and wiki for a quick lead-image lookup. Use template for named meme formats
+   and emoji for emoji. After one or two unsuccessful searches, ask the user for an image.
 2. For faces, run find first and inspect its annotated result when several faces appear. Copy its
    head box for whole heads, oval box for face-only swaps, eye points for lasers or bulges, and
    roll for tilt. If detection fails, use view(grid=true) and choose a generous box including hair.
@@ -67,7 +74,7 @@ Workflow:
 For deliberately worse results use grow for old-background halos, odd rotate, stretched height,
 wrong scale, repeat for crowds, strong warp, low JPEG quality, repeated compression, lowres or
 animate(effect="zoom", fry=5). If the request is vague, make the obvious composition and show it.
-When done, say in a sentence or two what you made."""
+When done, say in a sentence or two what you made.""" + direction_prompt()
 
 MAX_IMAGES = 8
 MAX_IMAGE_PX = 1024
@@ -116,11 +123,22 @@ def model_result(step: Step) -> str:
     """Text for the model, preserving the UI/CLI's result_text separately. Never contains pixels."""
     text = step.result_text
     spec = REGISTRY.get(step.tool)
+    data = _without_thumbnails(step.data)
     if spec is not None and spec.network:
-        return _web_data(text, step.data)
-    if step.data is not None:
-        text += "\nstructured_data: " + json.dumps(step.data, ensure_ascii=True)
+        return _web_data(text, data)
+    if data is not None:
+        text += "\nstructured_data: " + json.dumps(data, ensure_ascii=True)
     return text
+
+
+def _without_thumbnails(value):
+    """UI previews stay in saved step data, never in model text or its token budget."""
+    if isinstance(value, dict):
+        return {key: _without_thumbnails(item) for key, item in value.items()
+                if key != "thumbnail_data_url"}
+    if isinstance(value, list):
+        return [_without_thumbnails(item) for item in value]
+    return value
 
 
 def _mark_web_results(messages: list[dict]) -> None:
@@ -172,6 +190,7 @@ def _add_images(session: Session, messages: list[dict]) -> None:
     if user_index is None:
         return
     refs: list[str] = []
+    visible = session.visible_artifact_ids()
     # A drop/import may be announced in the current turn's system change note rather than attached
     # to the user message. Include that note, but never the general prompt or older turn's notes.
     start = user_index
@@ -182,6 +201,8 @@ def _add_images(session: Session, messages: list[dict]) -> None:
             try:
                 aid = session.artifacts.resolve(candidate)
             except EngineError:
+                continue
+            if aid not in visible:
                 continue
             if aid in refs:
                 refs.remove(aid)

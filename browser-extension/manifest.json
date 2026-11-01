@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Send image to badshop",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "description": "Copy the selected image and its source page into badshop.",
+  "permissions": ["contextMenus", "offscreen", "clipboardWrite"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Right-click an image, then paste into badshop" }
+}

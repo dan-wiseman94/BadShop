@@ -71,7 +71,7 @@ def test_new_session_defaults(tmp_path, monkeypatch):
     assert s.changes == [] and s.last_output() is None and s.summary() == ""
     assert s.data.artifacts is s.artifacts.meta  # snapshots and project files see every artifact
     dumped = json.loads(s.data.model_dump_json(by_alias=True))
-    assert dumped["schema"] == 1 and dumped["name"] == "Untitled"
+    assert dumped["schema"] == 2 and dumped["name"] == "Untitled"
 
 
 def test_propose_resolves_refs_to_full_ids(session, events):

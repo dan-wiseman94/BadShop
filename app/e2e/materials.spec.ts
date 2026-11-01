@@ -1,0 +1,85 @@
+import { test, expect, root } from "./fixtures";
+import { mkdir, copyFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import type { Session, LibraryEntry } from "../src/types";
+
+async function setup(page: import("@playwright/test").Page, core: { port: number; token: string }) {
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+}
+
+test("real layouts, installed asset packs, and image pair composition stay editable", async ({ page, core }) => {
+  await setup(page, core);
+  await page.getByRole("button", { name: "Layouts & packs", exact: true }).click();
+  const initial = await core.call("session.get") as Session;
+  const source = Object.keys(initial.artifacts)[0];
+  await page.getByLabel("Layout title").fill("EMPLOYEE OF THE MONTH");
+  await page.getByLabel("Image for Character", { exact: true }).selectOption(source);
+  await page.getByLabel("Caption for Character", { exact: true }).fill("Exceeds all expectations");
+  await page.getByRole("button", { name: "Create layout", exact: true }).click();
+  await expect(page.getByText("Layout created and attached to chat.")).toBeVisible();
+  const built = await core.call("session.get") as Session;
+  expect(built.steps.at(-1)?.tool).toBe("layout");
+  const card = built.steps.at(-1)!.outputs[0];
+  const packButtons = page.getByRole("button", { name: /^Install / });
+  await expect(packButtons).toHaveCount(8);
+  await packButtons.first().click();
+  await expect(page.getByText(/assets added to your junk drawer/)).toBeVisible();
+  const entries = await core.call("library.list") as LibraryEntry[];
+  expect(entries.length).toBeGreaterThanOrEqual(4);
+  const pack = path.join(core.folder, "favorite.badpack");
+  await core.call("packs.export", { ids: [entries[0].id], path: pack });
+  await core.call("packs.import", { path: pack });
+  await page.getByRole("button", { name: "Image pairs", exact: true }).click();
+  await page.getByLabel("Donor images (up to six)").selectOption([source]);
+  await page.getByLabel("Background images (up to six)").selectOption([card]);
+  await page.getByRole("button", { name: "Compare image pairs" }).click();
+  await expect(page.getByRole("button", { name: "Compose this pair" })).toBeVisible();
+  await page.getByRole("button", { name: "Compose this pair" }).click();
+  await expect(page.getByRole("status")).toContainText("editable paste step");
+  expect((await core.call("session.get") as Session).steps.at(-1)?.tool).toBe("paste");
+  await page.screenshot({ path: "/tmp/badshop-material-pairs.png" });
+});
+
+test("local GIF frames, scanned regions and indexed folders import only selected material", async ({ page, core }) => {
+  const folder = path.join(core.folder, "my-pictures");
+  await mkdir(folder);
+  await copyFile(path.join(root, "core/tests/fixtures/lincoln.png"), path.join(folder, "president.png"));
+  await copyFile(path.join(folder, "president.png"), path.join(folder, "duplicate.png"));
+  const clip = path.join(core.folder, "reaction.gif");
+  execFileSync(path.join(root, "core/.venv/bin/python"), ["-c", "from PIL import Image; import sys; a=Image.new('RGB',(80,60),'red'); b=Image.new('RGB',(80,60),'blue'); a.save(sys.argv[1],save_all=True,append_images=[b],duration=200,loop=0)", clip]);
+  await setup(page, core);
+  await page.getByRole("button", { name: "Clips, pages & folders" }).click();
+  await page.getByLabel("Selected source file").fill(clip);
+  await page.getByRole("button", { name: "Preview source", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: /Frame 1/ })).toBeVisible();
+  await page.getByRole("checkbox", { name: /Frame 1/ }).check();
+  await page.getByRole("checkbox", { name: /Frame 2/ }).check();
+  await page.getByLabel("Make an animated sequence").check();
+  await page.getByRole("button", { name: "Import selected frames" }).click();
+  await expect(page.getByText(/image\(s\) added to chat/)).toBeVisible();
+  expect((await core.call("session.get") as Session).steps.at(-1)?.tool).toBe("animate");
+  await page.getByRole("button", { name: "Pages / scans" }).click();
+  await page.getByLabel("Selected source file").fill(path.join(folder, "president.png"));
+  await page.getByRole("button", { name: "Preview source", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Select Page 1", exact: true }).check();
+  await page.getByLabel("Crop right").fill("40");
+  await page.getByLabel("Crop bottom").fill("30");
+  await page.getByRole("button", { name: "Import selected region" }).click();
+  await expect(page.getByText(/image\(s\) added to chat/)).toBeVisible();
+  expect(Object.values((await core.call("session.get") as Session).artifacts).some(image => image.width === 40 && image.height === 30)).toBe(true);
+  await page.getByRole("button", { name: "My folders" }).click();
+  await page.getByLabel("Selected folder").fill(folder);
+  await page.getByRole("button", { name: "Index selected folder" }).click();
+  await expect(page.getByText(/2 images indexed; 1 duplicates/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use local image", exact: true })).toHaveCount(2);
+  await page.getByRole("button", { name: "Edit description / tags" }).first().click();
+  await page.getByLabel("Collection tags", { exact: true }).fill("serious portrait");
+  await page.getByRole("button", { name: "Save searchable description" }).click();
+  await page.getByLabel("Find by name, tag, or description").fill("serious");
+  await page.getByRole("button", { name: "Search collection", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Use local image", exact: true })).toHaveCount(1);
+});

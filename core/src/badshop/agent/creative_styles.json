@@ -1,0 +1,62 @@
+[
+  {
+    "id": "forum-signature",
+    "name": "2005 forum signature",
+    "summary": "Wide crop, repeated heads, an oversized screen name.",
+    "sources": "Choose a wide scene and a recognizable head or mascot with room beside it for a name.",
+    "composition": "Crop the base to a wide strip with cutout(no_ai=true) when useful. Place one oversized subject to a side, then two or three smaller hard-edged copies. Keep the name readable in the remaining space.",
+    "typography": "Use text(style=wordart) for the screen name and a short plain or paint tagline.",
+    "finish": "Use modest save JPEG crunch; add a flare only when it supports the chosen brief. Avoid filling every gap.",
+    "tools": ["cutout", "paste", "text", "save"]
+  },
+  {
+    "id": "wordart-disaster",
+    "name": "Office WordArt disaster",
+    "summary": "A crooked flyer with stretched lettering and misplaced badges.",
+    "sources": "Choose a simple background, a subject cutout, and a small relevant emoji or clip-art-like object.",
+    "composition": "Place a large tilted subject off center. Repeat a small badge or emoji in a corner. Leave a clear area for one oversized title instead of covering the subject.",
+    "typography": "Mix a large text(style=wordart) title with a smaller text(style=paint) line. Uneven placement is intentional; clipped words are not.",
+    "finish": "Use a slight squash through paste width/height and ordinary JPEG save. Keep the joke visible through the clutter.",
+    "tools": ["cutout", "paste", "emoji", "text", "save"]
+  },
+  {
+    "id": "tabloid",
+    "name": "Tabloid front page",
+    "summary": "An enormous headline, an incriminating inset, and a red arrow.",
+    "sources": "Choose one expressive main photo with headline space and one supporting photo or crop that advances the joke.",
+    "composition": "Use a large main image; paste a smaller rectangular inset into a corner. Draw a red arrow or circle connecting the inset to the supposed evidence. Keep the main subject unobscured.",
+    "typography": "Use a very short Impact top headline and a bottom punchline. A tiny inset label is optional, never a paragraph.",
+    "finish": "Save with moderate JPEG crunch; avoid deep frying by default so the headline remains legible.",
+    "tools": ["cutout", "paste", "draw", "text", "save"]
+  },
+  {
+    "id": "bootleg-dvd",
+    "name": "Bootleg DVD cover",
+    "summary": "A crowded cast collage, a huge title, and too many taglines.",
+    "sources": "Choose a tall dramatic background and two or three recognizable subjects with contrasting expressions or scales.",
+    "composition": "Build a cast collage with one giant face high in the frame and smaller figures below. Hard rectangular seams and mismatched scales are welcome. Reserve the bottom quarter for the title.",
+    "typography": "Use a large WordArt title, one exaggerated tagline above it, and a short paint-style endorsement at an odd angle if space permits.",
+    "finish": "A single flare and mild color filter can support the brief. Keep facial features and the title readable after save.",
+    "tools": ["cutout", "paste", "text", "flare", "save"]
+  },
+  {
+    "id": "museum-vandalism",
+    "name": "Museum vandalism",
+    "summary": "One absurd substitution in an otherwise serious painting.",
+    "sources": "Choose a public-domain painting or statue image with a clear focal subject and a replacement whose pose fits the joke.",
+    "composition": "Make one obvious substitution: replace a head, a held object, or one central figure. Preserve most of the original artwork so the contrast carries the joke.",
+    "typography": "Usually omit captions. If requested, use one short museum-label-like plain line away from the altered subject.",
+    "finish": "Use ordinary save. No default lasers, emoji rain, deep fry, or decorative clutter.",
+    "tools": ["find", "cutout", "paste", "text", "save"]
+  },
+  {
+    "id": "conspiracy",
+    "name": "Conspiracy diagram",
+    "summary": "Three pieces of evidence connected by increasingly absurd arrows.",
+    "sources": "Choose two or three visually distinct objects or faces linked by the user's premise; seek clear silhouettes over busy scenery.",
+    "composition": "Arrange separate rectangular evidence crops around the base with space between them. Connect them using draw arrows, circles, and lines. Make the central claim visibly distinct from the supporting scraps.",
+    "typography": "Use short paint labels beside each item and one Impact question as the headline. Keep labels out of faces and arrows out of text.",
+    "finish": "Save with light JPEG crunch. Restraint in the number of nodes makes the absurd relationship readable.",
+    "tools": ["cutout", "paste", "draw", "text", "save"]
+  }
+]

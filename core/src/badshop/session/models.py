@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from badshop.engine.result import EXT as OUTPUT_EXT
 
-SCHEMA = 1  # session.json's "schema"; bump it (and migrate older files) whenever the saved shape changes
+SCHEMA = 2  # session.json's "schema"; bump it (and migrate older files) whenever the saved shape changes
 
 ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF"]
 EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff"}  # tool outputs keep their CLI extensions
@@ -86,9 +86,21 @@ class Message(BaseModel):
     step_ids: list[str] = []
 
 
+class BranchSnapshot(BaseModel):
+    """One independent creative direction; immutable image bytes remain shared by the project."""
+
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    name: str = Field(min_length=1, max_length=200)
+    created_at: float
+    steps: list[Step] = []
+    messages: list[Message] = []
+    transcript: list[dict] = []
+    artifact_ids: list[str] = []
+
+
 class SessionData(BaseModel):
     """The whole session. `schema` would shadow BaseModel.schema, so the field is `schema_` with the alias
-    "schema": always dump with `by_alias=True` (session.json says "schema": 1)."""
+    "schema": always dump with `by_alias=True` (session.json says "schema": 2)."""
 
     model_config = ConfigDict(populate_by_name=True)
     schema_: int = Field(SCHEMA, alias="schema")
@@ -101,3 +113,5 @@ class SessionData(BaseModel):
     steps: list[Step] = []
     artifacts: dict[str, ArtifactMeta] = {}
     transcript: list[dict] = []  # the provider-format message history the agent resumes from
+    active_branch_id: str | None = None
+    branches: dict[str, BranchSnapshot] = {}

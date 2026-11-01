@@ -22,6 +22,7 @@ from PIL import Image, ImageSequence
 from badshop.cli.filestore import FileStore
 from badshop.engine import assets, text
 from badshop.tools import REGISTRY
+from badshop.tools.registry import image_fields
 from badshop.tools.runner import run_tool
 from conftest import FIXTURES
 
@@ -76,6 +77,15 @@ CASES = {
     "animate-zoom-fry": ("animate", {"images": [L], "effect": "zoom", "at": [300, 250], "amount": 2.5, "hold": 2,
                                      "fry": 5}, False),
     "animate-two": ("animate", {"images": [L, T], "effect": "flash"}, False),
+    "layout-card": ("layout", {"template": "trading-card", "images": [J], "title": "RARE FIND",
+                               "captions": ["Level 99 / emotional support"], "fit": "cover"}, False),
+    "layout-sparse-comic": ("layout", {"template": "comic", "images": [L], "image_slots": [1],
+                                        "title": "A normal Tuesday", "captions": ["Before", "After"],
+                                        "slots": [[30, 120, 470, 480], [520, 120, 960, 480]],
+                                        "fit": "stretch", "accent": "blue"}, False),
+    "pair-images-head": ("pair_images", {"donors": [J, L], "backgrounds": [T], "role": "head", "n": 2}, False),
+    "slice-sheet-sparse": ("slice_sheet", {"image": L, "rows": 2, "columns": 3, "margins": [1, 2, 3, 4],
+                                          "gap": [2, 3], "cells": [0, 4]}, False),
     "export": ("export", {"image": J, "name": "kept"}, False),
 }
 
@@ -133,7 +143,10 @@ def run_case(case_id: str, folder: Path) -> dict:
     for name in {L, T, J}:
         shutil.copy(FIXTURES / name, folder / name)
     at = lambda v: str(folder / v) if v in (L, T, J) else v  # noqa: E731
-    raw = {k: [at(x) for x in v] if isinstance(v, list) and k == "images" else at(v) for k, v in params.items()}
+    raw = dict(params)
+    for name, many in image_fields(REGISTRY[tool].params).items():
+        if name in raw:
+            raw[name] = [at(value) for value in raw[name]] if many else at(raw[name])
     store = FileStore(folder / "work", folder / "final")
     with pinned_fonts():
         run = run_tool(tool, raw, store)

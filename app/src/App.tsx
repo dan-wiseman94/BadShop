@@ -18,6 +18,8 @@ import { Viewer } from "./components/Viewer";
 import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
 import { ErrorNotice } from "./components/ErrorNotice";
+import { Studio } from "./components/Studio";
+import { sourceCard } from "./sourceCard";
 import { SaveChangesDialog, useSessionActions } from "./sessionActions";
 import { usePaneLayout } from "./layout";
 import {
@@ -101,6 +103,11 @@ export default function App() {
     !localStorage.getItem("badshop.welcome"),
   );
   const [menu, setMenu] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [ideaDrafts, setIdeaDrafts] = useState<{ id: string; text: string; generation: number }[]>([]);
+  const consumeIdeaDraft = useCallback((id: string) => {
+    setIdeaDrafts(previous => previous.filter(draft => draft.id !== id));
+  }, []);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [restoredDismissed, setRestoreDismissed] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -117,6 +124,7 @@ export default function App() {
   }, [session?.id]);
   useEffect(() => {
     setAttachments([]);
+    setIdeaDrafts([]);
   }, [ui.documentGeneration]);
   useEffect(() => {
     if (!session) return;
@@ -194,6 +202,7 @@ export default function App() {
           return;
         }
         setNewSessionOpen(false);
+        setStudioOpen(false);
         if (useUI.getState().pick) {
           useUI.getState().set({ pick: null });
           return;
@@ -225,6 +234,21 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [ui.notice]);
   const paste = (event: React.ClipboardEvent) => {
+    const text = event.clipboardData.getData("text/plain");
+    if (text.includes('"badshop_source"')) {
+      event.preventDefault();
+      event.stopPropagation();
+      run(async () => {
+        const params = sourceCard(text);
+        if (!params) throw new Error("Invalid browser source card.");
+        const step = await action("tools.run", { tool: "acquire", params });
+        if (step.status !== "done" || !step.outputs[0])
+          throw new Error(step.error?.message ?? "The image could not be imported.");
+        setAttachments(previous => [...new Set([...previous, step.outputs[0]])]);
+        useUI.getState().set({ selectedArtifact: step.outputs[0] });
+      });
+      return;
+    }
     const images = Array.from(event.clipboardData.files).filter((file) =>
       file.type.startsWith("image/"),
     );
@@ -298,6 +322,7 @@ export default function App() {
     ui.pick,
     newSessionOpen,
     documents.pending,
+    studioOpen,
   ]);
   const closeWelcome = () => {
     localStorage.setItem("badshop.welcome", "1");
@@ -480,6 +505,9 @@ export default function App() {
           </label>
         </div>
         <div className="header-actions">
+          <button className="studio-launch" aria-label="Images & directions" disabled={ui.status !== "ready"} onClick={() => setStudioOpen(true)}>
+            <span className="studio-launch-full">Images & directions</span><span className="studio-launch-short">Images</span>
+          </button>
           <button
             className="quiet"
             title="Save session"
@@ -511,6 +539,7 @@ export default function App() {
         </div>
       </header>
       {!ui.settingsOpen &&
+        !studioOpen &&
         !ui.paletteOpen &&
         !welcome &&
         !newSessionOpen &&
@@ -580,6 +609,8 @@ export default function App() {
           onAttachments={setAttachments}
           onImport={importImages}
           onPaste={paste}
+          draft={ideaDrafts.find(draft => draft.generation === ui.documentGeneration)}
+          onDraftConsumed={consumeIdeaDraft}
         />
         <Resizer
           side="left"
@@ -626,6 +657,15 @@ export default function App() {
       )}
       {ui.settingsOpen && !documents.pending && <Settings />}
       {ui.paletteOpen && !documents.pending && <ToolPalette />}
+      {studioOpen && !documents.pending && <Studio
+        onClose={() => setStudioOpen(false)}
+        onAttach={id => setAttachments(previous => [...new Set([...previous, id])])}
+        onDraft={text => {
+          setIdeaDrafts(previous => [...previous, { id: crypto.randomUUID(), text, generation: ui.documentGeneration }]);
+          setStudioOpen(false);
+          useUI.getState().set({ notice: "Brief added to chat. Review it before sending." });
+        }}
+      />}
       <SaveChangesDialog actions={documents} />
       {welcome &&
         ui.status === "ready" &&
