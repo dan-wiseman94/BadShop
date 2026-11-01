@@ -25,14 +25,13 @@ jobs:
       - run: uv sync --project core --locked
       - run: pnpm --dir app install --frozen-lockfile
       - run: pnpm --dir app test
-      - run: pnpm --dir app build
       - run: pnpm --dir app exec playwright install --with-deps chromium
-      - run: pnpm --dir app exec playwright test
+      - run: ./verify.sh browser
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: browser-test-results
-          path: app/test-results
+          path: artifacts/verification
   native:
     runs-on: ubuntu-24.04
     steps:

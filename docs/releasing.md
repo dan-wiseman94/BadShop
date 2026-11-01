@@ -14,9 +14,15 @@ On Linux the build needs GTK 3, WebKitGTK 4.1, OpenSSL, a C toolchain, the app i
 library, and the TBB runtime (`libtbb12` on Ubuntu). TBB satisfies the bundled numba
 plugin's ELF dependency; AppImage packaging checks even optional native plugins.
 
-Development startup is `pnpm --dir app tauri dev`; Rust starts `uv run --project
+Development startup is `./start.sh` on Linux/macOS, or
+`pnpm --dir app tauri dev --config src-tauri/tauri.source.conf.json` after dependency setup.
+The source config omits frozen release resources, which are not needed for development.
+Rust starts `uv run --project
 core badshop-core serve` and holds its stdin pipe open. Set BADSHOP_UV to an absolute uv
 path if a GUI launcher has a minimal PATH.
+
+See [development and testing](development.md) for `./verify.sh`, private Linux desktop
+tests, acceptance criteria, evidence, and worktree setup.
 
 ## Build and test
 

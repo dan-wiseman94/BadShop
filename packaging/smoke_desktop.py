@@ -1,4 +1,4 @@
-"""Native installed desktop smoke; on Linux use a dedicated X server.
+"""Native source or installed desktop smoke; on Linux use a dedicated X server.
 
 xvfb-run -a uv run --project core python packaging/smoke_desktop.py \
     --screenshot /tmp/badshop.png -- /path/to/installed/badshop-desktop
@@ -81,7 +81,22 @@ def core_connections(core: psutil.Process) -> tuple[list[int], int]:
             sum(c.status == 'ESTABLISHED' for c in sockets))
 
 
-def smoke(command: list[str], screenshot: Path | None) -> None:
+def is_core(process: psutil.Process) -> bool:
+    """Recognize the frozen core and the Python entry point, never the uv wrapper."""
+    try:
+        name = process.name().lower()
+        if name in ('badshop-core', 'badshop-core.exe'):
+            return True
+        args = process.cmdline()
+        return name.startswith('python') and 'serve' in args and (
+            any(Path(arg).name == 'badshop-core' for arg in args[1:])
+            or any(args[i:i + 2] == ['-m', 'badshop.server'] for i in range(1, len(args) - 1))
+        )
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+
+
+def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
         root = Path(folder)
         env = dict(os.environ)
@@ -92,7 +107,7 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
         for key, suffix in [('XDG_CONFIG_HOME', 'config'), ('XDG_DATA_HOME', 'data'),
                             ('XDG_CACHE_HOME', 'cache'), ('XDG_STATE_HOME', 'state'),
                             ('BADSHOP_CONFIG_DIR', 'core-config'), ('BADSHOP_DATA_DIR', 'core-data'),
-                            ('BADSHOP_LOG_DIR', 'logs')]:
+                            ('BADSHOP_LOG_DIR', 'logs'), ('BADSHOP_OUT', 'output')]:
             env[key] = str(root / suffix)
         env.pop('WAYLAND_DISPLAY', None)
         env.pop('BADSHOP_FAKE_PROVIDER', None)
@@ -101,12 +116,12 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
             proc = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
             children = []
             try:
-                deadline = time.monotonic() + 90
+                deadline = time.monotonic() + startup_timeout
                 while time.monotonic() < deadline:
                     if proc.poll() is not None:
                         raise RuntimeError(f'shell exited {proc.returncode}')
                     children = psutil.Process(proc.pid).children(recursive=True)
-                    cores = [p for p in children if p.name() in ('badshop-core', 'badshop-core.exe')]
+                    cores = [p for p in children if is_core(p)]
                     if cores:
                         core = cores[0]
                         ports, connected = core_connections(core)
@@ -123,7 +138,7 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
                             break
                     time.sleep(.2)
                 else:
-                    raise RuntimeError('No visible window with renderer/core connection after 90 seconds')
+                    raise RuntimeError(f'No visible window with renderer/core connection after {startup_timeout}s')
                 print(json.dumps({'shell_pid': proc.pid, 'core_pid': core.pid,
                                   'core_executable': core.exe(), 'listen_ports': ports,
                                   'established_connections': connected}), flush=True)
@@ -176,15 +191,22 @@ def smoke(command: list[str], screenshot: Path | None) -> None:
                     except psutil.NoSuchProcess:
                         pass
                 psutil.wait_procs(children, timeout=5)
+                if screenshot:
+                    screenshot.parent.mkdir(parents=True, exist_ok=True)
+                    screenshot.with_suffix('.log').write_text(log_path.read_text())
                 print(log_path.read_text()[-5000:])
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--screenshot', type=Path)
+    parser.add_argument('--startup-timeout', type=float, default=90,
+                        help='Seconds allowed for startup, including compilation for a source launcher')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     if not command:
         parser.error('provide the installed desktop command after --')
-    smoke(command, args.screenshot)
+    if args.startup_timeout <= 0:
+        parser.error('--startup-timeout must be positive')
+    smoke(command, args.screenshot, args.startup_timeout)
