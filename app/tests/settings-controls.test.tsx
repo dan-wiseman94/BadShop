@@ -39,7 +39,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 beforeEach(() => {
   queries.clear();
-  useUI.getState().set({ status: "starting", error: null, errorAction: null });
+  useUI.getState().set({ status: "ready", error: null, errorAction: null });
   queries.setQueryData(["session.get"], session);
   queries.setQueryData(["providers.list"], [profile]);
 });
@@ -47,10 +47,12 @@ afterEach(() => vi.restoreAllMocks());
 it("keeps shared manual download cancellation available across widget unmount and remount", async () => {
   let complete!: (value: unknown) => void;
   vi.spyOn(rpc, "request").mockImplementation(
-    () =>
-      new Promise((resolve) => {
-        complete = resolve;
-      }) as never,
+    (method) =>
+      (method === "assets.download"
+        ? new Promise((resolve) => {
+            complete = resolve;
+          })
+        : Promise.resolve(method === "session.get" ? session : [])) as never,
   );
   const pending = action("assets.download", { name: "rembg/u2net.onnx" });
   const asset = {
@@ -81,12 +83,19 @@ it("keeps shared manual download cancellation available across widget unmount an
   );
 });
 it("requires choosing an existing saved provider when the current session has none", async () => {
+  const chosen = { ...session, provider_profile_id: profile.id };
   const request = vi
     .spyOn(rpc, "request")
-    .mockResolvedValue({
-      ...session,
-      provider_profile_id: profile.id,
-    } as never);
+    .mockImplementation(
+      (method) =>
+        Promise.resolve(
+          method === "providers.list"
+            ? [profile]
+            : method === "session.get" || method === "providers.select"
+              ? chosen
+              : [],
+        ) as never,
+    );
   render(<Welcome onClose={() => {}} />, { wrapper });
   expect(screen.getByRole("button", { name: "Use Saved local" })).toBeVisible();
   expect(
@@ -105,9 +114,27 @@ it("requires choosing an existing saved provider when the current session has no
   );
 });
 it("keeps setup checks offline and only sends a paid-capable probe on explicit Test connection", async () => {
-  const request = vi
-    .spyOn(rpc, "request")
-    .mockResolvedValue({ status: "ready", probed: false } as never);
+  let probed = false;
+  const request = vi.spyOn(rpc, "request").mockImplementation(
+    (method) =>
+      Promise.resolve(
+        method === "providers.test"
+          ? { status: "ready", probed }
+          : method === "session.get"
+            ? session
+            : method === "providers.list"
+              ? [profile]
+              : method === "settings.get"
+                ? {
+                    approval_mode: "auto",
+                    auto_replay: true,
+                    step_budget: 40,
+                    tool_timeout_s: 90,
+                    tool_memory_mb: 3072,
+                  }
+                : [],
+      ) as never,
+  );
   render(<Settings />, { wrapper });
   expect(screen.getByText(/provider may charge/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Check setup" }));
@@ -119,7 +146,7 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
   await waitFor(() =>
     expect(screen.getByText(/No test request was sent/)).toBeVisible(),
   );
-  request.mockResolvedValue({ status: "ready", probed: true } as never);
+  probed = true;
   fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith("providers.test", {

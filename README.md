@@ -139,6 +139,12 @@ replies, asks before image-changing calls, and accepts `y` (approve), `n` (rejec
 completed work is autosaved. `/retry` retries a provider failure without repeating finished
 tools. Use `--approval-mode auto` to allow tools without prompts.
 
+For Ollama, configure enough context for the tool catalogue, images, and conversation.
+Its default 4,096-token window can reject even the first editing request. For example,
+start your Ollama server with `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`; longer sessions
+may need more context and memory. This also applies when using Ollama's OpenAI-compatible
+endpoint. See [Ollama's context configuration](https://docs.ollama.com/context-length).
+
 `--model` creates a saved profile; reuse its ID with `--profile ID`. The local API exposes:
 
 - `providers.list {}` and `providers.save {profile, api_key?}` (create or replace by ID).

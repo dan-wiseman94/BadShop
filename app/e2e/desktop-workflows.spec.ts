@@ -13,6 +13,61 @@ const connect = async (
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 };
 
+test("coordinate instructions keep the Fit image visible and pickable at the minimum window size", async ({
+  page,
+  core,
+}) => {
+  await page.setViewportSize({ width: 900, height: 600 });
+  const session = (await core.call("session.get")) as Session;
+  const image = Object.values(session.artifacts).find((artifact) =>
+    artifact.label.includes("work"),
+  )!;
+  await connect(page, core);
+  await page.getByRole("button", { name: "Run tool", exact: true }).click();
+  await page.getByLabel("Search tools").fill("cutout");
+  await page.getByRole("button", { name: /^cutout crop/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Run a tool" });
+  await dialog.getByRole("button", { name: "Pick on image" }).click();
+  await expect(page.locator(".pick-hint")).toBeVisible();
+  const surface = page.locator(".image-surface");
+  const stage = page.locator(".viewer-stage");
+  await expect
+    .poll(async () => {
+      const imageBounds = (await surface.boundingBox())!;
+      const bounds = (await stage.boundingBox())!;
+      return (
+        imageBounds.x >= bounds.x &&
+        imageBounds.y >= bounds.y &&
+        imageBounds.x + imageBounds.width <= bounds.x + bounds.width &&
+        imageBounds.y + imageBounds.height <= bounds.y + bounds.height
+      );
+    })
+    .toBe(true);
+  const bounds = (await surface.boundingBox())!;
+  await page.mouse.move(
+    bounds.x + bounds.width * 0.1,
+    bounds.y + bounds.height * 0.1,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    bounds.x + bounds.width * 0.9,
+    bounds.y + bounds.height * 0.9,
+  );
+  await page.mouse.up();
+  await expect(dialog).toBeVisible();
+  for (const [label, expected] of [
+    ["X1", image.width * 0.1],
+    ["Y1", image.height * 0.1],
+    ["X2", image.width * 0.9],
+    ["Y2", image.height * 0.9],
+  ] as const) {
+    const actual = Number(
+      await dialog.getByLabel(`Box ${label}`, { exact: true }).inputValue(),
+    );
+    expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1);
+  }
+});
+
 test("coordinate picking follows the chosen form image instead of the viewer selection", async ({
   page,
   core,

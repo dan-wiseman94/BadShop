@@ -331,20 +331,24 @@ export function Viewer({ onImport }: { onImport: () => void }) {
             {error && <p className="error-text">{error.message}</p>}
           </div>
         )}
-        {pick && (
-          <div className="pick-hint">
-            {pick.label && <strong>{pick.label}</strong>}
-            {pick.kind === "box"
-              ? "Drag a box on the image"
-              : pick.kind === "segment"
-                ? "Drag from the start to the end of the line"
-                : "Click a point on the image"}
-            <button onClick={() => useUI.getState().set({ pick: null })}>
-              Cancel
-            </button>
-          </div>
-        )}
       </div>
+      {pick && (
+        <div className="pick-hint" role="status">
+          <div>
+            {pick.label && <strong>{pick.label}</strong>}
+            <span>
+              {pick.kind === "box"
+                ? "Drag a box on the image"
+                : pick.kind === "segment"
+                  ? "Drag from the start to the end of the line"
+                  : "Click a point on the image"}
+            </span>
+          </div>
+          <button onClick={() => useUI.getState().set({ pick: null })}>
+            Cancel
+          </button>
+        </div>
+      )}
       <div className="viewer-foot">
         <span>
           {cursor

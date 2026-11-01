@@ -17,6 +17,32 @@ from badshop.providers.cli_provider import CLIProvider
 from badshop.providers.profiles import Profile
 
 
+@pytest.mark.skipif(not os.environ.get("BADSHOP_GEMINI_PACKAGE"), reason="isolated modern Gemini settings opt-in")
+def test_actual_gemini_accepts_private_settings_and_disables_hooks():
+    package = Path(os.environ["BADSHOP_GEMINI_PACKAGE"])
+    settings_module = next(p for p in (package / "bundle").glob("chunk-*.js")
+                           if "function loadSettings(workspaceDir" in p.read_text())
+    executable = package.parent.parent / ".bin/gemini"
+    provider = CLIProvider(Profile(kind="cli", cli="gemini", label="settings",
+                                   executable=str(executable)), "ws://127.0.0.1:1234", "test-secret")
+    try:
+        script = '''
+const {loadSettings}=await import(process.argv[1]);
+const settings=loadSettings(process.argv[2]);
+console.log(JSON.stringify({errors:settings.errors, hooksEnabled:settings.merged.hooksConfig?.enabled}));
+'''
+        result = subprocess.run(["node", "--input-type=module", "-e", script,
+                                 settings_module.as_uri(), str(provider.cwd)],
+                                cwd=provider.cwd, env=provider.env,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr[-3000:]
+        loaded = json.loads(result.stdout.strip().splitlines()[-1])
+        assert loaded["errors"] == [], loaded["errors"]
+        assert loaded["hooksEnabled"] is False
+    finally:
+        asyncio.run(provider.close())
+
+
 @pytest.mark.skipif(not os.environ.get("BADSHOP_GEMINI_PACKAGE"), reason="isolated modern Gemini policy opt-in")
 def test_actual_gemini_policy_allows_only_badshop_mcp(tmp_path):
     package = Path(os.environ["BADSHOP_GEMINI_PACKAGE"])

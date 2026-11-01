@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Form from "@rjsf/core";
 import { customizeValidator } from "@rjsf/validator-ajv8";
 import type {
@@ -139,6 +139,11 @@ export function ImagePicker({
         ))}
       </select>
       {selected && <Thumbnail artifact={selected} />}
+      {!!value && !selected && (
+        <p className="field-description" role="alert">
+          This image is no longer in the session. Choose an available image.
+        </p>
+      )}
       <button
         type="button"
         title="Open image file"
@@ -416,6 +421,7 @@ export function ToolForm({
   submitLabel?: string;
   disabled?: boolean;
 }) {
+  const formId = useId().replaceAll(":", "");
   const [formData, setFormData] = useState<Params>(() => cleanParams(initial));
   const baseline = useRef(cleanParams(initial));
   const initialSignature = JSON.stringify(cleanParams(initial));
@@ -471,6 +477,7 @@ export function ToolForm({
   };
   return (
     <Form
+      idPrefix={`tool-${formId}`}
       schema={schema}
       uiSchema={schemaUI(schema)}
       validator={validator}

@@ -63,7 +63,8 @@ def _safe_error(exc: Exception) -> str:
     if kind in ("APIConnectionError", "ServiceUnavailableError"):
         return "can't reach the model provider; check its endpoint and your connection"
     if kind in ("BadRequestError", "UnsupportedParamsError") or status == 400:
-        return "the provider refused the request; check the model's image and tool support"
+        return ("the provider refused the request; check the model's image and tool support "
+                "and its configured context limit")
     return "the model request failed; check the provider settings and try again"
 
 

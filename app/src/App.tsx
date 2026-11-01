@@ -119,6 +119,13 @@ export default function App() {
     setAttachments([]);
   }, [ui.documentGeneration]);
   useEffect(() => {
+    if (!session) return;
+    setAttachments((previous) => {
+      const valid = previous.filter((id) => session.artifacts[id]);
+      return valid.length === previous.length ? previous : valid;
+    });
+  }, [session?.artifacts]);
+  useEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
     const apply = () =>
       (document.documentElement.dataset.theme =
@@ -525,7 +532,7 @@ export default function App() {
           <button onClick={() => setRestoreDismissed(true)}>Dismiss</button>
         </div>
       )}
-      {disconnected ? (
+      {disconnected && (
         <main className="core-error">
           <AlertTriangle size={40} />
           <h1>
@@ -556,42 +563,44 @@ export default function App() {
             </button>
           </div>
         </main>
-      ) : (
-        <main
-          className="workbench"
-          ref={workbench}
-          style={{
-            gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr) 6px ${widths.right}px`,
-          }}
-        >
-          <Chat
-            key={`chat-${ui.documentGeneration}`}
-            attachments={attachments}
-            onAttachments={setAttachments}
-            onImport={importImages}
-            onPaste={paste}
-          />
-          <Resizer
-            side="left"
-            value={widths.left}
-            maximum={contentWidth - widths.right - 262}
-            onResize={(delta) => resize("left", delta)}
-            onReset={reset}
-          />
-          <Viewer
-            key={`viewer-${ui.documentGeneration}`}
-            onImport={importImages}
-          />
-          <Resizer
-            side="right"
-            value={widths.right}
-            maximum={contentWidth - widths.left - 262}
-            onResize={(delta) => resize("right", delta)}
-            onReset={reset}
-          />
-          <Timeline key={`timeline-${ui.documentGeneration}`} />
-        </main>
       )}
+      <main
+        className="workbench"
+        hidden={disconnected}
+        inert={ui.status !== "ready"}
+        ref={workbench}
+        style={{
+          display: disconnected ? "none" : undefined,
+          gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr) 6px ${widths.right}px`,
+        }}
+      >
+        <Chat
+          key={`chat-${ui.documentGeneration}`}
+          attachments={attachments}
+          onAttachments={setAttachments}
+          onImport={importImages}
+          onPaste={paste}
+        />
+        <Resizer
+          side="left"
+          value={widths.left}
+          maximum={contentWidth - widths.right - 262}
+          onResize={(delta) => resize("left", delta)}
+          onReset={reset}
+        />
+        <Viewer
+          key={`viewer-${ui.documentGeneration}`}
+          onImport={importImages}
+        />
+        <Resizer
+          side="right"
+          value={widths.right}
+          maximum={contentWidth - widths.left - 262}
+          onResize={(delta) => resize("right", delta)}
+          onReset={reset}
+        />
+        <Timeline key={`timeline-${ui.documentGeneration}`} />
+      </main>
       <footer className="app-footer">
         <span className="footer-brand">Bad is the deliverable.</span>
         <span>

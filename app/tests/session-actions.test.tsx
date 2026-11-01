@@ -238,3 +238,39 @@ it("refuses switching during a running turn before any replacement action", asyn
   );
   expect(mocks.action).not.toHaveBeenCalled();
 });
+
+it("does not read or publish the restarted core's startup document before recovery finishes", async () => {
+  useUI.getState().set({ status: "connecting" });
+  const { result } = renderHook(useSessionActions);
+  await expect(result.current.save()).rejects.toThrow(
+    "Wait for the core to reconnect",
+  );
+  await expect(
+    result.current.request({ kind: "open", path: "/projects/two.badshop" }),
+  ).rejects.toThrow("Wait for the core to reconnect");
+  expect(mocks.request).not.toHaveBeenCalled();
+  expect(mocks.setQueryData).not.toHaveBeenCalled();
+  expect(mocks.action).not.toHaveBeenCalled();
+});
+
+it("preserves a disconnected cached document on close Cancel and exits only after explicit Discard", async () => {
+  useUI.getState().set({ status: "disconnected" });
+  const { result } = renderHook(useSessionActions);
+  let canceled!: Promise<boolean>;
+  act(() => {
+    canceled = close();
+  });
+  await waitFor(() => expect(result.current.pending).not.toBeNull());
+  act(() => result.current.cancel());
+  await expect(canceled).resolves.toBe(false);
+  expect(cachedSession).toEqual(session);
+  let discarded!: Promise<boolean>;
+  act(() => {
+    discarded = close();
+  });
+  await waitFor(() => expect(result.current.pending).not.toBeNull());
+  await act(() => result.current.decide("discard"));
+  await expect(discarded).resolves.toBe(true);
+  expect(mocks.request).not.toHaveBeenCalled();
+  expect(mocks.action).not.toHaveBeenCalled();
+});

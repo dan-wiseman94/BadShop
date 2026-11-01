@@ -145,6 +145,27 @@ def test_font_schema_and_actor_restrictions(monkeypatch):
     assert runner.validate("text", {**raw, "font": "Example.ttf"}, "cli:claude").font == "Example.ttf"
 
 
+def test_large_font_catalog_does_not_overwhelm_model_requests(monkeypatch):
+    import jsonschema
+
+    from badshop.tools import fonts
+
+    names = [f"Installed-Family-{i:04d}-Regular.ttf" for i in range(4000)]
+    monkeypatch.setattr(fonts, "font_names", lambda: names)
+    schema = registry.llm_schema(REGISTRY["text"])
+    # The font hint stays small even on desktops with thousands of installed fonts.
+    assert len(json.dumps(schema["properties"]["font"])) < 2000
+    raw = {"image": "abcd1234", "text": "hello", "font": names[-1]}
+    jsonschema.Draft202012Validator(schema).validate(raw)
+    assert runner.validate("text", raw, "agent:local").font == names[-1]
+    for invalid in ("/tmp/private.ttf", "C:\\private.ttf", "Invented.ttf"):
+        with pytest.raises(EngineError, match="discovered font"):
+            runner.validate("text", {**raw, "font": invalid}, "agent:local")
+    for path in ("/tmp/private.ttf", "C:\\private.ttf"):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.Draft202012Validator(schema).validate({**raw, "font": path})
+
+
 def test_failed_profile_write_preserves_previous_key(env, monkeypatch):
     keychain = Keychain()
     monkeypatch.setattr(profiles, "_keyring", lambda: keychain)
