@@ -59,7 +59,7 @@ def test_registry_is_complete_and_described():
     engine_tools = {"prep", "fetch", "wiki", "emoji", "template", "find", "cutout", "paste", "text", "draw",
                     "censor", "eyes", "warp", "flare", "sparkle", "watermark", "filter", "save", "deepfry",
                     "animate", "info"}
-    assert set(REGISTRY) == engine_tools | {"view", "export"}
+    assert set(REGISTRY) == engine_tools | {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"}
     for spec in REGISTRY.values():
         assert len(spec.description) >= 40, spec.name
 
@@ -80,7 +80,11 @@ def test_every_schema_is_valid_json_schema(name):
 # (mutates, network, read_only, writes_files): the approval gate (spec 7), the recipe log and the
 # session's in-process export rely on these.
 FLAGS = {
-    **{n: (True, True, False, False) for n in ("fetch", "wiki", "emoji", "template")},
+    "layout": (True, False, False, False),
+    "pair_images": (True, False, False, False),
+    "slice_sheet": (True, False, False, False),
+    "discover": (True, True, False, False),
+    **{n: (True, True, False, False) for n in ("fetch", "wiki", "emoji", "template", "acquire")},
     **{n: (False, False, True, False) for n in ("info", "view", "find")},
     "export": (False, False, False, True),
     **{n: (True, False, False, False) for n in ("prep", "text", "cutout", "paste", "draw", "censor", "eyes",
@@ -95,7 +99,10 @@ def test_tool_flags_are_pinned():
 
 # The fields sessions resolve as images (and whether they hold a list); Plan 2 remaps them on replay.
 IMAGE_FIELDS = {
-    **{n: {} for n in ("fetch", "wiki", "emoji", "template")},
+    "layout": {"images": True}, "pair_images": {"donors": True, "backgrounds": True},
+    "slice_sheet": {"image": False},
+    "discover": {"similar_to": False},
+    **{n: {} for n in ("fetch", "wiki", "emoji", "template", "acquire")},
     "paste": {"base": False, "piece": False}, "animate": {"images": True},
     **{n: {"image": False} for n in ("info", "prep", "view", "find", "text", "cutout", "draw", "censor", "eyes",
                                      "filter", "warp", "flare", "sparkle", "watermark", "save", "deepfry", "export")},
@@ -104,7 +111,11 @@ IMAGE_FIELDS = {
 IMAGE, POINT, BOX, SPOT, COLOR, SEED = "badshop-image", "badshop-point", "badshop-box", "badshop-spot", "color", "badshop-seed"
 # Every field's schema format: the UI picks its widget by it (spec 5.2), a model reads it as a type.
 FORMATS = {
-    **{n: {} for n in ("fetch", "wiki", "emoji", "template")},
+    "layout": {"images": IMAGE, "slots": BOX, "background": COLOR, "accent": COLOR},
+    "pair_images": {"donors": IMAGE, "backgrounds": IMAGE, "target_box": BOX},
+    "slice_sheet": {"image": IMAGE},
+    "discover": {"similar_to": IMAGE},
+    **{n: {} for n in ("fetch", "wiki", "emoji", "template", "acquire")},
     **{n: {"image": IMAGE} for n in ("info", "prep", "view", "find", "filter", "watermark", "save", "export")},
     "censor": {"image": IMAGE, "box": BOX},
     "text": {"image": IMAGE, "at": POINT, "color": COLOR},
@@ -250,6 +261,6 @@ def test_every_flag_skill_documents_is_exercised():
         argv = shlex.split(line)
         used.setdefault(argv[0], set()).update(a for a in argv[1:] if re.fullmatch(r"--?[a-z][a-z0-9-]*", a))
     rows = _skill_rows()
-    assert set(rows) == set(REGISTRY) - {"view", "export"}  # the reference's 21 tools, one row each
+    assert set(rows) == set(REGISTRY) - {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"}  # the reference's 21 tools, one row each
     for command, flags in rows.items():
         assert flags <= used.get(command, set()), f"{command}: {flags - used.get(command, set())}"

@@ -826,6 +826,259 @@
      ]
     }
    }
+  },
+  "layout-card": {
+   "lines": [
+    "Trading card: 1 images in 1 editable slots"
+   ],
+   "data": {
+    "layout": {
+     "id": "trading-card",
+     "name": "Trading card",
+     "width": 600,
+     "height": 840,
+     "background": "#f8db58",
+     "accent": "#37214d",
+     "slots": [
+      {
+       "name": "Character",
+       "box": [
+        35,
+        115,
+        565,
+        610
+       ],
+       "caption_box": [
+        45,
+        640,
+        555,
+        790
+       ],
+       "mask": "rectangle"
+      }
+     ]
+    }
+   },
+   "files": {
+    "work/trading-card.png": {
+     "format": "PNG",
+     "size": [
+      600,
+      840
+     ],
+     "sha256": "db0235f3074e9591324667dfc240ac5b9cab81db7d13a4a6c47488327dd57c09",
+     "frames": [
+      "82654aff44106021a4ecde0169c838f8cc9700fd7c52996484a1eddedac9e362"
+     ]
+    }
+   }
+  },
+  "layout-sparse-comic": {
+   "lines": [
+    "Two-panel conversation: 1 images in 2 editable slots"
+   ],
+   "data": {
+    "layout": {
+     "id": "comic",
+     "name": "Two-panel conversation",
+     "width": 1000,
+     "height": 650,
+     "background": "#ffffff",
+     "accent": "#111111",
+     "slots": [
+      {
+       "name": "Image 1",
+       "box": [
+        30,
+        120,
+        470,
+        480
+       ],
+       "caption_box": [
+        24,
+        511,
+        492,
+        626
+       ],
+       "mask": "rectangle"
+      },
+      {
+       "name": "Image 2",
+       "box": [
+        520,
+        120,
+        960,
+        480
+       ],
+       "caption_box": [
+        508,
+        511,
+        976,
+        626
+       ],
+       "mask": "rectangle"
+      }
+     ]
+    }
+   },
+   "files": {
+    "work/comic.png": {
+     "format": "PNG",
+     "size": [
+      1000,
+      650
+     ],
+     "sha256": "fda5356aae6b689bf24a0dc0d807c530e10942aef72384afd4292a522f90c652",
+     "frames": [
+      "4467b32cf6ea9e24ca0a3b834de95af00e0ab77d71af16eb6a1a65880049aaf0"
+     ]
+    }
+   }
+  },
+  "pair-images-head": {
+   "lines": [
+    "Pairs ranked by framing, size, available space and detected faces.",
+    "Inspect the sheet for pose, expression and meaning; these scores do not understand the joke.",
+    "Previews paste the complete donor. Cut out the subject first if needed, then reuse fit_box."
+   ],
+   "data": {
+    "pairs": [
+     {
+      "number": 1,
+      "donor": "lincoln.png",
+      "background": "trump.png",
+      "score": 4.658,
+      "reasons": [
+       "aspect mismatch 0.19",
+       "donor scale 0.52x",
+       "low-detail placement region",
+       "donor face occupies 14% of frame",
+       "target uses largest detected face"
+      ],
+      "paste_params": {
+       "base": "trump.png",
+       "piece": "lincoln.png",
+       "fit_box": [
+        126,
+        91,
+        362,
+        346
+       ]
+      }
+     },
+     {
+      "number": 2,
+      "donor": "emoji_joy.png",
+      "background": "trump.png",
+      "score": 3.076,
+      "reasons": [
+       "aspect mismatch 0.08",
+       "donor scale 3.54x",
+       "low-detail placement region",
+       "target uses largest detected face"
+      ],
+      "paste_params": {
+       "base": "trump.png",
+       "piece": "emoji_joy.png",
+       "fit_box": [
+        126,
+        91,
+        362,
+        346
+       ]
+      }
+     }
+    ],
+    "sources": [
+     null
+    ],
+    "warnings": []
+   },
+   "files": {
+    "work/pair_candidates.png": {
+     "format": "PNG",
+     "size": [
+      640,
+      350
+     ],
+     "sha256": "230554c513e0428c512e5cd24fa8f0d53c6ee3f129e5919cd40c29358d1498a1",
+     "frames": [
+      "b0a7c98df27479002ef378cd60d863797b8c384cab8c3f628e76225bc428363d"
+     ]
+    }
+   }
+  },
+  "slice-sheet-sparse": {
+   "lines": [
+    "Extracted 2 cells from a 2 × 3 grid (zero-based indices)"
+   ],
+   "data": {
+    "source_image": "lincoln.png",
+    "rows": 2,
+    "columns": 3,
+    "margins": [
+     1,
+     2,
+     3,
+     4
+    ],
+    "gap": [
+     2,
+     3
+    ],
+    "cells": [
+     {
+      "index": 0,
+      "row": 0,
+      "column": 0,
+      "box": [
+       1,
+       2,
+       151,
+       298
+      ],
+      "width": 150,
+      "height": 296
+     },
+     {
+      "index": 4,
+      "row": 1,
+      "column": 1,
+      "box": [
+       153,
+       301,
+       303,
+       596
+      ],
+      "width": 150,
+      "height": 295
+     }
+    ]
+   },
+   "files": {
+    "work/lincoln_cell_0_r0_c0.png": {
+     "format": "PNG",
+     "size": [
+      150,
+      296
+     ],
+     "sha256": "c8732b2f09a941be724e94fc8811aaa25596560ef6ec4f512831fd32dbdb2f1e",
+     "frames": [
+      "836bd34600a4d3d23852630479289ebb4c58ae85af4803f8b8a2143f87d207c1"
+     ]
+    },
+    "work/lincoln_cell_4_r1_c1.png": {
+     "format": "PNG",
+     "size": [
+      150,
+      295
+     ],
+     "sha256": "a173f71763043ffcc600d9231d441d3473391185c06da9fa5e409206016220d5",
+     "frames": [
+      "c7c43de148d0fee60163cfd35e73b56bc6a28b02514ea82e67053ef3faf9aa8a"
+     ]
+    }
+   }
   }
  }
 }

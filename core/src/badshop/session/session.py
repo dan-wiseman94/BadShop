@@ -208,6 +208,9 @@ class Session:
         The agent hears about it in its next system note even when no message carries it (spec 5.3);
         the same picture added twice before then is one line."""
         working, _original = self.artifacts.import_image(data, label, source)
+        if self.data.active_branch_id:
+            branch = self.data.branches[self.data.active_branch_id]
+            branch.artifact_ids = list(dict.fromkeys([*branch.artifact_ids, working.id, _original.id]))
         note = f"the user added image {self._named(working.id)}"
         if note not in self.changes:
             self.changes.append(note)
@@ -586,6 +589,20 @@ class Session:
                 todo.extend(item)
         return found
 
+    def visible_artifact_ids(self) -> set[str]:
+        """Images belonging to the active direction; other directions still share the byte store."""
+        if self.data.active_branch_id is None:
+            return set(self.artifacts.ids())
+        branch = self.data.branches[self.data.active_branch_id]
+        ids = set(branch.artifact_ids)
+        for step in self.data.steps:
+            ids.update(_image_refs(step), step.outputs, step.previous_outputs)
+        for message in self.data.messages:
+            ids.update(p.artifact_id for p in message.content if p.type == "image" and p.artifact_id)
+        ids.update(self.artifacts.meta[aid].original_id for aid in list(ids)
+                   if aid in self.artifacts.meta and self.artifacts.meta[aid].original_id)
+        return ids & set(self.artifacts.ids())
+
     def referenced_ids(self) -> set[str]:
         """The artifacts the session still points at, which project save (Task 9) keeps: every image the
         user imported, used or not; every step's inputs and outputs (and a stopped replay's
@@ -613,6 +630,8 @@ class Session:
             by_short.setdefault(short(i), []).append(i)
         for found in self._mentioned([self.data.transcript, texts], set(by_short)):
             ids.update(by_short[found])
+        for branch in self.data.branches.values():
+            ids.update(branch.artifact_ids)
         originals = [meta[i].original_id for i in ids if i in meta]
         ids.update(o for o in originals if o)
         return ids

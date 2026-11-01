@@ -33,6 +33,12 @@ TRUMP = FIXTURES / "trump.png"
 HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
 NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
+    "sources.status",
+    "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",
+    "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
+    "collections.update", "collections.import", "collections.remove",
+    "library.list", "library.save", "library.update", "library.import", "library.remove", "library.thumbnail",
+    "branches.list", "branches.create", "branches.switch", "branches.rename", "branches.remove",
     "providers.list", "providers.save", "providers.add", "providers.select", "providers.delete", "providers.test",
     "chat.retry",
     "providers.detect", "diagnostics.get",
@@ -362,7 +368,7 @@ def test_import_run_get_and_events(env, monkeypatch):
 
         snap = await c.call("session.get")
         assert [s["status"] for s in snap["steps"]] == ["done", "error"]
-        assert snap["schema"] == 1 and snap["id"] == app.session.data.id and snap["path"] is None
+        assert snap["schema"] == 2 and snap["id"] == app.session.data.id and snap["path"] is None
         assert snap["turn_running"] is False and snap["pending_approvals"] == []
 
     run(body)
@@ -1166,3 +1172,22 @@ def test_close_stops_a_waiting_turn(env):
         assert project.find_autosave() is not None
 
     asyncio.run(main())
+
+
+def test_collection_status_is_user_only_and_reports_configuration_without_secret_values(env, monkeypatch):
+    monkeypatch.setenv("BADSHOP_BHL_API_KEY", "private-test-credential")
+
+    async def body(app):
+        user = Client(app)
+        statuses = await user.call("sources.status")
+        by_id = {item["id"]: item for item in statuses}
+        assert by_id["cleveland"]["configured"] and not by_id["cleveland"]["requires_key"]
+        assert by_id["wellcome"]["configured"] and not by_id["wellcome"]["requires_key"]
+        assert by_id["bhl"]["configured"]
+        assert by_id["bhl"]["env_var"] == "BADSHOP_BHL_API_KEY"
+        assert "private-test-credential" not in json.dumps(statuses)
+        with pytest.raises(Failed) as error:
+            await Client(app, "cli:claude").call("sources.status")
+        assert error.value.code == rpc.FORBIDDEN
+
+    run(body)

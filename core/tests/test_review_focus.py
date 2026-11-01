@@ -1,12 +1,15 @@
 """Review Focus 1 and 2 across every tool: odd image modes and phone photos, and coordinates off the image
 or inverted. Each call succeeds or fails with a clean EngineError, never another exception."""
 
+import shutil
+
 import pytest
 from PIL import Image
 
 from badshop.cli.filestore import FileStore
 from badshop.engine.errors import EngineError
 from badshop.tools import REGISTRY
+from badshop.tools.registry import image_fields
 from badshop.tools.runner import run_tool
 
 W, H = 120, 90  # the upright size of every odd input
@@ -57,6 +60,11 @@ STEPS = [
     ("watermark", {"names": ["hypercam", "bandicam", "ifunny", "mematic"], "text": "made in badshop"}),
     ("save", {}), ("save", {"gif": True}), ("save", {"lowres": 0.3}), ("deepfry", {"level": 2}),
     ("animate", {"images": ["{}", "{}"]}), ("animate", {"images": ["{}"], "effect": "zoom", "frames": 3, "hold": 1}),
+    ("layout", {"template": "trading-card", "images": ["{}"], "title": "Odd portrait", "fit": "cover"}),
+    ("layout", {"template": "comic", "images": ["{}"], "image_slots": [1], "captions": ["Before", "After"]}),
+    ("pair_images", {"donors": ["{}"], "backgrounds": ["{other}"], "role": "subject"}),
+    ("pair_images", {"donors": ["{}"], "backgrounds": ["{other}"], "role": "head"}),
+    ("slice_sheet", {"rows": 2, "columns": 3, "margins": [1, 2, 3, 4], "gap": [2, 3], "cells": [0, 4]}),
     ("export", {}),
 ]
 
@@ -65,11 +73,13 @@ def test_steps_cover_every_local_tool():
     assert {tool for tool, _ in STEPS} == {n for n, spec in REGISTRY.items() if not spec.network}
 
 
-def _params(tool: str, params: dict, image: str) -> dict:
-    filled = {k: ([image if v == "{}" else v for v in val] if isinstance(val, list) and "{}" in val
-                  else image if val == "{}" else val) for k, val in params.items()}
-    if tool not in ("paste", "animate"):
-        filled["image"] = image
+def _params(tool: str, params: dict, image: str, other: str) -> dict:
+    filled = dict(params)
+    for name, many in image_fields(REGISTRY[tool].params).items():
+        default = other if name == "backgrounds" else image
+        value = filled.get(name, [default] if many else default)
+        replace = lambda v: image if v == "{}" else other if v == "{other}" else v  # noqa: E731
+        filled[name] = [replace(v) for v in value] if many else replace(value)
     return filled
 
 
@@ -99,7 +109,9 @@ def store(tmp_path):
 def test_every_tool_takes_odd_modes_and_phone_photos(tmp_path, store, tool, params, kind):
     # Review Focus 1: every tool treats these as the upright RGB(A) picture; none fails on them.
     image = _odd(kind, tmp_path)
-    run = run_tool(tool, _params(tool, params, image), store)
+    other = str(tmp_path / f"other-{kind}")
+    shutil.copyfile(image, other)
+    run = run_tool(tool, _params(tool, params, image, other), store)
     if tool == "info":
         assert run.result.data == {"width": W, "height": H}  # upright, whatever the stored orientation
 
@@ -137,6 +149,15 @@ PLACES = [
     ("sparkle", {"at": [[-FAR, FAR]]}), ("sparkle", {"repeat": 4, "region": [100, 80, 5, 5]}),
     ("sparkle", {"repeat": 4, "region": [500, 500, 600, 600]}),
     ("animate", {"effect": "zoom", "at": [FAR, FAR]}), ("animate", {"effect": "zoom", "at": [-FAR, 0], "amount": 1}),
+    ("layout", {"slots": [[100, 80, 5, 5]]}), ("layout", {"slots": [[-FAR, 0, FAR, FAR]]}),
+    ("layout", {"slots": [[10, 10, 10, 10]]}), ("layout", {"slots": [[5000, 5000, 6000, 6000]]}),
+    ("pair_images", {"target_box": [100, 80, 5, 5]}),
+    ("pair_images", {"target_box": [-FAR, -FAR, FAR, FAR]}),
+    ("pair_images", {"target_box": [10, 10, 10, 10]}),
+    ("pair_images", {"target_box": [5000, 5000, 6000, 6000]}),
+    ("slice_sheet", {"margins": [FAR, 0, 0, 0]}),
+    ("slice_sheet", {"rows": 2, "columns": 2, "gap": [FAR, FAR]}),
+    ("slice_sheet", {"margins": [-1, 0, 0, 0]}),
 ]
 
 
@@ -144,9 +165,9 @@ PLACES = [
 def test_coordinates_off_the_image_or_inverted(tmp_path, store, tool, params):
     image = str(tmp_path / "pic.png")
     _picture().save(image)
-    params = {**params, **({"images": [image]} if tool == "animate" else {"image": image})}
-    if tool == "paste":
-        params = {"base": params.pop("image"), "piece": image, **params}
+    other = str(tmp_path / "other.png")
+    shutil.copyfile(image, other)
+    params = _params(tool, params, image, other)
     try:
         run_tool(tool, params, store)
     except EngineError as e:

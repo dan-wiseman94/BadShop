@@ -27,6 +27,11 @@ from conftest import FIXTURES
 # Every field of every tool set away from its default, with the awkward values a model or user may give:
 # negative numbers, exponent floats, words that start with "-", new lines and non-ASCII text.
 RICH = {
+    "layout": {"template": "comic", "images": ["a.png"], "image_slots": [1], "title": "A story", "captions": ["one", "two"], "slots": [[30, 120, 470, 480], [520, 120, 960, 480]], "fit": "stretch", "background": "red", "accent": "blue"},
+    "pair_images": {"donors": ["a.png"], "backgrounds": ["b.png"], "role": "head", "side": "left", "target_box": [10, 20, 100, 140], "n": 2},
+    "slice_sheet": {"image": "a.png", "rows": 2, "columns": 3, "margins": [1, 2, 3, 4], "gap": [2, 3], "cells": [0, 4]},
+    "discover": {"query": "Lincoln", "source": "commons", "n": 4, "purpose": "head", "pose": "facing left", "expression": "smiling", "same_subject": True, "similar_to": "a.png", "reference_url": "https://example.org/thumb", "variation": "different", "exclude_urls": ["https://example.org/old"]},
+    "acquire": {"url": "https://example.org/image", "source_kind": "commons", "page": "https://example.org/page", "title": "Portrait", "license": "CC0", "creator": "Painter"},
     "fetch": {"query": "-dog sitting", "source": "openverse", "n": 3, "clipboard": True},
     "wiki": {"title": "Abraham Lincoln", "n": 2, "lang": "de"},
     "emoji": {"emoji": ["😂", "skull", "1f480"], "size": 144},
@@ -203,7 +208,7 @@ def test_save_then_open_restores_the_session_exactly(tmp_path):
         payload = json.loads(zf.read("session.json"))
         recipe = json.loads(zf.read("recipe.json"))
     assert names == {"session.json", "recipe.json"} | {art(s, aid) for aid in keep}
-    assert payload["schema"] == 1 and "schema_" not in payload and set(payload["artifacts"]) == keep
+    assert payload["schema"] == 2 and "schema_" not in payload and set(payload["artifacts"]) == keep
     assert recipe == project.export_recipe(s)
 
     reopened = project.open_project(path, output_dir=tmp_path / "exports")
@@ -464,7 +469,7 @@ BAD = {  # case -> (make the file from the good one, what the error says)
     "lzma members": (recompressed(zipfile.ZIP_LZMA), "compressed in a way badshop never writes"),
     "no session.json": (edited(lambda m, p: m.update({"session.json": None})), "no session.json"),
     "session.json isn't json": (edited(lambda m, p: m.update({"session.json": b"{not json"})), "isn't JSON"),
-    "newer schema": (edited(lambda m, p: p.update(schema=2)), "newer badshop"),
+    "newer schema": (edited(lambda m, p: p.update(schema=3)), "newer badshop"),
     "no schema": (edited(lambda m, p: p.pop("schema")), "no schema number"),
     "not a session": (edited(lambda m, p: p.update(steps="lots")), "isn't a badshop session"),
     "unknown tool": (edited(lambda m, p: p["steps"][0].update(tool="nope")), "doesn't have"),

@@ -1,8 +1,30 @@
 """Every tool, registered once, with the description an LLM sees."""
 
-from badshop.engine import annotate, basic, compose, cutout, faces, filters, finish, garnish, sources, text
+from badshop.engine import annotate, basic, compose, cutout, discovery, faces, filters, finish, garnish, sources, text
 from badshop.engine.result import EngineResult
 from badshop.tools.registry import ToolSpec, register
+
+register(ToolSpec(
+    name="discover", params=discovery.DiscoverParams, category="sources", network=True,
+    run=lambda p, s: discovery.discover(p, s.load(p.similar_to) if p.similar_to else None),
+    summary="find diverse image previews for a composition before importing a choice",
+    description=("Search Commons, Openverse, Library of Congress, the Met, NASA and optional Flickr/web "
+                 "sources. Specify purpose, pose and expression. same_subject searches a named subject's "
+                 "Commons collection. Returns one numbered contact sheet and candidates metadata; the "
+                 "individual images are NOT artifacts yet. Inspect the sheet and use acquire with the "
+                 "chosen candidate URL and source metadata. similar_to plus variation finds visually "
+                 "similar or different material; exclude_urls avoids previous choices. Ranking is "
+                 "heuristic: visually verify identity, angle, expression and room for the joke."),
+))
+
+register(ToolSpec(
+    name="acquire", params=discovery.AcquireParams, category="sources", network=True,
+    run=lambda p, s: discovery.acquire(p),
+    summary="import a selected discovery image while retaining its source and credit",
+    description=("Import one chosen image URL from discover or a browser selection. Copy its source "
+                 "kind, page, title, license and creator exactly; never invent attribution. The returned "
+                 "image artifact can be cut or composed. Discovery thumbnails are only previews."),
+))
 
 register(ToolSpec(
     name="fetch", params=sources.FetchParams, category="sources", network=True,

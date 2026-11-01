@@ -172,3 +172,40 @@ that is already running. Treat the local connection token as a secret.
 For Claude Code's standalone image-editing workflow, install `core` as a tool and copy
 [`skills/badshop`](skills/badshop) into your skills directory. It calls the packaged `badshop`
 CLI; `reference/` remains the original parity fixture.
+
+## Better material, more directions
+
+**Images & directions** adds preview-first image discovery, purpose/pose/expression hints,
+same-subject Commons searches, near-duplicate filtering, and additional museum and archive sources.
+Import only the candidates you want. Keep recurring heads, props, and backgrounds in the persistent
+**Junk drawer**, and save alternate editable timelines as **Branches** inside a project.
+
+The chat composer offers six composition styles and **Three takes**. The art director inspects
+recognizability, caption fit, and joke readability while retaining badshop's rough cut-and-paste style.
+See [image discovery and reusable assets](docs/image-discovery.md), the optional
+[browser helper](browser-extension/README.md), and [creative evaluation](docs/creative-evaluation.md).
+
+The next material tools are also available in **Images & directions**:
+
+- **Layouts & packs**: sixteen deterministic layouts with editable slots, plus eight original period
+  decoration packs and portable `.badpack` import/export.
+- **Clips, pages & folders**: select video/GIF frames, crop PDF/scanned-page regions, and search
+  explicitly indexed local image folders. Video uses installed FFmpeg; PDFs use installed Poppler.
+- **Image pairs**: compare subject/background combinations and compose a chosen pair as an editable
+  paste step.
+- **Sprite sheets**: extract selected cells from regular image grids, preserving transparent padding
+  and editable row, column, margin, and gap settings.
+- **Idea mixer**: mix joke, setting, era, and format into six briefs; lock favorite choices and add a
+  selected brief to your chat draft, or prepare a source search.
+- **Recent choices**: inspect local visual history; the chat's **Novelty** selector can change format,
+  setting, era, or avoid recent sources without replacing explicitly supplied subjects.
+
+Smithsonian, Biodiversity Heritage Library, and Europeana adapters extend discovery when their keys
+are configured. See [layouts and packs](docs/layouts-and-packs.md),
+[local media](docs/local-media.md), [collections and pairing](docs/collections-and-pairing.md),
+and [novelty controls](docs/novelty.md).
+
+Cleveland Museum of Art and Wellcome Collection work without API keys. **Collection availability**
+shows which sources are configured and the environment variable needed for others. See
+[open collections](docs/open-collections.md), [sprite sheets](docs/sprite-sheets.md), and
+[idea mixer](docs/idea-mixer.md).

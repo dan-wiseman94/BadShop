@@ -36,7 +36,9 @@ from badshop.engine.errors import EngineError
 from badshop.server import rpc
 from badshop.server.rpc import INVALID_PARAMS, Dispatcher, RpcError
 from badshop.server.settings import ApprovalMode, Settings, load_settings, save_settings
-from badshop.session import project
+from badshop.session import branches, project
+from badshop.session.library import AssetDetails, AssetLibrary
+from badshop.session.novelty import NoveltyMemory, NoveltyMode
 from badshop.session.execution import Executor
 from badshop.session.models import Step
 from badshop.session.session import RUNNABLE, Session
@@ -192,6 +194,12 @@ class CoreApp:
         assets.CANCEL = self._download_cancelled
         self.dispatcher = Dispatcher()
         self._register()
+        self.library = AssetLibrary()
+        self.novelty = NoveltyMemory()
+        from badshop.server.media_api import register as register_media
+        register_media(self)
+        from badshop.server.packs_api import register as register_packs
+        register_packs(self)
 
     # --- plumbing -------------------------------------------------------------------------------
 
@@ -258,6 +266,11 @@ class CoreApp:
             project.autosave(self.session)
         except (EngineError, OSError) as e:
             self._log("warning", f"autosave failed: {getattr(e, 'message', e)}")
+        if hasattr(self, "novelty"):
+            try:
+                self.novelty.remember(self.session)
+            except (EngineError, OSError):
+                log.warning("creative history could not be updated")
 
     async def _blocking(self, fn: Callable[..., Any], *args: Any, **kw: Any) -> Any:
         """Run a session call in a thread, one at a time, then autosave if anything changed. This is
@@ -340,7 +353,10 @@ class CoreApp:
 
     def _snapshot(self) -> dict:
         """The session as saved (SessionData by alias) plus what the app knows about it."""
+        visible = self.session.visible_artifact_ids()
         return {**self.session.data.model_dump(mode="json", by_alias=True),
+                "artifacts": {aid: meta.model_dump(mode="json") for aid, meta in self.session.artifacts.meta.items()
+                              if aid in visible},
                 "path": str(self.path) if self.path else None,
                 "document_revision": self._document_revision,
                 "unsaved_changes": self._document_revision != self._saved_revision,
@@ -523,6 +539,20 @@ class CoreApp:
 
     def _register(self) -> None:
         for name, handler, actors in (
+            ("sources.status", self._sources_status, "user"),
+            ("novelty.recent", self._novelty_recent, "user"),
+            ("novelty.clear", self._novelty_clear, "user"),
+            ("library.list", self._library_list, "user"),
+            ("library.save", self._library_save, "user"),
+            ("library.update", self._library_update, "user"),
+            ("library.import", self._library_import, "user"),
+            ("library.remove", self._library_remove, "user"),
+            ("library.thumbnail", self._library_thumbnail, "user"),
+            ("branches.list", self._branches_list, "user"),
+            ("branches.create", self._branches_create, "user"),
+            ("branches.switch", self._branches_switch, "user"),
+            ("branches.rename", self._branches_rename, "user"),
+            ("branches.remove", self._branches_remove, "user"),
             ("session.new", self._session_new, "user"),
             ("session.get", self._session_get, "user"),
             ("session.open", self._session_open, "user"),
@@ -684,9 +714,93 @@ class CoreApp:
             self._turn_cfg.approval_mode = mode
         return self._snapshot()
 
+    # --- reusable assets and independent creative directions -----------------------------------
+
+    async def _library_list(self, actor: str, query: str = "", tags: list[str] | None = None) -> list[dict]:
+        return await self._blocking(self.library.list, query, tags)
+
+    async def _library_save(self, actor: str, artifact_id: str, name: SessionName,
+                            tags: list[str] | None = None, metadata: AssetDetails | None = None) -> dict:
+        return await self._blocking(lambda: self.library.save(self.session, artifact_id, name, tags or [],
+                                                             metadata or AssetDetails()))
+
+    async def _library_update(self, actor: str, id: str, name: SessionName | None = None,
+                              tags: list[str] | None = None, metadata: AssetDetails | None = None) -> dict:
+        return await self._blocking(self.library.update, id, name, tags, metadata)
+
+    async def _library_import(self, actor: str, id: str) -> dict:
+        def restore():
+            self._check_idle()
+            return self.library.restore(self.session, id)
+        return await self._blocking(restore)
+
+    async def _library_remove(self, actor: str, id: str) -> dict:
+        return await self._blocking(self.library.remove, id)
+
+    async def _library_thumbnail(self, actor: str, id: str, max_px: MaxPx = 256) -> dict:
+        return await self._blocking(self.library.thumbnail, id, max_px)
+
+    async def _branches_list(self, actor: str) -> dict:
+        return await self._blocking(lambda: branches.listing(self.session))
+
+    async def _change_branch(self, fn, expected_revision: int | None) -> dict:
+        self._check_idle()
+        self._switching += 1
+        changed = False
+        try:
+            def change() -> None:
+                nonlocal changed
+                self._check_idle()
+                self._check_revision(expected_revision, "branched")
+                fn()
+                changed = True
+                # API retry state and CLI resume ids refer to the previous direction.
+                self._retry_session = None
+            await self._blocking(change)
+        finally:
+            try:
+                if changed:
+                    self._cancel_approvals("the user changed creative direction")
+                    retiring = list(self._cli_providers.values())
+                    self._cli_providers.clear()
+                    # Even a cancelled request which finished its locked mutation cannot leave a
+                    # process cached for the wrong direction. close() also drains retired providers.
+                    self._retired_clis.extend(retiring)
+                    for provider in retiring:
+                        await provider.close()
+            finally:
+                self._switching -= 1
+        return self._snapshot()
+
+    async def _branches_create(self, actor: str, name: SessionName, from_step: str | None = None,
+                               expected_revision: DocumentRevision | None = None) -> dict:
+        return await self._change_branch(lambda: branches.create(self.session, name, from_step),
+                                         expected_revision)
+
+    async def _branches_switch(self, actor: str, id: str,
+                               expected_revision: DocumentRevision | None = None) -> dict:
+        return await self._change_branch(lambda: branches.switch(self.session, id), expected_revision)
+
+    async def _branches_rename(self, actor: str, id: str, name: SessionName) -> dict:
+        return await self._blocking(lambda: branches.rename(self.session, id, name))
+
+    async def _branches_remove(self, actor: str, id: str) -> dict:
+        return await self._blocking(lambda: branches.remove(self.session, id))
+
     # --- methods: chat --------------------------------------------------------------------------
 
-    async def _chat_send(self, actor: str, text: str, attachments: list[str] | None = None) -> dict:
+    async def _novelty_recent(self, actor: str) -> list[dict]:
+        return await self._blocking(lambda: self.novelty.recent(self.session))
+
+    async def _sources_status(self, actor: str) -> list[dict]:
+        from badshop.engine.discovery import source_status
+        return source_status()
+
+    async def _novelty_clear(self, actor: str) -> dict:
+        return await self._blocking(self.novelty.clear)
+
+    async def _chat_send(self, actor: str, text: str, attachments: list[str] | None = None,
+                         novelty: NoveltyMode | None = None) -> dict:
         self._check_idle()
         if self._switching:
             raise EngineError("the session is being replaced", hint="send the message again once it has opened")
@@ -698,6 +812,8 @@ class CoreApp:
                 raise EngineError("the session is being replaced")
             if generation != self._start_generation:
                 raise EngineError("the provider start was stopped")
+            if novelty:
+                text = self.novelty.request(self.session, text, novelty)
             return await self._prepare_turn(text, attachments or [])
 
     async def _prepare_turn(self, text: str, attachments: list[str], *, retry: bool = False) -> dict:

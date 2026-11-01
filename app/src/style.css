@@ -2180,3 +2180,33 @@ button.primary {
   color: var(--muted);
   margin-top: 15px;
 }
+
+.studio { width: min(1000px, 94vw); max-height: 88vh; overflow-y: auto; }
+.studio-tabs, .studio-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-tabs { margin: 12px 0 20px; }
+.studio-tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+.studio-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; align-items: end; }
+.studio label { display: flex; flex-direction: column; gap: 5px; }
+.studio .check-label { flex-direction: row; align-items: center; }
+.studio-form .wide { grid-column: 1 / -1; }
+.studio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }
+.studio-card { display: flex; flex-direction: column; gap: 9px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.studio-card strong { overflow-wrap: anywhere; }
+.studio-card small { color: var(--muted); }
+.studio-card button { white-space: normal; }
+.studio-thumb { width: 100%; height: 150px; object-fit: contain; background: var(--stage); image-rendering: pixelated; }
+.studio-sheet .artifact-thumb { width: 100%; height: auto; padding: 8px; }
+.studio-sheet .artifact-thumb img { width: 100%; max-height: 460px; object-fit: contain; }
+.studio-notes { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+.studio-import { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 20px; display: grid; gap: 10px; }
+.studio-filter { max-width: 450px; }
+@media (max-width: 1000px) { .studio-form { grid-template-columns: 1fr; } .header-actions { gap: 3px; } }
+.studio-launch-short { display: none; }
+@media (max-width: 1100px) {
+  .studio-launch-full { display: none; }
+  .studio-launch-short { display: inline; }
+}
+.slot-coordinates { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.pack-selection { max-height: 240px; overflow-y: auto; margin: 14px 0; }
+.layouts-packs h3 { margin-top: 28px; }
+.studio select[multiple] { min-height: 140px; }

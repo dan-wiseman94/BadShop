@@ -15,22 +15,37 @@ import { action, run, useSession } from "../data";
 import { useUI } from "../store";
 import { ArtifactThumb } from "./Viewer";
 import { openLink } from "../native";
-import type { Params } from "../types";
+import type { Params, NoveltyMode } from "../types";
+import { creativeRequest, creativeStyles } from "../creative";
+import "../creative.css";
 export function Chat({
   attachments,
   onAttachments,
   onImport,
   onPaste,
+  draft,
+  onDraftConsumed,
 }: {
   attachments: string[];
   onAttachments: (next: string[]) => void;
   onImport: () => void;
   onPaste: (event: React.ClipboardEvent) => void;
+  draft?: { id: string; text: string };
+  onDraftConsumed?: (id: string) => void;
 }) {
   const { data: session } = useSession();
   const [text, setText] = useState("");
+  const [style, setStyle] = useState("");
+  const [novelty, setNovelty] = useState<NoveltyMode | "">("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
+  const lastDraft = useRef<string | null>(null);
+  useEffect(() => {
+    if (!draft || draft.id === lastDraft.current || sending) return;
+    lastDraft.current = draft.id;
+    setText(previous => previous.trim() ? `${previous}\n\n${draft.text}` : draft.text);
+    onDraftConsumed?.(draft.id);
+  }, [draft, sending, onDraftConsumed]);
   const history = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const viewedSession = useRef<string | undefined>(undefined);
@@ -63,7 +78,7 @@ export function Chat({
     stream,
     session?.pending_approvals.length,
   ]);
-  const send = () =>
+  const send = (takes: 1 | 3 = 1) =>
     run(async () => {
       if (
         (!text.trim() && !attachments.length) ||
@@ -75,7 +90,8 @@ export function Chat({
       following.current = true;
       setSending(true);
       try {
-        await action("chat.send", { text, attachments });
+        await action("chat.send", { text: creativeRequest(text, style, takes), attachments,
+          ...(novelty ? { novelty } : {}) });
         setText("");
         onAttachments([]);
       } finally {
@@ -310,6 +326,32 @@ export function Chat({
         <div aria-hidden="true" />
       </div>
       <div className="composer">
+        <label className="creative-direction">
+          Novelty
+          <select aria-label="Novelty direction" value={novelty} disabled={sending || session?.turn_running}
+            onChange={event => setNovelty(event.target.value as NoveltyMode | "")}>
+            <option value="">Follow my request</option>
+            <option value="different-format">Different visual format</option>
+            <option value="change-setting">Keep joke, change setting</option>
+            <option value="another-era">Another era</option>
+            <option value="avoid-recent">Avoid recent images / formats</option>
+          </select>
+        </label>
+        <label className="creative-direction">
+          Style
+          <select
+            aria-label="Creative style"
+            value={style}
+            onChange={(event) => setStyle(event.target.value)}
+            disabled={sending || session?.turn_running}
+            title={creativeStyles.find((item) => item.id === style)?.summary}
+          >
+            <option value="">Follow my prompt</option>
+            {creativeStyles.map((item) => (
+              <option key={item.id} value={item.id}>{item.name}</option>
+            ))}
+          </select>
+        </label>
         <div className="attachments">
           {attachments.map((id) => (
             <div key={id}>
@@ -351,6 +393,14 @@ export function Chat({
             <Paperclip size={17} />
           </button>
           <span>Enter to send</span>
+          <button
+            type="button"
+            title="Make three different compositions; uses more steps"
+            disabled={!ready || (!text.trim() && !attachments.length) || sending || session?.turn_running}
+            onClick={() => send(3)}
+          >
+            Three takes
+          </button>
           {session?.turn_running || sending ? (
             <button
               className="stop"
@@ -366,7 +416,7 @@ export function Chat({
               disabled={
                 !ready || (!text.trim() && !attachments.length) || sending
               }
-              onClick={send}
+              onClick={() => send()}
             >
               <ArrowUp size={19} />
             </button>

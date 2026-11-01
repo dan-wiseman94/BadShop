@@ -1,6 +1,6 @@
 """Project files (.badshop), the CLI recipe inside them, and the autosave.
 
-A project is a zip: `session.json` (the SessionData, `"schema": 1`), `artifacts/<sha256><ext>` for every
+A project is a zip: `session.json` (the SessionData, `"schema": 2`), `artifacts/<sha256><ext>` for every
 artifact the session references, and `recipe.json` (the finished edits as a `badshop run` recipe). A
 project may come from anywhere, so opening one trusts nothing in it: member names are never used as paths,
 only the two compression methods badshop writes are accepted, sizes are checked before anything is read
@@ -268,6 +268,21 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
     for what, name, pattern in named:
         if not pattern.fullmatch(name):
             raise _damaged(path, f"{what} an id badshop never makes ({name[:16]!r})")
+    # v1 had no directions; defaults migrate it without changing its timeline or pixels.
+    data.schema_ = SCHEMA
+    if data.active_branch_id is not None and data.active_branch_id not in data.branches:
+        raise _damaged(path, "the active creative direction is missing")
+    for bid, branch in data.branches.items():
+        if bid != branch.id:
+            raise _damaged(path, "a creative direction is listed under the wrong id")
+        if any(aid not in data.artifacts for aid in branch.artifact_ids):
+            raise _damaged(path, "a creative direction references a missing artifact")
+        # Reuse the same step/parameter/id checks, without nesting branch data recursively.
+        branch_payload = {"schema": SCHEMA, "id": data.id, "name": branch.name,
+                          "created_at": branch.created_at, "steps": [s.model_dump() for s in branch.steps],
+                          "messages": [m.model_dump() for m in branch.messages],
+                          "transcript": branch.transcript}
+        _session_data(path, json.dumps(branch_payload).encode("ascii"))
     return data
 
 
@@ -329,6 +344,11 @@ def open_project(path: Path, **session_kw) -> Session:
     _finish_interrupted(data, artifacts)
     session = Session(data, artifacts, **session_kw)  # Session makes data.artifacts the store's metas
     missing = session.referenced_ids() - set(artifacts.ids())
+    for branch in data.branches.values():
+        branch_data = SessionData(id=data.id, name=branch.name, created_at=branch.created_at,
+                                  steps=branch.steps, messages=branch.messages, transcript=branch.transcript)
+        _finish_interrupted(branch_data, artifacts)
+        missing |= Session(branch_data, artifacts).referenced_ids() - set(artifacts.ids())
     if missing:
         raise _damaged(path, f"artifact {short(min(missing))} is missing")
     return session

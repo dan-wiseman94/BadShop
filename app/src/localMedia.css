@@ -1,0 +1,26 @@
+.media-sheet {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.media-crop-stage {
+  position: relative;
+  line-height: 0;
+  background: var(--stage);
+}
+.media-crop-stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  cursor: crosshair;
+  touch-action: none;
+}
+.media-crop-box {
+  position: absolute;
+  border: 2px dashed #ff00bb;
+  pointer-events: none;
+}
+.local-media > .primary {
+  margin-top: 12px;
+}

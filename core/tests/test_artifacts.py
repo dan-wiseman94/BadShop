@@ -76,7 +76,7 @@ def test_session_data_saves_schema_under_its_alias_and_round_trips():
     data = SessionData(id="x1", name="Untitled", created_at=1.5, messages=[msg], steps=[step],
                        artifacts={aid: meta}, transcript=[{"role": "user", "content": "hi"}])
     dumped = data.model_dump(mode="json", by_alias=True)
-    assert dumped["schema"] == SCHEMA == 1 and "schema_" not in dumped
+    assert dumped["schema"] == SCHEMA == 2 and "schema_" not in dumped
     assert dumped["approval_mode"] == "ask_changes" and dumped["provider_profile_id"] is None
     assert dumped["steps"][0]["outputs"] == [] and dumped["steps"][0]["edited"] is False
     back = SessionData.model_validate_json(json.dumps(dumped))

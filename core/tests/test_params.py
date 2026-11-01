@@ -11,6 +11,9 @@ from memstore import MemoryStore
 
 # The fewest fields each tool needs to validate (image refs are never loaded when validation fails).
 BASE = {
+    "layout": {}, "pair_images": {"donors": ["a.png"], "backgrounds": ["b.png"]},
+    "slice_sheet": {"image": "a.png"},
+    "discover": {"query": "cat"}, "acquire": {"url": "https://example.com/cat.jpg"},
     "fetch": {}, "wiki": {"title": "x"}, "emoji": {"emoji": ["joy"]}, "template": {},
     "info": {"image": "a.png"}, "prep": {"image": "a.png"}, "view": {"image": "a.png"},
     "find": {"image": "a.png"}, "text": {"image": "a.png", "text": "hi"}, "cutout": {"image": "a.png"},

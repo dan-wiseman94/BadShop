@@ -81,6 +81,22 @@ export async function pickFolder() {
     ? open({ directory: true, multiple: false })
     : window.prompt("Absolute output folder");
 }
+export async function chooseMediaFile(kind: "video" | "document"): Promise<string | null> {
+  if (!native) return window.prompt(`Absolute ${kind === "video" ? "video or GIF" : "PDF or scanned image"} path`);
+  return open({ multiple: false, title: kind === "video" ? "Choose a clip" : "Choose a document or scan", filters: [{
+    name: kind === "video" ? "Video / GIF" : "Document / scan",
+    extensions: kind === "video" ? ["mp4", "mov", "mkv", "webm", "avi", "gif"] : ["pdf", "png", "jpg", "jpeg", "tiff", "webp"],
+  }] });
+}
+export async function chooseCollectionFolder(): Promise<string | null> {
+  return native ? open({ directory: true, multiple: false, title: "Choose an image collection to index" })
+    : window.prompt("Absolute folder to index for images");
+}
+export async function packPath(saving: boolean): Promise<string | null> {
+  if (!native) return window.prompt(saving ? "Absolute path to save asset pack" : "Absolute asset pack path");
+  const filters = [{ name: "badshop asset pack", extensions: ["badpack", "zip"] }];
+  return saving ? save({ filters, defaultPath: "My assets.badpack" }) : open({ filters, multiple: false });
+}
 export async function copyText(text: string) {
   if (native) await writeText(text);
   else await navigator.clipboard.writeText(text);
