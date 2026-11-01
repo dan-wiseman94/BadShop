@@ -62,10 +62,59 @@ export type DownloadActivities = Record<
   string,
   { pending: number; error?: string }
 >;
+function isPristineSession(session: Session) {
+  return (
+    !session.unsaved_changes &&
+    !session.path &&
+    session.name === "Untitled" &&
+    !session.messages.length &&
+    !session.steps.length &&
+    !Object.keys(session.artifacts).length
+  );
+}
+function acceptSessionReplacement(
+  session: Session,
+  preserveAutomaticDrafts = false,
+) {
+  const previous = queries.getQueryData<Session>(["session.get"]);
+  const preserve =
+    preserveAutomaticDrafts &&
+    previous &&
+    (previous.id === session.id ||
+      (isPristineSession(previous) && isPristineSession(session)));
+  const ui = useUI.getState();
+  queries.removeQueries({ queryKey: ["artifact"] });
+  queries.setQueryData<Session>(["session.get"], {
+    ...session,
+    stream_text: "",
+  });
+  ui.set({
+    selectedStep:
+      preserve && session.steps.some((step) => step.id === ui.selectedStep)
+        ? ui.selectedStep
+        : null,
+    selectedArtifact:
+      preserve && ui.selectedArtifact && session.artifacts[ui.selectedArtifact]
+        ? ui.selectedArtifact
+        : null,
+    pick:
+      preserve && ui.pick && session.artifacts[ui.pick.artifactId]
+        ? ui.pick
+        : null,
+    ...(!preserve && {
+      documentGeneration: ui.documentGeneration + 1,
+      paletteOpen: false,
+    }),
+  });
+}
 export async function action<K extends keyof MethodMap>(
   method: K,
   params?: MethodMap[K][0],
 ): Promise<MethodMap[K][1]> {
+  if (useUI.getState().status !== "ready")
+    throw new Error(
+      "Wait for the core to reconnect before running this action.",
+    );
   const downloadName =
     method === "assets.download" && params && "name" in params
       ? String(params.name)
@@ -101,18 +150,7 @@ export async function action<K extends keyof MethodMap>(
     }
   }
   if (["session.new", "session.open", "session.restore"].includes(method)) {
-    queries.removeQueries({ queryKey: ["artifact"] });
-    queries.setQueryData<Session>(["session.get"], {
-      ...(value as Session),
-      stream_text: "",
-    });
-    useUI.getState().set({
-      documentGeneration: useUI.getState().documentGeneration + 1,
-      selectedStep: null,
-      selectedArtifact: null,
-      pick: null,
-      paletteOpen: false,
-    });
+    acceptSessionReplacement(value as Session);
   }
   await queries.invalidateQueries({ queryKey: ["session.get"] });
   if (method.startsWith("providers."))
@@ -247,6 +285,7 @@ export function startCore() {
   let generation = 0;
   let current: Connection | undefined;
   let failed = false;
+  let recovering = false;
   const schedule = () => {
     if (disposed || failed || reconnect) return;
     if (++attempt > 3) return;
@@ -266,22 +305,37 @@ export function startCore() {
         !!current &&
         (current.port !== next.port || current.token !== next.token);
       if (!restarted && current && useUI.getState().status === "ready") return;
+      recovering = restarted;
       useUI.getState().set({ logPath: next.log_path });
       await rpc.connect(next);
       if (disposed || thisGeneration !== generation) return;
+      if (restarted) {
+        // Keep the previous document and its drafts until recovery has an outcome.
+        // Publishing the new core's empty startup session would discard attachments.
+        const session = await rpc.request("session.get");
+        const previous = queries.getQueryData<Session>(["session.get"]);
+        if (!session.restorable && previous && !isPristineSession(previous))
+          throw new Error(
+            "The core restarted, but no autosaved session is available. Your previous session and drafts remain in this window. Restart the core or copy diagnostics before closing.",
+          );
+        const recovered = session.restorable
+          ? await rpc.request("session.restore")
+          : session;
+        if (disposed || thisGeneration !== generation) return;
+        acceptSessionReplacement(recovered, true);
+      }
       current = next;
       attempt = 0;
       failed = false;
+      recovering = false;
+      useUI.getState().set({ status: "ready" });
       queries.setQueryData<Session>(["session.get"], (old) =>
         old ? { ...old, stream_text: "" } : old,
       );
       await queries.invalidateQueries();
-      if (restarted) {
-        const session = await rpc.request("session.get");
-        if (session.restorable) await action("session.restore");
-      }
     } catch (error) {
       if (disposed || thisGeneration !== generation) return;
+      recovering = false;
       useUI.getState().set({ status: "disconnected" });
       schedule();
       if (attempt > 3) showError(error);
@@ -289,6 +343,7 @@ export function startCore() {
   };
   const offStatus = rpc.onStatus((status) => {
     if (disposed || failed) return;
+    if (status === "ready" && recovering) return;
     useUI.getState().set({ status });
     if (status === "disconnected") schedule();
   });

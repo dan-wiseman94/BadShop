@@ -16,6 +16,7 @@ beforeEach(() => {
   queries.clear();
   useUI.setState({
     ...useUI.getInitialState(),
+    status: "ready",
     documentGeneration: 7,
     selectedArtifact: "discarded",
     selectedStep: "discarded-step",
@@ -84,5 +85,19 @@ it("preserves document drafts on ordinary edits and saves", async () => {
   expect(useUI.getState().pick).not.toBeNull();
   expect(queries.getQueryData(["artifact", "discarded", false])).toEqual({
     data: "old-image",
+  });
+});
+
+it("rejects user mutations during reconnect before sending any stale parameters", async () => {
+  const request = vi.spyOn(rpc, "request");
+  useUI.getState().set({ status: "connecting" });
+  await expect(
+    action("tools.run", { tool: "deepfry", params: { image: "discarded" } }),
+  ).rejects.toThrow("Wait for the core to reconnect");
+  expect(request).not.toHaveBeenCalled();
+  expect(useUI.getState().documentGeneration).toBe(7);
+  expect(queries.getQueryData(["session.get"])).toMatchObject({
+    id: "same-session",
+    stream_text: "Old partial reply",
   });
 });

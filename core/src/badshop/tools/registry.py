@@ -84,12 +84,8 @@ def llm_schema(spec: ToolSpec) -> dict:
     runner.validate refuses it with a clean error."""
     schema = ui_schema(spec)
     if spec.name == "text":
-        from badshop.tools.fonts import font_names
-        names = font_names()
-        schema["properties"]["font"] = {
-            "anyOf": ([{"type": "string", "enum": names}] if names else []) + [{"type": "null"}],
-            "default": None, "description": "A discovered font name; omit to use the style's default font.",
-        }
+        from badshop.tools.fonts import model_font_schema
+        schema["properties"]["font"] = model_font_schema()
     hidden = user_only_fields(spec.params)
     if not hidden:
         return schema

@@ -232,7 +232,7 @@ class CLIProvider:
                     # The explicit server-scoped allow has higher priority than that DENY;
                     # every built-in and every other MCP server remains denied.
                     "tools": {"core": [], "allowed": ["mcp_badshop_*"]},
-                    "hooks": {"enabled": False}}
+                    "hooksConfig": {"enabled": False}}
         # Modern Gemini rejects user-owned files masquerading as system settings. A
         # private CLI home loads only this config; link authentication, never user policy,
         # tool settings, extensions, skills or hooks from the real Gemini directory.

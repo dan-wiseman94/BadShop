@@ -142,7 +142,8 @@ def test_gemini_private_home_links_only_authentication(fake, tmp_path, monkeypat
     source.mkdir(parents=True)
     original = {"security": {"auth": {"selectedType": "oauth-personal"}},
                 "tools": {"allowed": ["run_shell_command"]}, "mcpServers": {"other": {"command": "other"}},
-                "hooks": {"enabled": True}}
+                "hooksConfig": {"enabled": True},
+                "hooks": {"BeforeTool": [{"hooks": [{"type": "command", "command": "unsafe-hook"}]}]}}
     (source / "settings.json").write_text(json.dumps(original))
     (source / "oauth_creds.json").write_text('{"refresh_token":"test-auth"}')
     (source / "google_accounts.json").write_text('{"active":"test-account"}')
@@ -158,7 +159,8 @@ def test_gemini_private_home_links_only_authentication(fake, tmp_path, monkeypat
         assert os.path.samefile(private / "google_accounts.json", source / "google_accounts.json")
         assert config["security"]["auth"]["selectedType"] == "oauth-personal"
         assert config["tools"]["allowed"] == ["mcp_badshop_*"]
-        assert set(config["mcpServers"]) == {"badshop"} and not config["hooks"]["enabled"]
+        assert set(config["mcpServers"]) == {"badshop"} and not config["hooksConfig"]["enabled"]
+        assert "hooks" not in config
         assert not (private / "policies").exists()
         assert json.loads((source / "settings.json").read_text()) == original
     finally:
@@ -380,10 +382,17 @@ def test_stop_kills_children_after_cli_parent_already_exited(ignore_term):
                     await asyncio.sleep(.01)
             assert process.returncode == 0
             await asyncio.wait_for(provider.stop(), 2)
-            try:
-                assert psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE
-            except psutil.NoSuchProcess:
-                pass  # the child can disappear between Stop and this check
+            # SIGKILL closes inherited pipes before the kernel necessarily publishes
+            # the final process state. Require termination within a bounded deadline,
+            # not on the exact event-loop tick that observes pipe EOF.
+            async with asyncio.timeout(1):
+                while True:
+                    try:
+                        if psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE:
+                            break
+                    except psutil.NoSuchProcess:
+                        break
+                    await asyncio.sleep(.01)
         finally:
             with __import__("contextlib").suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)

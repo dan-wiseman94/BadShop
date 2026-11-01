@@ -335,9 +335,10 @@ test("production assets and generated forms run under the packaged content secur
   page,
   context,
   core,
+  baseURL,
 }) => {
   await context.grantPermissions(["local-network-access"], {
-    origin: "http://127.0.0.1:1420",
+    origin: new URL(baseURL!).origin,
   });
   const { readFile } = await import("node:fs/promises");
   const config = JSON.parse(

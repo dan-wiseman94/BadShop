@@ -18,6 +18,10 @@ type Pending = {
 };
 
 async function snapshot() {
+  if (useUI.getState().status !== "ready")
+    throw new Error(
+      "Wait for the core to reconnect before changing or saving the session.",
+    );
   const session = await rpc.request(
     "session.get",
     undefined,
