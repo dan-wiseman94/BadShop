@@ -12,13 +12,16 @@ export type Core = {
   call: (method: string, params?: unknown) => Promise<unknown>;
 };
 export const root = path.resolve(import.meta.dirname, "../..");
+export const python = process.env.BADSHOP_PYTHON ?? path.join(
+  root, "core/.venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
+);
 export const test = base.extend<{ core: Core }>({
   core: async ({}, use) => {
     const folder = await mkdtemp(path.join(tmpdir(), "badshop-e2e-"));
     const script = path.join(folder, "script.json");
     const logs: string[] = [];
     const child = spawn(
-      process.env.BADSHOP_PYTHON ?? path.join(root, "core/.venv/bin/python"),
+      python,
       ["-m", "badshop.server", "serve"],
       {
         cwd: root,
@@ -27,7 +30,9 @@ export const test = base.extend<{ core: Core }>({
           PYTHONPATH: path.join(root, "core/src"),
           BADSHOP_CONFIG_DIR: path.join(folder, "config"),
           BADSHOP_FAKE_PROVIDER: script,
-          XDG_DATA_HOME: path.join(folder, "data"),
+          BADSHOP_DATA_DIR: path.join(folder, "data"),
+          BADSHOP_LOG_DIR: path.join(folder, "logs"),
+          BADSHOP_OUT: path.join(folder, "exports"),
           XDG_CACHE_HOME: path.join(folder, "cache"),
         },
         stdio: ["pipe", "pipe", "pipe"],
@@ -39,6 +44,10 @@ export const test = base.extend<{ core: Core }>({
         () => reject(new Error(`Core failed to start: ${logs.join("")}`)),
         20000,
       );
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
       createInterface({ input: child.stdout }).once("line", (line) => {
         clearTimeout(timer);
         resolve(line);

@@ -1,4 +1,4 @@
-import { test, expect, root } from "./fixtures";
+import { test, expect, python, root } from "./fixtures";
 import { mkdir, copyFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -41,7 +41,7 @@ test("real layouts, installed asset packs, and image pair composition stay edita
   await page.getByRole("button", { name: "Compose this pair" }).click();
   await expect(page.getByRole("status")).toContainText("editable paste step");
   expect((await core.call("session.get") as Session).steps.at(-1)?.tool).toBe("paste");
-  await page.screenshot({ path: "/tmp/badshop-material-pairs.png" });
+  await page.screenshot({ path: test.info().outputPath("badshop-material-pairs.png") });
 });
 
 test("local GIF frames, scanned regions and indexed folders import only selected material", async ({ page, core }) => {
@@ -50,7 +50,7 @@ test("local GIF frames, scanned regions and indexed folders import only selected
   await copyFile(path.join(root, "core/tests/fixtures/lincoln.png"), path.join(folder, "president.png"));
   await copyFile(path.join(folder, "president.png"), path.join(folder, "duplicate.png"));
   const clip = path.join(core.folder, "reaction.gif");
-  execFileSync(path.join(root, "core/.venv/bin/python"), ["-c", "from PIL import Image; import sys; a=Image.new('RGB',(80,60),'red'); b=Image.new('RGB',(80,60),'blue'); a.save(sys.argv[1],save_all=True,append_images=[b],duration=200,loop=0)", clip]);
+  execFileSync(python, ["-c", "from PIL import Image; import sys; a=Image.new('RGB',(80,60),'red'); b=Image.new('RGB',(80,60),'blue'); a.save(sys.argv[1],save_all=True,append_images=[b],duration=200,loop=0)", clip]);
   await setup(page, core);
   await page.getByRole("button", { name: "Clips, pages & folders" }).click();
   await page.getByLabel("Selected source file").fill(clip);

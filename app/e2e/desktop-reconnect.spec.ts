@@ -1,4 +1,4 @@
-import { test, expect, root } from "./fixtures";
+import { test, expect, python, root } from "./fixtures";
 import type { WebSocketRoute } from "@playwright/test";
 import type { Session } from "../src/types";
 import path from "node:path";
@@ -60,7 +60,7 @@ async function startRecoveryCore(folder: string) {
   const { spawn } = await import("node:child_process");
   const { createInterface } = await import("node:readline");
   const child = spawn(
-    path.join(root, "core/.venv/bin/python"),
+    python,
     ["-m", "badshop.server", "serve"],
     {
       cwd: root,

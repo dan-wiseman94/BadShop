@@ -9,6 +9,7 @@ from typing import Literal
 import platformdirs
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from badshop.files import expand_user_path
 from badshop.engine.errors import EngineError
 
 ApprovalMode = Literal["auto", "ask_changes", "ask_all"]
@@ -32,7 +33,7 @@ class Settings(BaseModel):
         if v is None:
             return v
         try:
-            folder = Path(v).expanduser()
+            folder = expand_user_path(v)
         except RuntimeError:  # "~name/..." for a user this computer doesn't have: no home folder to expand
             raise ValueError("give an absolute folder path (that home folder doesn't exist)") from None
         if not folder.is_absolute():

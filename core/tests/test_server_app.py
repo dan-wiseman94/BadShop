@@ -306,8 +306,11 @@ def test_methods_are_the_protocol(env):
 def test_import_run_get_and_events(env, monkeypatch):
     async def body(app):
         c = Client(app)
-        trump = await c.call("artifacts.import", path=str(TRUMP))
-        # a small upright PNG is its own working copy, stored once; the label is the file name's stem + _work
+        # Use the host's PNG encoder so this exercises byte-identical deduplication on every OS.
+        local_png = env / "trump.png"
+        with Image.open(TRUMP) as image:
+            image.convert("RGB").save(local_png)
+        trump = await c.call("artifacts.import", path=str(local_png))
         assert trump["working"] == trump["original"] and trump["working"]["label"] == "trump_work"
         assert trump["original"]["width"] == 474
         buf = io.BytesIO()
@@ -638,7 +641,8 @@ def test_project_files_export_and_modes(env):
     run(body)
 
 
-def test_save_as_refuses_the_autosave_folder(env):
+@pytest.mark.parametrize("via_link", [False, True], ids=["direct", "symlink"])
+def test_save_as_refuses_the_autosave_folder(env, via_link):
     """The autosave folder is badshop's: the next launch's claim_autosave moves session.badshop out of the
     way, so a project saved there would vanish from where the user put it. Save As refuses the folder (by
     the same test session.open uses to treat a file there as no project file), and writes nothing."""
@@ -646,8 +650,17 @@ def test_save_as_refuses_the_autosave_folder(env):
         c = Client(app)
         await imported(c)  # a change: this run's autosave is written
         folder = project.autosave_path().parent
-        (env / "link").symlink_to(folder, target_is_directory=True)
-        for target in (project.autosave_path(), folder / "mine.badshop", folder / "mine", env / "link" / "x"):
+        targets = [project.autosave_path(), folder / "mine.badshop", folder / "mine"]
+        if via_link:
+            link = env / "link"
+            try:
+                link.symlink_to(folder, target_is_directory=True)
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 1314:
+                    pytest.skip("Creating a symlink requires Windows Developer Mode or the symlink privilege")
+                raise
+            targets = [link / "x"]
+        for target in targets:
             with pytest.raises(Failed) as e:
                 await c.call("session.save_as", path=str(target))
             assert e.value.code == rpc.ENGINE_ERROR, target

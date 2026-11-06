@@ -762,7 +762,7 @@ export function Settings() {
                   <div className="folder-field">
                     <input
                       value={settings.output_dir ?? ""}
-                      placeholder="~/Pictures/badshop"
+                      placeholder="badshop folder in Pictures"
                       onChange={(e) =>
                         queries.setQueryData(["settings.get"], {
                           ...settings,
@@ -876,18 +876,18 @@ export function Welcome({ onClose }: { onClose: () => void }) {
           <div className="brand">
             badshop<span>✱</span>
           </div>
-          <span>Set up {step} of 3</span>
+          {step > 1 && <span>AI setup {step} of 3</span>}
         </div>
         <h2>
           {step === 1
-            ? "Meet your art director."
+            ? "How would you like to edit?"
             : step === 2
               ? "Make the connection."
               : "Bring your own bad taste."}
         </h2>
         <p>
           {step === 1
-            ? "Pick how you’d like to talk to a model. You can add more providers anytime."
+            ? "Choose your own effects, or connect an AI model and describe the edit you want."
             : step === 2
               ? "The model makes the decisions. badshop does the pixel work."
               : "Download the essentials now, or let badshop fetch them when needed."}
@@ -895,6 +895,10 @@ export function Welcome({ onClose }: { onClose: () => void }) {
         <ErrorNotice />
         {step === 1 ? (
           <>
+            <button className="primary" onClick={onClose}>
+              Edit a photo without AI
+              <ArrowRight size={16} />
+            </button>
             {!!profiles?.length && (
               <div className="saved-provider-choice">
                 <h3>Use a saved provider</h3>
@@ -913,6 +917,7 @@ export function Welcome({ onClose }: { onClose: () => void }) {
                 <p>Or connect another provider below.</p>
               </div>
             )}
+            <h3>Connect an AI model</h3>
             <div className="kind-grid">
               {Object.entries(kindNames).map(([value, label]) => {
                 const Icon = icons[value as Profile["kind"]];
@@ -929,8 +934,8 @@ export function Welcome({ onClose }: { onClose: () => void }) {
                 );
               })}
             </div>
-            <button className="primary" onClick={() => setStep(2)}>
-              Continue
+            <button onClick={() => setStep(2)}>
+              Continue with {kindNames[kind]}
               <ArrowRight size={16} />
             </button>
           </>
@@ -955,9 +960,11 @@ export function Welcome({ onClose }: { onClose: () => void }) {
             </button>
           </>
         )}
-        <button className="back-link" onClick={onClose}>
-          Set up later / use tools manually
-        </button>
+        {step === 2 && (
+          <button className="back-link" onClick={onClose}>
+            Edit a photo without AI
+          </button>
+        )}
       </section>
     </div>
   );

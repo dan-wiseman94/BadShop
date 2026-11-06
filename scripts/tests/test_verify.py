@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import psutil
 
@@ -16,6 +17,10 @@ spec.loader.exec_module(verify)
 
 
 class VerificationTests(unittest.TestCase):
+    def test_runs_the_resolved_package_manager_including_its_windows_suffix(self):
+        with patch.object(verify.shutil, 'which', return_value=r'C:\Program Files\nodejs\pnpm.cmd'):
+            self.assertEqual(verify.package_manager(), [r'C:\Program Files\nodejs\pnpm.cmd'])
+
     def test_concurrent_runs_cannot_share_a_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             lock = Path(directory) / 'verify.lock'
@@ -43,7 +48,8 @@ class VerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             checks = verify.Checks(Path(directory))
             self.assertFalse(checks.run('missing', [str(Path(directory) / 'absent')]))
-            self.assertIn('No such file', checks.results[0]['error'])
+            self.assertIsNone(checks.results[0]['exit_code'])
+            self.assertTrue(checks.results[0]['error'])
 
     def test_timeout_kills_owned_descendants(self):
         with tempfile.TemporaryDirectory() as directory:

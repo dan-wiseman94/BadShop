@@ -176,12 +176,12 @@ class LiteLLMProvider:
         Models without native tools use a strict JSON envelope. Calls still return to
         the ordinary agent validation/approval loop, never to an SDK executor.
         """
-        sdk = _load_sdk()
         caps = {}
         for key, name in (("vision", "supports_vision"), ("tool_calls", "supports_function_calling")):
             if key in self.capability_overrides:
                 caps[key] = self.capability_overrides[key]
             else:
+                sdk = _load_sdk()
                 try:
                     caps[key] = bool(getattr(sdk, name)(model=self.model))
                 except Exception:

@@ -1,4 +1,4 @@
-import { test, expect, root } from "./fixtures";
+import { test, expect, python, root } from "./fixtures";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 test("chat, approval, edit, replay, save, open, manual tools and export use the real core", async ({
@@ -115,7 +115,7 @@ test("first run reaches manual tools and Stop settles a waiting approval", async
   await expect(
     page.getByRole("dialog", { name: "Welcome to badshop" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /Set up later/ }).click();
+  await page.getByRole("button", { name: "Edit a photo without AI" }).click();
   await page.getByLabel("Message your agent").fill("Deep fry this.");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByText("Your call", { exact: true })).toBeVisible();
@@ -247,7 +247,7 @@ test("manual coordinate picking reaches the viewer and restores the form", async
   const { execFileSync } = await import("node:child_process");
   const parsed = JSON.parse(
     execFileSync(
-      process.env.BADSHOP_PYTHON ?? path.join(root, "core/.venv/bin/python"),
+      python,
       [
         "-c",
         "import sys,shlex,json; from badshop.cli.main import build_parser; print(json.dumps(vars(build_parser().parse_args(shlex.split(sys.argv[1])[1:])),default=str))",
@@ -286,6 +286,14 @@ test("exports the output of an older selected step", async ({ page, core }) => {
     id: first.outputs[0],
   })) as { data: string };
   expect((await readFile(exportedPath)).toString("base64")).toBe(expected.data);
+  await page.getByRole("button", { name: "Before", exact: true }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  const original = (await core.call("artifacts.get", { id: image })) as { data: string };
+  await expect.poll(async () => {
+    const notice = await page.getByRole("status").innerText();
+    const bytes = await readFile(notice.replace("Exported to ", "").trim());
+    return bytes.toString("base64") === original.data;
+  }).toBe(true);
 });
 
 test("changes a profile from CLI to local and back without incompatible fields", async ({

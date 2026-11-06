@@ -382,7 +382,19 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           )}
         </div>
       )}
-      <div className="artifact-strip">
+      <form
+        id="export-canvas-image"
+        className="artifact-strip"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!id) return;
+          run(async () => {
+            const result = await action("export", { artifact_id: id });
+            useUI.getState().set({ notice: `Exported to ${result.path}` });
+            await reveal(result.path);
+          });
+        }}
+      >
         <div className="strip-title">
           Images <ChevronDown size={12} />
         </div>
@@ -409,20 +421,11 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           )}
         </div>
         {id && (
-          <button
-            title="Export image"
-            onClick={() =>
-              run(async () => {
-                const result = await action("export", { artifact_id: id });
-                useUI.getState().set({ notice: `Exported to ${result.path}` });
-                await reveal(result.path);
-              })
-            }
-          >
+          <button type="submit" title="Export image">
             <Download size={16} />
           </button>
         )}
-      </div>
+      </form>
     </section>
   );
 }

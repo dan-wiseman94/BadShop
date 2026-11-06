@@ -1,4 +1,4 @@
-import { test, expect, root } from "./fixtures";
+import { test, expect, python } from "./fixtures";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import type { Session } from "../src/types";
@@ -41,7 +41,7 @@ test("the idea mixer uses available formats and adds an unsent brief without los
   await expect(
     page.getByRole("button", { name: "Add brief to chat" }),
   ).toHaveCount(1);
-  await page.screenshot({ path: "/tmp/badshop-idea-mixer.png" });
+  await page.screenshot({ path: test.info().outputPath("badshop-idea-mixer.png") });
   await page.getByRole("button", { name: "Add brief to chat" }).click();
   await expect(
     page.getByRole("dialog", { name: "Images & directions" }),
@@ -61,7 +61,7 @@ test("selected sprite cells preserve grid geometry and survive saving a project"
   core,
 }) => {
   const sourcePath = path.join(core.folder, "sprite-grid.png");
-  execFileSync(path.join(root, "core/.venv/bin/python"), [
+  execFileSync(python, [
     "-c",
     "from PIL import Image; import sys; im=Image.new('RGBA',(13,11),(0,0,0,0)); im.paste((255,0,0,255),(1,1,3,5)); im.paste((0,0,255,255),(9,6,11,10)); im.save(sys.argv[1])",
     sourcePath,

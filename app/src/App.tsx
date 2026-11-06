@@ -40,7 +40,6 @@ import {
   pickImages,
   projectPath,
   restart,
-  reveal,
 } from "./native";
 import type { ApprovalMode } from "./types";
 function Resizer({
@@ -260,22 +259,6 @@ export default function App() {
       });
     }
   };
-  const exportImage = () =>
-    run(async () => {
-      const id =
-        ui.selectedArtifact ??
-        session?.steps.find((step) => step.id === ui.selectedStep)
-          ?.outputs[0] ??
-        session?.steps
-          .slice()
-          .reverse()
-          .find((step) => step.outputs.length)?.outputs[0] ??
-        Object.values(session?.artifacts ?? {})[0]?.id;
-      if (!id) throw new Error("Add an image or run a tool before exporting.");
-      const result = await action("export", { artifact_id: id });
-      useUI.getState().set({ notice: `Exported to ${result.path}` });
-      await reveal(result.path);
-    });
   useEffect(() => {
     if (ui.pick) return;
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
@@ -527,7 +510,9 @@ export default function App() {
           </button>
           <button
             className="export"
-            onClick={exportImage}
+            type="submit"
+            form="export-canvas-image"
+            title="Export the image shown on the canvas"
             disabled={
               ui.status !== "ready" ||
               !Object.keys(session?.artifacts ?? {}).length

@@ -56,11 +56,15 @@ def test_default_output_dir_is_the_cli_rule(monkeypatch, tmp_path):
     assert files.default_output_dir() == tmp_path / "mine"
     assert cli_main.final_dir() == tmp_path / "mine"
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    pictures = tmp_path / "home" / "Pictures"
+    if os.name == "nt":
+        pictures = tmp_path / "OneDrive" / "Family Photos"
+        monkeypatch.setattr(files, "user_pictures_path", lambda: pictures)
     monkeypatch.setenv("BADSHOP_OUT", "")  # set but empty: the default, as before
-    assert files.default_output_dir() == tmp_path / "home" / "Pictures" / "badshop"
+    assert files.default_output_dir() == pictures / "badshop"
     monkeypatch.delenv("BADSHOP_OUT")
-    assert files.default_output_dir() == tmp_path / "home" / "Pictures" / "badshop"
-    assert cli_main.final_dir() == tmp_path / "home" / "Pictures" / "badshop"
+    assert files.default_output_dir() == pictures / "badshop"
+    assert cli_main.final_dir() == pictures / "badshop"
 
 
 # --- models.py ---

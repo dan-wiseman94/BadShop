@@ -170,7 +170,7 @@ export function Timeline() {
               on the record.
             </h3>
             <p>
-              Watch the agent work, change a parameter, or run a tool yourself.
+              For a first edit, add a photo, choose Run tool, and search for deepfry.
             </p>
           </div>
         )}
