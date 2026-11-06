@@ -4,23 +4,17 @@ Make deliberately bad photo edits in the style of an old internet forum. Add las
 an Impact caption, or a deep-fried color cast. Pick the effects yourself or tell a vision
 model what you want. Every edit appears in a timeline you can change and replay.
 
-![badshop desktop with chat, image viewer, and editable timeline](docs/screenshots/badshop.png)
-
 ## Get badshop on Windows
 
-For a Windows PC with a 64-bit Intel or AMD processor, use the installer. It includes
-the image tools and works without installing Python, Node, or a compiler.
+**[Download badshop 0.1.0 for Windows](https://github.com/dan-wiseman94/BadShop/releases/download/desktop-v0.1.0/badshop_0.1.0_x64-setup.exe)** (Intel or AMD 64-bit PC)
 
-1. Look for the Windows file ending in `x64-setup.exe` under **Assets** on the
-   [Releases page](https://github.com/dan-wiseman94/BadShop/releases).
-2. Until the first release is published, sign in to GitHub and open the latest successful
-   [desktop build on main](https://github.com/dan-wiseman94/BadShop/actions/workflows/desktop.yml?query=branch%3Amain+event%3Apush).
-   At the bottom, under **Artifacts**, download **badshop-windows-x64**. In File Explorer,
-   right-click the ZIP, choose **Extract All**, then find the file ending in `x64-setup.exe` inside.
-3. Double-click the installer and follow the prompts. Open **badshop** from Start.
+Open the downloaded setup file, follow the prompts, then launch **badshop** from
+Start. The installer includes the image tools. Choose **Edit a photo without AI**
+to get started.
 
-For help finding the download, a SmartScreen prompt, or running the source with
-`start.cmd`, see the [Windows guide](docs/windows.md).
+[Mac and Linux downloads](https://github.com/dan-wiseman94/BadShop/releases/latest) · [Windows installation help](docs/windows.md)
+
+![badshop desktop with chat, image viewer, and editable timeline](docs/screenshots/badshop.png)
 
 ## Make your first edit
 
