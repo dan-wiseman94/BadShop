@@ -41,10 +41,10 @@ def checkout_lock(path: Path):
 
 
 def package_manager() -> list[str]:
-    if shutil.which('pnpm'):
-        return ['pnpm']
-    if shutil.which('corepack'):
-        return ['corepack', 'pnpm@10']
+    if pnpm := shutil.which('pnpm'):
+        return [pnpm]
+    if corepack := shutil.which('corepack'):
+        return [corepack, 'pnpm@10']
     raise RuntimeError('Install pnpm 10 or Corepack; see docs/development.md.')
 
 
@@ -140,9 +140,9 @@ class Checks:
 
 
 def doctor(checks: Checks) -> bool:
-    required = ['uv', 'node', 'npm', 'cargo', 'rustc', 'pkg-config']
+    required = ['uv', 'node', 'npm', 'cargo', 'rustc']
     if sys.platform == 'linux':
-        required += ['Xvfb', 'xvfb-run', 'xauth', 'xdotool', 'import', 'dbus-run-session']
+        required += ['pkg-config', 'Xvfb', 'xvfb-run', 'xauth', 'xdotool', 'import', 'dbus-run-session']
     paths = {name: shutil.which(name) for name in required}
     try:
         manager = package_manager()

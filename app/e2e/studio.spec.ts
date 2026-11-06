@@ -60,7 +60,7 @@ test("saved assets and independent branches survive project reopen", async ({
     .getByRole("button", { name: "Close images and directions" })
     .click();
   await expect(page.getByLabel("Creative style")).toBeVisible();
-  await page.screenshot({ path: "/tmp/badshop-studio.png" });
+  await page.screenshot({ path: test.info().outputPath("badshop-studio.png") });
 });
 
 test("discovery controls and header fit the minimum desktop window", async ({
@@ -87,5 +87,5 @@ test("discovery controls and header fit the minimum desktop window", async ({
       .locator(".studio")
       .evaluate((element) => element.scrollWidth <= element.clientWidth),
   ).toBe(true);
-  await page.screenshot({ path: "/tmp/badshop-discovery.png" });
+  await page.screenshot({ path: test.info().outputPath("badshop-discovery.png") });
 });

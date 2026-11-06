@@ -2,7 +2,7 @@
 
 ## Supported targets
 
-Linux x86-64 (.deb, AppImage, Flatpak), Windows x86-64 (NSIS), and macOS 14+ arm64 (.dmg).
+Windows x86-64 (NSIS setup.exe), Linux x86-64 (.deb, AppImage, Flatpak), and macOS 14+ arm64 (.dmg).
 The current ONNX Runtime/rembg dependency set does not ship Intel macOS wheels, so v1
 uses per-architecture Apple Silicon builds with macOS 14 or newer. Intel macOS is not silently advertised as
 supported. The retired macos-13 CI runner from the initial spec is replaced with macos-15.
@@ -14,7 +14,8 @@ On Linux the build needs GTK 3, WebKitGTK 4.1, OpenSSL, a C toolchain, the app i
 library, and the TBB runtime (`libtbb12` on Ubuntu). TBB satisfies the bundled numba
 plugin's ELF dependency; AppImage packaging checks even optional native plugins.
 
-Development startup is `./start.sh` on Linux/macOS, or
+Development startup is `start.cmd` on Windows (see the [Windows setup guide](windows.md#run-from-source)),
+`./start.sh` on Linux/macOS, or
 `pnpm --dir app tauri dev --config src-tauri/tauri.source.conf.json` after dependency setup.
 The source config omits frozen release resources, which are not needed for development.
 Rust starts `uv run --project

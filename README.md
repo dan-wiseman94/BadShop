@@ -1,60 +1,57 @@
 # badshop
 
-A desktop app where any vision-capable LLM makes deliberately bad, 2005-forum-style
-photoshops — hard-edged cut-and-paste, Impact captions, laser eyes, deep-frying — while
-you watch every step, edit its parameters, run tools yourself, or approve each call.
+Make deliberately bad photo edits in the style of an old internet forum. Add laser eyes,
+an Impact caption, or a deep-fried color cast. Pick the effects yourself or tell a vision
+model what you want. Every edit appears in a timeline you can change and replay.
 
 ![badshop desktop with chat, image viewer, and editable timeline](docs/screenshots/badshop.png)
 
-The desktop app, deterministic engine, model providers, terminal client, and MCP bridge are
-implemented. The app keeps every edit as an inspectable step: change parameters, replay from
-an earlier step, or run the same tools manually. Models direct the tools; image-generation
-models never produce the pixels.
+## Get badshop on Windows
+
+For a Windows PC with a 64-bit Intel or AMD processor, use the installer. It includes
+the image tools and works without installing Python, Node, or a compiler.
+
+1. Look for the Windows file ending in `x64-setup.exe` under **Assets** on the
+   [Releases page](https://github.com/dan-wiseman94/BadShop/releases).
+2. Until the first release is published, sign in to GitHub and open the latest successful
+   [desktop build on main](https://github.com/dan-wiseman94/BadShop/actions/workflows/desktop.yml?query=branch%3Amain+event%3Apush).
+   At the bottom, under **Artifacts**, download **badshop-windows-x64**. In File Explorer,
+   right-click the ZIP, choose **Extract All**, then find the file ending in `x64-setup.exe` inside.
+3. Double-click the installer and follow the prompts. Open **badshop** from Start.
+
+For help finding the download, a SmartScreen prompt, or running the source with
+`start.cmd`, see the [Windows guide](docs/windows.md).
+
+## Make your first edit
+
+1. On the welcome screen, choose **Edit a photo without AI**. Earlier builds call this
+   **Set up later / use tools manually**. You can connect a model in **Settings** anytime.
+2. Choose **Add images** and open a photo, or drag it from File Explorer onto the canvas.
+3. Choose **Run tool** on the right, search for **deepfry**, select it, and click **Run tool**
+   in the form. The canvas shows the result. Select the step and click **Before** or **After**
+   to compare. To change the effect, adjust **Level** in the step and choose **Apply & replay**.
+4. To share the picture, show the version you want and click **Export**. The desktop app
+   opens its location in File Explorer. The default is the **badshop** folder inside **Pictures**.
+   To choose another folder, open **Settings → Preferences → Output folder**.
+5. To keep editing later, press **Ctrl+S** and save a `.badshop` project. Reopen it with
+   **Ctrl+O**. **Ctrl+Shift+S** saves a separate copy. On macOS use **Cmd** in place of **Ctrl**.
+
+A dot beside the project name marks unsaved changes. If the app closes unexpectedly,
+look for the recovery prompt the next time it opens.
 
 ## Desktop
 
-Run from source until the first release is published. On Linux or macOS, start the desktop
-app with one command from the repository root:
+To run this source on Windows, install the [Windows build tools](docs/windows.md#run-from-source)
+and double-click `start.cmd`. On Linux or macOS, install the
+[development prerequisites](docs/releasing.md#local-development) and run `./start.sh`.
+Both launchers prepare the locked dependencies and open the desktop app. Keep the terminal
+open during use. The first run needs internet access and may take several minutes.
 
-```sh
-./start.sh
-```
+On Linux and macOS, use `BADSHOP_DEV_PORT=1422 ./start.sh` to choose another port.
+Installer targets also include Linux x86-64 (deb, AppImage, Flatpak) and Apple Silicon
+macOS 14+ (dmg). See the [build and release guide](docs/releasing.md).
 
-The launcher checks for required tools, syncs Python and frontend dependencies using the
-lockfiles, and opens the desktop app in development mode. It uses pnpm if installed, or
-Corepack's pnpm 10 otherwise. The first run needs internet access and can take several
-minutes to download dependencies and compile the Rust shell; later runs reuse cached builds.
-Keep the terminal open; close the app or press Ctrl+C to stop it. No separate core server
-command is needed.
-
-You can also run `/path/to/badshop/start.sh` from any directory. Use `./start.sh --help`
-for a quick reminder. If port 1420 is busy, use `BADSHOP_DEV_PORT=1422 ./start.sh`.
-On Windows, or to run the steps manually:
-
-```sh
-uv sync --project core --locked
-pnpm --dir app install --frozen-lockfile
-pnpm --dir app tauri dev --config src-tauri/tauri.source.conf.json
-```
-
-Development needs Python 3.12, uv, Node 22, pnpm 10, Rust, and Tauri's native libraries.
-See [build and release instructions](docs/releasing.md) for prerequisites and standalone
-installers. Release targets are Linux x86-64 (deb, AppImage, Flatpak), Windows x86-64 (NSIS),
-and Apple Silicon macOS 14+ (dmg). Windows/macOS runtime checks run on their CI hosts; releases
-also need the [live validation checklist](docs/releasing.md#release-checks-needing-actual-environments).
-
-On first launch, add a provider in Settings or use the tools manually. Import an image with
-the file picker, drag-and-drop, or clipboard. The three panes show conversation, image, and
-editable steps. Use the tool palette for manual edits, click/drag image coordinates into
-forms, compare before/after, and export the selected image. Projects use `.badshop` files;
-autosave recovery is offered after a previous run and restored automatically after a core
-restart. Diagnostics, appearance, tool limits, and cancellable model downloads live in Settings.
-
-Save with Ctrl/Cmd+S; use Ctrl/Cmd+Shift+S for Save As and Ctrl/Cmd+O to open a project.
-The dot beside the session name marks unsaved changes. Opening, creating, restoring, or
-closing a session offers Save, Discard, and Cancel; canceling a file picker keeps your work.
-Autosave is crash recovery and does not replace saving a project file. Drag a pane divider
-or use its arrow keys to resize; double-click a divider to reset the layout.
+### Optional AI setup
 
 Choose an API provider, a local OpenAI-compatible vision server, or an authenticated Claude
 Code/Codex CLI. Gemini CLI support is experimental and requires a recent version with
@@ -71,6 +68,16 @@ See the [design](docs/superpowers/specs/2026-09-26-badshop-app-design.md),
 [model licences and attribution](docs/model-licenses.md).
 
 ## Developing and testing
+
+In PowerShell, run these from the repository folder after Windows source setup:
+
+```powershell
+uv run --project core --locked python scripts/verify.py doctor
+pnpm.cmd --dir app exec playwright install chromium
+uv run --project core --locked python scripts/verify.py browser
+```
+
+On Linux (macOS can run `doctor`, `quick`, and `browser`):
 
 ```sh
 ./verify.sh doctor    # Check local tools and Linux desktop prerequisites
@@ -92,32 +99,36 @@ worktrees, and the limits of each test layer.
 CLI from the folder that holds your images, since relative paths and the `badshop_work/`
 folder resolve against it:
 
-```
-uv run --project /path/to/badshop/core badshop prep photo.jpg
-uv run --project /path/to/badshop/core badshop --help      # every command
+For example, in PowerShell, substitute the path where you extracted the project:
+
+```powershell
+uv run --project "C:\src\badshop\core" badshop prep "My photo.jpg"
+uv run --project "C:\src\badshop\core" badshop --help
 ```
 
-Or install it once as a tool (from the repository root) and drop the prefix:
+Or install the command once from the repository root, then run it from your photo folder:
 
 ```
 uv tool install ./core
 badshop prep photo.jpg
 ```
 
-A bare `uv run badshop …` works only inside `core/`. Finished images go to
-`~/Pictures/badshop/` (or `$BADSHOP_OUT`); downloaded models and fonts go to the app data
-folder (or `$BADSHOP_DATA_DIR`). Tests: `cd core && uv run pytest -q`.
+On Linux and macOS, use your checkout path in place of `C:\src\badshop`.
+Finished images go to the **badshop** folder inside **Pictures** by default. Windows uses
+the Pictures location shown in File Explorer, including a redirected OneDrive folder.
+Set `BADSHOP_OUT` to choose a different location. Downloaded models and fonts go to the
+app data folder, which you can override with `BADSHOP_DATA_DIR`.
 
 `reference/` holds the working CLI engine this app is built from (`badshop.py`, the
 Claude Code skill that drives it, and a generated catalog of every tool and parameter).
 
 ## Running the core
 
-`badshop-core` is the headless core the desktop app talks to: it holds the session (images,
-steps, replay, project files) and runs the tools and the agent.
+`badshop-core` holds the desktop app's session and runs the tools and the agent.
+To start it on its own, run this from the repository folder:
 
 ```
-uv run --project /path/to/badshop/core badshop-core serve
+uv run --project core badshop-core serve
 ```
 
 (`python -m badshop.server serve` in the project's environment does the same.) It listens on
@@ -159,13 +170,13 @@ profile file. For a local OpenAI-compatible vision server whose model is absent 
 capability catalogue:
 
 ```sh
-uv run --project core badshop chat --model openai/YOUR_LOCAL_MODEL \
-  --api-base http://127.0.0.1:1234/v1 --supports-vision --supports-tools --image photo.jpg
+uv run --project core badshop chat --model openai/YOUR_LOCAL_MODEL --api-base http://127.0.0.1:1234/v1 --supports-vision --supports-tools --image photo.jpg
 ```
 
 Only enable overrides for capabilities your model actually supports. The terminal streams
 replies, asks before image-changing calls, and accepts `y` (approve), `n` (reject), or `e`
-(edit parameters as JSON). `/import PATH` attaches an image to the next request; `/save PATH`,
+(edit parameters as JSON). In Windows terminal chat, type `/import ` and paste the result
+of File Explorer's **Copy as path** to attach a photo. `/save PATH`,
 `/open PATH`, `/restore`, `/retry` and `/quit` manage the session. Ctrl-C stops and exits;
 completed work is autosaved. `/retry` retries a provider failure without repeating finished
 tools. Use `--approval-mode auto` to allow tools without prompts.

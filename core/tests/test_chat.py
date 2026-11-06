@@ -48,6 +48,14 @@ def app():
     return CoreApp(Settings(), executor_factory=lambda **kw: InProcessExecutor())
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows File Explorer path format")
+def test_terminal_accepts_copy_as_path(private_env):
+    from badshop.cli.chat import user_path
+
+    photo = private_env / "my photo.jpg"
+    assert user_path(f'"{photo}"') == str(photo)
+
+
 def test_terminal_import_approve_edit_save_open(private_env):
     photo = private_env / "test image.png"
     Image.new("RGB", (8, 8), "red").save(photo)

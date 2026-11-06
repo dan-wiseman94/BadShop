@@ -61,7 +61,7 @@ def _user_path(path: str) -> Path:
     """A path the user picked in a file dialog. Relative paths would depend on the core's working
     folder, so they are refused, and so is "~name/..." for a user this computer doesn't have."""
     try:
-        p: Path | None = Path(path).expanduser()
+        p: Path | None = files.expand_user_path(path)
     except RuntimeError:  # pathlib can't find that user's home folder
         p = None
     if p is None or not p.is_absolute():

@@ -1,8 +1,8 @@
 # Development and testing
 
-Use `./start.sh` to develop and `./verify.sh all` to check the current source checkout.
-Run commands from the repository root; both scripts also work by absolute path from
-another directory. Verification exits nonzero if a requested check fails or is blocked.
+On Windows, follow the [source setup](windows.md#run-from-source) and double-click
+`start.cmd`. On Linux and macOS, use `./start.sh`. Run the checks below from the repository
+folder. Verification exits nonzero if a requested check fails or is blocked.
 
 ## First-time setup
 
@@ -10,6 +10,19 @@ Install the development prerequisites in [releasing.md](releasing.md#local-devel
 Python 3.12, uv, Node 22 with npm, pnpm 10 or Corepack, Rust stable, and Tauri's native
 libraries. The scripts sync dependencies from the committed lockfiles. They do not install
 system packages or change global package-manager configuration.
+
+Windows PowerShell:
+
+```powershell
+uv sync --project core --locked
+pnpm.cmd --dir app install --frozen-lockfile
+pnpm.cmd --dir app exec playwright install chromium
+uv run --project core --locked python scripts/verify.py doctor
+uv run --project core --locked python scripts/verify.py quick
+uv run --project core --locked python scripts/verify.py browser
+```
+
+Linux and macOS:
 
 ```sh
 uv sync --project core --locked
@@ -20,8 +33,7 @@ corepack pnpm@10 --dir app exec playwright install chromium
 
 If you have pnpm installed, replace `corepack pnpm@10` with `pnpm`. Browser installation
 is a separate first-time download; rerun it when the Playwright version changes.
-`./verify.sh --help` lists the modes. Windows can invoke the Python entry point directly:
-`uv run --project core --locked python scripts/verify.py quick`.
+`./verify.sh --help` lists the modes. The private-display `desktop` and `all` checks require Linux.
 
 On Arch Linux, native testing additionally needs `xorg-server-xvfb`, `xorg-xauth`,
 `xdotool`, `imagemagick`, and D-Bus (`dbus-run-session`). GTK 3, WebKitGTK 4.1, OpenSSL,

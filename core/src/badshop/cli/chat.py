@@ -8,18 +8,20 @@ import os
 import sys
 import threading
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import TextIO
 
 from badshop.engine.errors import EngineError
+from badshop.files import expand_user_path
 
 HELP = ("Type a request, or /import PATH, /save [PATH], /open PATH, /restore, /retry, /quit.\n"
         "Ctrl-C stops the current work and exits; the session is autosaved.")
 
 
 def user_path(value: str) -> str:
+    if os.name == "nt" and len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]  # File Explorer's "Copy as path" includes surrounding quotes.
     try:
-        return str(Path(value).expanduser().resolve())
+        return str(expand_user_path(value).resolve())
     except (OSError, RuntimeError, ValueError):
         raise EngineError("can't resolve that path",
                           hint="use a valid local path; check home-directory names and symbolic links") from None

@@ -131,11 +131,13 @@ def save(session: Session, path: Path) -> Path:
     path = Path(path)
     if path.suffix.lower() != EXT:
         path = path.with_name(path.name + EXT)
-    keep = sorted(session.referenced_ids())
-    missing = [aid for aid in keep if aid not in session.artifacts]
+    referenced = session.referenced_ids()
+    missing = referenced.difference(session.artifacts.meta)
     if missing:
-        raise EngineError(f"can't save: artifact {short(missing[0])} is missing from the session",
+        raise EngineError(f"can't save: artifact {short(min(missing))} is missing from the session",
                           hint="this is a bug in badshop; export the images you want to keep")
+    # The desktop lists images in insertion order. Preserve that order across Save and Open.
+    keep = [aid for aid in session.artifacts.meta if aid in referenced]
     payload = session.data.model_dump(mode="json", by_alias=True)
     payload["artifacts"] = {aid: session.artifacts.meta[aid].model_dump(mode="json", by_alias=True)
                             for aid in keep}

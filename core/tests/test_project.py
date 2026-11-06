@@ -215,7 +215,7 @@ def test_save_then_open_restores_the_session_exactly(tmp_path):
     expected = s.data.model_dump(mode="json", by_alias=True)
     expected["artifacts"] = {aid: s.artifacts.meta[aid].model_dump(mode="json") for aid in keep}
     assert reopened.data.model_dump(mode="json", by_alias=True) == expected
-    assert set(reopened.artifacts.ids()) == keep
+    assert reopened.artifacts.ids() == [aid for aid in s.artifacts.ids() if aid in keep]
     assert all(reopened.artifacts.data(aid) == s.artifacts.data(aid) for aid in keep)
     assert reopened.output_dir == tmp_path / "exports"
 
