@@ -5,20 +5,12 @@
 Use the Windows x64 installer for a PC with an Intel or AMD 64-bit processor.
 You can check yours in **Settings → System → About → System type**.
 
-1. Open [badshop Releases](https://github.com/dan-wiseman94/BadShop/releases).
-   When a release is available, expand **Assets** and download the file ending in
-   `x64-setup.exe`.
-2. If there is no release yet, sign in to GitHub and open the
-   [desktop builds for the main branch](https://github.com/dan-wiseman94/BadShop/actions/workflows/desktop.yml?query=branch%3Amain+event%3Apush).
-   Click the title of a recent run with a green check. Scroll to **Artifacts** and
-   click **badshop-windows-x64**. If the download has expired, try a newer successful run.
-3. If you downloaded a ZIP, open **Downloads** in File Explorer, right-click the
-   ZIP, choose **Extract All**, and open the extracted folder. Use File Explorer's
-   search box to find `*x64-setup.exe` if it is inside another folder.
-4. Double-click the setup file and follow the prompts. The current builds are unsigned.
+1. [Download the Windows installer](https://github.com/dan-wiseman94/BadShop/releases/download/desktop-v0.1.0/badshop_0.1.0_x64-setup.exe).
+2. Open **Downloads** in File Explorer and double-click `badshop_0.1.0_x64-setup.exe`.
+   Follow the setup prompts. This release is unsigned.
    If Windows shows **Windows protected your PC**, check that the download came from
    this repository. If you trust it and your PC allows it, choose **More info → Run anyway**.
-5. Open **Start**, type **badshop**, and launch the app. Follow
+3. Open **Start**, type **badshop**, and launch the app. Follow
    [Make your first edit](../README.md#make-your-first-edit) to try an effect and save a picture.
 
 **Downloaded “Source code” or “Code → Download ZIP”?** That ZIP contains the project files.
