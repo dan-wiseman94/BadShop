@@ -53,7 +53,7 @@ jobs:
       - run: uv sync --project core --locked --group build
       - name: Intel Mac image engine
         if: matrix.label == 'macos-x64'
-        run: uv run --project core pytest core/tests/test_cutout_paste.py core/tests/test_manifest.py core/tests/test_golden.py -q
+        run: uv run --project core pytest core/tests/test_cutout_paste.py core/tests/test_manifest.py core/tests/test_text.py core/tests/test_macos_images.py -q
       - if: runner.os == 'Windows'
         run: uv run --project core pytest core/tests/test_cli_provider.py::test_windows_job_kills_descendants_after_cli_parent_exits core/tests/test_worker.py::test_a_real_tool_gives_the_same_outcome_as_in_process core/tests/test_server_ws.py::test_the_core_stops_cleanly_when_its_stdin_closes -q
       - run: uv run --project core --group build python packaging/build_core.py
