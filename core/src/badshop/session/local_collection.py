@@ -11,7 +11,7 @@ from PIL import Image
 
 from badshop.engine import assets
 from badshop.engine.errors import EngineError
-from badshop.session.media import IMAGE_FORMATS, data_url, persist_note, picked_path, small_image, source_bytes
+from badshop.session.media import IMAGE_FORMATS, data_url, picked_path, small_image, source_bytes
 from badshop.session.models import Source
 
 EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
@@ -159,7 +159,7 @@ class LocalCollections:
             raise EngineError("indexed image changed; index the folder again before importing")
         working = session.import_image(raw, entry["name"], Source(kind="local-collection", title=entry["name"]))
         original = session.artifacts.meta.get(working.original_id or "", working)
-        persist_note(session, f"Imported {entry['name']} from selected collection", {
+        session.record_source_note(f"Imported {entry['name']} from selected collection", {
             "name": entry["name"], "sha256": entry["sha256"], "tags": entry["tags"],
             "description": entry["description"], "collection": record["name"]}, [working.id])
         return {"working": working.model_dump(mode="json"), "original": original.model_dump(mode="json")}

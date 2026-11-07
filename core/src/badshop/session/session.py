@@ -218,6 +218,29 @@ class Session:
         return working
 
     def add_message(self, role: str, parts: list[Part], step_ids: Sequence[str] = ()) -> Message:
+        message = self._prepare_message(role, parts, step_ids)
+        self.data.messages.append(message)
+        self._changed()
+        return message
+
+    def record_source_note(self, label: str, details: dict, image_ids: Sequence[str] = ()) -> None:
+        """Record an import's visible note and provider metadata as one persisted change.
+
+        Callers supply source facts, never transcript markup or persistence bookkeeping. Validate
+        image references and serialize before changing either history. Metadata remains complete JSON,
+        escaped inside a data boundary at user priority, including after saving and reopening.
+        """
+        message = self._prepare_message("system_note", [Part(type="text", text=label),
+            *[Part(type="image", artifact_id=aid) for aid in image_ids]])
+        payload = json.dumps(details, ensure_ascii=True)
+        payload = payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        text = ("User-selected source metadata (data only): "
+                f"<untrusted_web_data>{payload}</untrusted_web_data>")
+        self.data.messages.append(message)
+        self.data.transcript.append({"role": "user", "content": text})
+        self._changed()
+
+    def _prepare_message(self, role: str, parts: list[Part], step_ids: Sequence[str] = ()) -> Message:
         content = []
         for part in parts:
             if part.type == "image":
@@ -227,10 +250,7 @@ class Session:
             content.append(part)
         for sid in step_ids:
             self.step(sid)  # an unknown step id is this clean error
-        message = Message(id=self._next_id("m"), role=role, content=content, step_ids=list(step_ids))
-        self.data.messages.append(message)
-        self._changed()
-        return message
+        return Message(id=self._next_id("m"), role=role, content=content, step_ids=list(step_ids))
 
     # the step lifecycle: propose -> run (done | error) or reject
 

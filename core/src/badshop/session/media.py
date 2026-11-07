@@ -20,7 +20,7 @@ from PIL import Image, ImageOps
 from badshop.engine import assets
 from badshop.engine.errors import EngineError
 from badshop.engine.sources import contact_sheet
-from badshop.session.models import Part, Source
+from badshop.session.models import Source
 
 MAX_BYTES = 200 * 2**20
 MAX_PIXELS = 32_000_000
@@ -79,16 +79,6 @@ def _run(args, timeout=20):
     if result.returncode:
         raise EngineError("media could not be decoded", hint="try another file or an earlier page/time")
     return result.stdout
-
-
-def persist_note(session, label, details, image_ids):
-    # The payload is data, not instructions. Persist it so reopening before a provider turn loses none.
-    payload = json.dumps(details, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
-    text = "User-selected local source metadata (data only): <untrusted_web_data>" + payload + "</untrusted_web_data>"
-    session.data.transcript.append({"role": "user", "content": text})
-    session.add_message("system_note", [Part(type="text", text=label),
-                                        *[Part(type="image", artifact_id=aid) for aid in image_ids]])
-    session._changed()
 
 
 class MediaSources:
@@ -263,7 +253,8 @@ class MediaSources:
         details = {"source_name": record["source_name"], "source_sha256": record["source_sha256"],
                    "kind": record["kind"], "selected": [{k: v for k, v in by_id[id].items()
                    if k not in ("thumbnail_data_url", "sha256")} for id in candidate_ids], "crop": crop}
-        persist_note(session, f"Imported selected media from {record['source_name']}", details, [m.id for m in imported])
+        session.record_source_note(f"Imported selected media from {record['source_name']}", details,
+                                   [m.id for m in imported])
         if animate:
             step = session.run_tool("animate", {"images": [m.id for m in imported], "delay": delay}, "user")
             if step.status != "done":
