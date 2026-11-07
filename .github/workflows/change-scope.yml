@@ -1,6 +1,10 @@
 name: change scope
 on:
   workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
     outputs:
       core:
         value: ${{ jobs.scope.outputs.core }}
@@ -8,8 +12,6 @@ on:
         value: ${{ jobs.scope.outputs.frontend }}
       native:
         value: ${{ jobs.scope.outputs.native }}
-      installers:
-        value: ${{ jobs.scope.outputs.installers }}
 permissions:
   contents: read
 jobs:
@@ -19,7 +21,6 @@ jobs:
       core: ${{ steps.classify.outputs.core }}
       frontend: ${{ steps.classify.outputs.frontend }}
       native: ${{ steps.classify.outputs.native }}
-      installers: ${{ steps.classify.outputs.installers }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -27,7 +28,7 @@ jobs:
       - id: classify
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          FULL: ${{ github.event_name == 'workflow_dispatch' }}
+          FULL: ${{ inputs.full || github.event_name == 'workflow_dispatch' }}
         run: |
           args=(--base "$BASE")
           if [ "$FULL" = true ]; then args+=(--full); fi

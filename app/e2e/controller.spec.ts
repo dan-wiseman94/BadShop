@@ -1,6 +1,58 @@
 import { test, expect, python, root } from "./fixtures";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Session } from "../src/types";
+
+test("oversized image paste keeps the socket and waiting approval usable", async ({ page, core }) => {
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  let coreSockets = 0;
+  const closedSockets: string[] = [];
+  page.on("websocket", (socket) => {
+    if (new URL(socket.url()).port === String(core.port)) {
+      coreSockets++;
+      socket.on("close", () => closedSockets.push(socket.url()));
+    }
+  });
+  await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  const composer = page.getByRole("textbox", { name: "Message your agent" });
+  await composer.fill("Deep fry Lincoln.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  const approval = page.getByRole("button", { name: "Approve", exact: true });
+  await expect(approval).toBeVisible();
+  const before = (await core.call("session.get")) as Session;
+
+  await composer.evaluate((element) => {
+    const clipboardData = new DataTransfer();
+    // This payload would exceed the server's 64 MiB message cap after base64 encoding.
+    const image = new File([new Uint8Array(49 * 2 ** 20)], "too-big.png", { type: "image/png" });
+    clipboardData.items.add(image);
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData }));
+  });
+  await expect(page.getByText(/exceeds the 47 MiB paste limit/)).toBeVisible();
+  expect(await core.call("session.get")).toEqual(before);
+  await expect(approval).toBeVisible();
+
+  await composer.evaluate(async (element) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 4;
+    const image = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not encode fixture")));
+    });
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(new File([image], "small.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData }));
+  });
+  await expect.poll(async () => {
+    const after = (await core.call("session.get")) as Session;
+    return Object.values(after.artifacts).some((artifact) => artifact.width === 4 && artifact.height === 4);
+  }).toBe(true);
+  expect(coreSockets).toBe(1);
+  expect(closedSockets).toEqual([]);
+  await approval.click();
+  await expect(page.getByText("The pixels are thoroughly questionable.")).toBeVisible();
+});
+
 test("chat, approval, edit, replay, save, open, manual tools and export use the real core", async ({
   page,
   core,

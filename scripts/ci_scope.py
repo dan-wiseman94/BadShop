@@ -8,8 +8,8 @@ import subprocess
 
 def classify(paths: list[str], full: bool = False) -> dict:
     if full:
-        return dict(core=True, frontend=True, native=True, installers=True, reason='Explicit full validation')
-    result = dict(core=False, frontend=False, native=False, installers=False)
+        return dict(core=True, frontend=True, native=True, reason='Explicit full validation')
+    result = dict(core=False, frontend=False, native=False)
     for path in paths:
         if (path.endswith('.md') and path.startswith(('docs/', 'skills/'))) or path in ('AGENTS.md', 'README.md', 'LICENSE'):
             continue
@@ -19,9 +19,8 @@ def classify(paths: list[str], full: bool = False) -> dict:
             result['frontend'] = True
         elif path.startswith('app/src/'):
             result['frontend'] = True
-            result['installers'] = True  # renderer changes can fail only in WebKit
         else:
-            result.update(core=True, frontend=True, native=True, installers=True)
+            result.update(core=True, frontend=True, native=True)
     return result | {'reason': 'Changed-path classification; unknown/shared paths broaden coverage'}
 
 
@@ -45,7 +44,7 @@ def main() -> int:
     print(json.dumps(scope, indent=2))
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
-            for key in ('core', 'frontend', 'native', 'installers'):
+            for key in ('core', 'frontend', 'native'):
                 out.write(f'{key}={str(scope[key]).lower()}\n')
     return 0
 

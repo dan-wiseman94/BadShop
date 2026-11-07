@@ -406,9 +406,7 @@ def test_import_run_get_and_events(env, monkeypatch):
 
 
 def test_a_pasted_image_has_the_import_limit_and_is_decoded_off_the_loop(env, monkeypatch):
-    """artifacts.import's `data` has the same MAX_IMPORT_BYTES limit as a picked file, checked on the base64
-    length before anything is decoded; and it is decoded in the locked call's thread, never on the event
-    loop, so a big paste doesn't stall every client."""
+    """Paste has a separate limit checked before decoding, which runs off the event loop."""
     decoded_in: list[threading.Thread] = []
     decode = server_app._decode_paste
 
@@ -421,7 +419,7 @@ def test_a_pasted_image_has_the_import_limit_and_is_decoded_off_the_loop(env, mo
     async def body(app):
         c = Client(app)
         # lincoln.png is 249419 bytes, so its base64 ends in "=": the limit is on the decoded size exactly
-        monkeypatch.setattr(server_app, "MAX_IMPORT_BYTES", len(LINCOLN) - 1)
+        monkeypatch.setattr(server_app, "MAX_PASTE_BYTES", len(LINCOLN) - 1)
         with pytest.raises(Failed) as e:
             await imported(c)
         assert (e.value.code, e.value.message) == (rpc.ENGINE_ERROR, "lincoln.png is too big to import")
@@ -430,7 +428,7 @@ def test_a_pasted_image_has_the_import_limit_and_is_decoded_off_the_loop(env, mo
             await c.call("artifacts.import", data="!" * (2 * len(LINCOLN)))
         assert e.value.message == "the pasted image is too big to import"
         assert decoded_in == [] and app.session.artifacts.ids() == []
-        monkeypatch.setattr(server_app, "MAX_IMPORT_BYTES", len(LINCOLN))  # the limit itself is allowed
+        monkeypatch.setattr(server_app, "MAX_PASTE_BYTES", len(LINCOLN))  # the limit itself is allowed
         assert app.session.artifacts.meta[await imported(c)].label == "lincoln_work"
         assert len(decoded_in) == 1 and decoded_in[0] is not threading.main_thread()  # the loop's thread
         with pytest.raises(Failed) as e:  # within the limit, bad base64 is still refused (in the thread)

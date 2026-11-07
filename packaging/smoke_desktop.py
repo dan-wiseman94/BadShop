@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import psutil
@@ -149,8 +150,9 @@ def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
     return command
 
 
-def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90,
-          restart_core: bool = False) -> None:
+def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90, *,
+          webview_profile: Path | None = None,
+          exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
         root = Path(folder)
         env = dict(os.environ)
@@ -169,7 +171,11 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
             env[key] = str(root / suffix)
         env.pop('WAYLAND_DISPLAY', None)
         env.pop('BADSHOP_FAKE_PROVIDER', None)
-        ready_path = root / 'renderer-ready.json'
+        if sys.platform == 'win32':
+            env['WEBVIEW2_USER_DATA_FOLDER'] = str((webview_profile or root / 'webview').resolve())
+            if webview_profile is not None:
+                env['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=0'
+        ready_file = root / 'renderer-ready.json'
         nonce = secrets.token_hex(16)
         env['BADSHOP_SMOKE_READY_FILE'] = str(ready_path)
         env['BADSHOP_SMOKE_NONCE'] = nonce
@@ -253,17 +259,15 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                     assert proc.poll() is None, 'Shell exited before its first paint'
                     assert time.monotonic() < paint_deadline, 'Webview screenshot is blank after 30 seconds'
                     time.sleep(.5)
-                children = psutil.Process(proc.pid).children(recursive=True)
-                normal_close(window_pid, window)
-                if exercise_close:
-                    wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
-                    capture_window(window, shot.with_name(shot.stem + '-close.png').resolve())
-                    native_keys(window, 'Escape')
-                    wait_renderer(proc, ready_path, ports, nonce, close_pending=False, unsaved=True)
-                    assert proc.poll() is None, 'Cancel closed the native app'
+                def close() -> None:
+                    nonlocal children
+                    children = psutil.Process(proc.pid).children(recursive=True)
                     normal_close(window_pid, window)
-                    wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
-                    native_keys(window, 'Tab', 'Return')  # Cancel -> Discard
+
+                if exercise is None:
+                    close()
+                else:
+                    exercise(window_pid, window, close)
                 assert proc.wait(timeout=15) == 0, 'Native close returned a failure exit code'
                 _, alive = psutil.wait_procs(children, timeout=5)
                 survivors = []
@@ -299,15 +303,10 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 psutil.wait_procs(children, timeout=5)
                 if screenshot:
                     screenshot.parent.mkdir(parents=True, exist_ok=True)
-                    screenshot.with_suffix('.log').write_text(log_path.read_text())
-                    if ready_path.exists():
-                        screenshot.with_suffix('.ready.json').write_bytes(ready_path.read_bytes())
-                    retained = screenshot.with_name(screenshot.stem + '-logs')
-                    for source in root.rglob('*.log'):
-                        destination = retained / source.relative_to(root)
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(source, destination)
-                print(log_path.read_text()[-5000:])
+                    screenshot.with_suffix('.log').write_bytes(log_path.read_bytes())
+                    if ready_file.exists():
+                        screenshot.with_suffix('.ready.json').write_bytes(ready_file.read_bytes())
+                print(log_path.read_text(encoding='utf-8', errors='replace')[-5000:])
 
 
 if __name__ == '__main__':

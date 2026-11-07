@@ -76,7 +76,12 @@ def main() -> None:
                 assert platform.machine() in architectures, f'Wrong Mac architecture for {binary}: {architectures}'
             print(f'Installed macOS resource directory: {resources}', flush=True)
         try:
-            smoke([str(executable)], args.screenshot)
+            if sys.platform == 'win32':
+                from smoke_windows_edit import smoke_editing
+
+                smoke_editing(executable, args.screenshot, ROOT / 'core/tests/fixtures/lincoln.png', root)
+            else:
+                smoke([str(executable)], args.screenshot)
         finally:
             if uninstaller:
                 # NSIS's _?= form runs in place rather than starting a detached temp copy.
