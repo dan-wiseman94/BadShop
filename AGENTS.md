@@ -15,6 +15,11 @@
 
 ## Development and verification
 
+- Multiple agent sessions may be working on BadShop at the same time. Record the latest
+  `origin/main` commit at the start of the task after fetching. Before handoff or
+  integration, fetch again and compare `origin/main` with that starting commit. If it
+  has advanced, review the intervening changes for overlap and report anything that
+  affects your work. If the fetch fails, report that you could not verify the remote tip.
 - Use an isolated worktree for each task. Prefer the agent platform's managed worktree
   tool when available; otherwise follow `docs/development.md`. Reuse an existing worktree
   for the same task. Do not stash, reset, or commit unrelated work in the user's checkout.
