@@ -6,37 +6,7 @@ import "../localMedia.css";
 import { action, useCoreQuery, useSession } from "../data";
 import { chooseMediaFile, chooseCollectionFolder } from "../native";
 import { useUI } from "../store";
-import type { Artifact } from "../types";
-
-type Frame = {
-  id: string;
-  label: string;
-  time_s?: number;
-  page?: number;
-  thumbnail_data_url: string;
-  width: number;
-  height: number;
-};
-type Preview = {
-  id: string;
-  source_name: string;
-  kind: string;
-  width: number;
-  height: number;
-  sheet_data_url: string;
-  candidates: Frame[];
-  warnings: string[];
-};
-type Indexed = {
-  id: string;
-  name: string;
-  tags: string[];
-  description: string;
-  thumbnail_data_url: string;
-  width: number;
-  height: number;
-  duplicate_of?: string | null;
-};
+import type { Artifact, MediaPreview, CollectionEntry } from "../types";
 
 export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   const { busy, error, notice, setNotice, perform } = useOperation();
@@ -45,7 +15,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<MediaPreview | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [crop, setCrop] = useState<number[] | null>(null);
   const [origin, setOrigin] = useState<number[] | null>(null);
@@ -53,8 +23,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   const [delay, setDelay] = useState(100);
   const [collection, setCollection] = useState("");
   const [query, setQuery] = useState("");
-  const [entries, setEntries] = useState<Indexed[]>([]);
-  const [editing, setEditing] = useState<Indexed | null>(null);
+  const [entries, setEntries] = useState<CollectionEntry[]>([]);
+  const [editing, setEditing] = useState<CollectionEntry | null>(null);
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
 

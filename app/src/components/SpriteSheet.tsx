@@ -1,6 +1,7 @@
 import { Button } from "./Button";
 import { InputField, SelectField } from "./Fields";
 import { useState } from "react";
+import { useOperation } from "../useOperation";
 import { action, imageUrl, useArtifact, useSession } from "../data";
 import { useUI } from "../store";
 import { ArtifactThumb } from "./Viewer";
@@ -72,9 +73,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
     indices: number[];
   }>({ key: "", indices: [] });
   const [results, setResults] = useState<{ id: string; cell: SheetCell }[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const { busy, error, notice, setError, setNotice, perform } = useOperation();
   const artifacts = Object.values(session?.artifacts ?? {});
   const originals = new Set(artifacts.map((a) => a.original_id).filter(Boolean));
   const images = artifacts.filter((a) => !originals.has(a.id));
@@ -109,10 +108,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
   }
   async function extract(indices: number[]) {
     if (disabled || !source || gridError || !indices.length || indices.length > 64) return;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
+    await perform(async () => {
       const step = await action("tools.run", {
         tool: "slice_sheet",
         params: {
@@ -134,11 +130,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
       step.outputs.forEach(onAttach);
       useUI.getState().set({ selectedArtifact: step.outputs[0] });
       setNotice(`${indices.length} cells extracted and attached to chat.`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
   return (
     <div>

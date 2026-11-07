@@ -5,16 +5,9 @@ import { useState } from "react";
 import { action, queries, useCoreQuery, useSession } from "../data";
 import { packPath } from "../native";
 import { useUI } from "../store";
+import type { LayoutDefinition } from "../types";
 
-type Box = [number, number, number, number];
-type Layout = {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  max_images: number;
-  slots: { name: string; box: Box; caption_box: Box; mask: string }[];
-};
+type Box = LayoutDefinition["slots"][number]["box"];
 export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
   const { busy, error, notice, setNotice, perform } = useOperation();
   const { data: definitions = [] } = useCoreQuery("layouts.list");
@@ -31,7 +24,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
 
   const ready = useUI((s) => s.status === "ready");
   const disabled = !ready || busy || !!session?.turn_running;
-  const definition = (definitions as Layout[]).find((item) => item.id === template);
+  const definition = definitions.find((item) => item.id === template);
 
   function replace<T>(previous: T[], index: number, value: T): T[] {
     const next = previous.slice();
@@ -136,7 +129,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
               setBoxes(null);
             }}
           >
-            {(definitions as Layout[]).map((item) => (
+            {definitions.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name} ({item.max_images} slots)
               </option>
