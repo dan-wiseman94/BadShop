@@ -1,0 +1,66 @@
+name: maintenance
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: maintenance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: uv sync --project core --locked --only-group quality --only-group dev --no-install-project
+      - run: pnpm --dir app install --frozen-lockfile
+      - name: Architecture contracts
+        env:
+          PYTHONPATH: core/src
+        run: uv run --project core --no-sync lint-imports --no-cache
+      - name: Execution ownership and Python unused imports
+        run: uv run --project core --no-sync ruff check --config core/pyproject.toml core/src
+      - name: High-confidence Python dead code
+        run: uv run --project core --no-sync vulture core/src --min-confidence 100
+      - name: Unused frontend files and dependencies
+        run: pnpm --dir app check:unused:strict
+      - name: Guard negative controls and growth report tests
+        run: uv run --project core --no-sync python scripts/maintenance_tests.py
+      - name: Advisory unused symbols
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p artifacts/verification/maintenance
+          pnpm --dir app exec knip --reporter markdown --no-exit-code > artifacts/verification/maintenance/knip.md
+          status=0
+          uv run --project core --no-sync vulture core/src --min-confidence 60 > artifacts/verification/maintenance/vulture.txt || status=$?
+          # Vulture returns 3 for findings; other nonzero codes are tool failures.
+          if [ "$status" != 0 ] && [ "$status" != 3 ]; then exit "$status"; fi
+          cat artifacts/verification/maintenance/knip.md >> "$GITHUB_STEP_SUMMARY"
+          printf '\n### Python candidates (advisory; dynamic usage needs review)\n\n```text\n' >> "$GITHUB_STEP_SUMMARY"
+          cat artifacts/verification/maintenance/vulture.txt >> "$GITHUB_STEP_SUMMARY"
+          printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Advisory PR growth
+        if: ${{ !cancelled() }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then BASE=HEAD^; fi
+          uv run --project core --no-sync python scripts/maintenance_report.py --base "$BASE" --head HEAD --output artifacts/verification/maintenance/growth.md
+          cat artifacts/verification/maintenance/growth.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: maintenance-reports
+          path: artifacts/verification/maintenance

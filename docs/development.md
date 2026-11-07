@@ -295,3 +295,72 @@ coverage. Manual dispatch requests all core and desktop checks. Pushing a `v*`
 tag starts the installer build and smoke-test matrix, which covers the packaged
 WebKit renderer. `core-result` and `desktop-result` report the selected checks
 and intentional skips.
+
+## Preventing code bloat
+
+Before adding code, name the current owner and callers of the behavior. Reuse the
+engine's pixel operations, the tool registry's schemas, and session execution for
+application tool calls. Providers adapt protocols; React renders core state and
+owns presentation interactions, not another domain model. The standalone parity
+CLI deliberately calls the runner with FileStore. Shared validation/error helpers
+remain available to approvals and RPC. Import Linter checks engine/tool boundaries
+and direct provider execution dependencies; Ruff TID251 prevents direct runner
+execution outside session and the standalone CLI. These static checks cannot prove
+that arbitrary UI logic or dynamic imports respect the architecture; review still must.
+
+New abstractions need current callers or a concrete boundary. Replacements remove
+obsolete paths, dependencies, flags and redundant tests in the same change.
+Compatibility code identifies the supported version/project format and its removal
+condition. No hard file-size or line-count cap: splitting or compressing code without
+reducing responsibilities is not improvement.
+
+Install the development-only analyzers (they are not runtime dependencies):
+
+```sh
+uv sync --project core --locked --group quality
+pnpm --dir app install --frozen-lockfile
+```
+
+Run relevant checks from the repository root:
+
+```sh
+# Architecture contracts; Windows PowerShell: $env:PYTHONPATH = 'core/src'
+PYTHONPATH=core/src uv run --project core --no-sync lint-imports --no-cache
+uv run --project core --no-sync ruff check --config core/pyproject.toml core/src
+uv run --project core --no-sync vulture core/src --min-confidence 100
+pnpm --dir app check:unused:strict
+
+# Advisory candidates: nonzero means findings; investigate before deleting.
+pnpm --dir app check:unused
+uv run --project core --no-sync vulture core/src --min-confidence 60
+
+# Compare the working tree to its merge-base, including new untracked source.
+uv run --project core --no-sync python scripts/maintenance_report.py --base origin/main
+# Test changes to these guards/report, without starting the application.
+uv run --project core --no-sync python scripts/maintenance_tests.py
+```
+
+The maintenance workflow runs on PRs and main pushes. It blocks on import contracts,
+Ruff, high-confidence Vulture findings, and Knip's unused files/dependencies or broken
+imports. Export/type candidates and lower-confidence Python findings remain advisory
+in the job summary and retained artifacts. A tool failure is not a clean result.
+Knip recognizes Vite, Vitest and Playwright entry points. Its only dependency exception,
+`tailwindcss`, is imported by `app/src/style.css`, which Knip does not resolve here.
+Do not mark every source file as an entry point or blanket-ignore dynamic registries.
+For Python, Pydantic fields, registered handlers, callbacks, and platform-specific
+entry points need caller/registration review before removal. No blanket whitelist is
+used; add narrow, explained exceptions only for demonstrated false positives.
+
+Growth uses the PR merge-base as its existing-code baseline, so old large files do
+not fail a new change. It reports physical production lines (including CSS), direct
+runtime/development dependency changes, and per-function Lizard cyclomatic complexity
+increases for Python, TypeScript/TSX and Rust. Same-name functions in one file use the
+maximum complexity; renamed functions can appear new. This is a review aid, not a
+semantic proof, size budget or request to refactor unrelated code. Local reports include
+untracked source; CI reports committed HEAD. Review generated reports rather than
+committing a second inventory of source symbols. The first baseline is the existing
+code at the merge-base; no existing candidate is silently suppressed.
+
+Use the questions in [diff-review.md](diff-review.md): what can this delete, is there
+another source of truth, and does each abstraction remove actual duplication or isolate
+a real boundary? Dependencies need an actual use and should be removed with that use.

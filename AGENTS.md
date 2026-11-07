@@ -62,3 +62,18 @@
   A missing prerequisite, timeout, skipped layer, or failed build is not a passing check.
   Never describe browser prompt fallbacks as verified native dialogs or a source debug
   build as a tested installer. See `docs/releasing.md` for packaged-platform validation.
+
+## Keep changes lean
+
+- Before implementation, identify the existing owner and callers of the behavior.
+  Reuse that path; new abstractions need current callers or a concrete isolation boundary.
+  Do not build extension points for hypothetical requirements.
+- When replacing a path, remove its obsolete implementation, dependencies, flags and
+  redundant tests in the same change. Compatibility paths must name the supported
+  version or persisted format and the condition for removing them.
+- Preserve engine/session/provider/UI ownership. A new source of truth or execution
+  path needs an explicit architectural justification; see docs/development.md.
+- Run the relevant maintenance checks documented there. Treat analyzer findings as
+  evidence to investigate, not permission to delete dynamically invoked code.
+- Review code/dependency/complexity growth against the requested behavior. Do not
+  split files, compress code, or weaken tests merely to satisfy a numeric target.

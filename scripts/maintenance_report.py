@@ -1,0 +1,128 @@
+"""Advisory production growth against a Git base; never execute code from that base."""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import tomllib
+from pathlib import Path
+
+import lizard
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOTS = ('core/src/', 'app/src/', 'app/src-tauri/src/')
+SOURCE_SUFFIXES = {'.py', '.ts', '.tsx', '.rs', '.css'}
+MANIFESTS = ('core/pyproject.toml', 'app/package.json', 'app/src-tauri/Cargo.toml')
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.check_output(['git', '-C', str(root), *args], text=True, encoding='utf-8')
+
+
+def snapshot(root: Path, revision: str | None) -> dict[str, str]:
+    names = (git(root, 'ls-tree', '-r', '--name-only', '-z', revision) if revision else
+             git(root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'))
+    result = {}
+    for name in sorted(set(names.rstrip('\0').split('\0'))):
+        if name not in MANIFESTS and not (name.startswith(SOURCE_ROOTS) and Path(name).suffix in SOURCE_SUFFIXES):
+            continue
+        if revision:
+            result[name] = git(root, 'show', f'{revision}:{name}')
+        elif (root / name).is_file():
+            result[name] = (root / name).read_text(encoding='utf-8')
+    return result
+
+
+def dependencies(files: dict[str, str]) -> dict[str, str]:
+    result = {}
+    for path in MANIFESTS:
+        if path not in files:
+            continue
+        data = json.loads(files[path]) if path.endswith('.json') else tomllib.loads(files[path])
+        if path == 'core/pyproject.toml':
+            groups = {'runtime': data['project'].get('dependencies', []), **data.get('dependency-groups', {})}
+            for group, values in groups.items():
+                for value in values:
+                    if isinstance(value, str):
+                        # Preserve platform-specific requirements separately.
+                        name = re.split(r'[<>=!~\[; ]', value, maxsplit=1)[0]
+                        marker = value.partition(';')[2].strip()
+                        result[f'{path}:{group}:{name}:{marker}'] = value
+        else:
+            def visit(table, prefix=''):
+                for key, value in table.items():
+                    if key in ('dependencies', 'devDependencies', 'dev-dependencies', 'build-dependencies'):
+                        for name, spec in value.items():
+                            result[f'{path}:{prefix}{key}:{name}'] = json.dumps(spec, sort_keys=True)
+                    elif isinstance(value, dict):
+                        visit(value, prefix + key + '.')
+            visit(data)
+    return result
+
+
+def complexity(path: str, source: str) -> dict[str, int]:
+    if Path(path).suffix == '.css':
+        return {}
+    functions = lizard.analyze_file.analyze_source_code(path, source).function_list
+    result = {}
+    for function in functions:
+        # Same-name overloads/callbacks are represented by their maximum, not a guessed identity.
+        key = function.long_name
+        result[key] = max(result.get(key, 0), function.cyclomatic_complexity)
+    return result
+
+
+def report(before: dict[str, str], after: dict[str, str]) -> str:
+    lines = ['# Maintenance growth (advisory)', '',
+             'Physical source lines include comments/blank lines. CCN is Lizard cyclomatic complexity;',
+             'same-name functions use their maximum. These are review signals, not limits.', '',
+             '| Production file | Before lines | After lines | Delta |', '| --- | ---: | ---: | ---: |']
+    increases = []
+    for path in sorted(before.keys() | after.keys()):
+        if path in MANIFESTS or before.get(path) == after.get(path):
+            continue
+        old, new = before.get(path, ''), after.get(path, '')
+        a, b = len(old.splitlines()), len(new.splitlines())
+        lines.append(f'| `{path}` | {a} | {b} | {b-a:+d} |')
+        old_cc = complexity(path, old)
+        for name, value in complexity(path, new).items():
+            previous = old_cc.get(name, 0)
+            if value > previous:
+                label = name.replace('|', '\\|').replace('`', '')
+                increases.append((value-previous, f'- `{path}` — `{label}`: {previous} → {value}'))
+    old_total = sum(len(s.splitlines()) for p, s in before.items() if p not in MANIFESTS)
+    new_total = sum(len(s.splitlines()) for p, s in after.items() if p not in MANIFESTS)
+    lines += ['', f'Total production lines: {old_total} → {new_total} ({new_total-old_total:+d}).', '',
+              '## Function complexity increases', '']
+    lines += [text for _, text in sorted(increases, reverse=True)] or ['None.']
+    lines += ['', '## Direct dependency changes (runtime and development)', '']
+    old_deps, new_deps = dependencies(before), dependencies(after)
+    changes = []
+    for key in sorted(old_deps.keys() | new_deps.keys()):
+        if old_deps.get(key) != new_deps.get(key):
+            changes.append(f'- `{key}`: `{old_deps.get(key, "absent")}` → `{new_deps.get(key, "removed")}`')
+    lines += changes or ['None.']
+    return '\n'.join(lines) + '\n'
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--base', required=True, help='PR base SHA or local base ref; compare from its merge-base')
+    parser.add_argument('--head', help='Commit to inspect; omit to inspect current tracked/untracked source')
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args()
+    base = git(ROOT, 'rev-parse', '--verify', args.base + '^{commit}').strip()
+    head = git(ROOT, 'rev-parse', '--verify', (args.head or 'HEAD') + '^{commit}').strip()
+    base = git(ROOT, 'merge-base', base, head).strip()
+    text = f'Base: `{base}`; head: `{head if args.head else "working tree"}`\n\n'
+    text += report(snapshot(ROOT, base), snapshot(ROOT, head if args.head else None))
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text, encoding='utf-8')
+    else:
+        print(text, end='')
+
+
+if __name__ == '__main__':
+    main()
