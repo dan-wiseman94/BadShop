@@ -23,19 +23,48 @@ from smoke_desktop import smoke
 
 def choose_file(pid: int, window: int, path: Path) -> None:
     """Use the owned Windows common dialog, scoped to the app and its window."""
-    dialog = Desktop(backend='uia').window(process=pid, class_name='#32770')
-    dialog.wait('visible enabled', timeout=20)
-    # GetWindow(GW_OWNER) must match the shell window. Never submit to another dialog.
     user = ctypes.WinDLL('user32', use_last_error=True)
+    visit_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user.EnumWindows.argtypes = [visit_type, wintypes.LPARAM]
+    user.IsWindowVisible.argtypes = [wintypes.HWND]
+    user.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
     user.GetWindow.restype = wintypes.HWND
-    assert user.GetWindow(dialog.handle, 4) == window, 'The file dialog does not belong to BadShop'
+
+    # The Common Item Dialog can be visible in Win32 while UIA's Desktop
+    # enumeration misses it. Find the native HWND first, using the owner chain.
+    dialogs = []
+
+    @visit_type
+    def visit(hwnd, _):
+        name = ctypes.create_unicode_buffer(256)
+        user.GetClassNameW(hwnd, name, len(name))
+        if name.value != '#32770' or not user.IsWindowVisible(hwnd):
+            return True
+        owner = user.GetWindow(hwnd, 4)  # GW_OWNER
+        while owner and owner != window:
+            owner = user.GetWindow(owner, 4)
+        if owner == window:
+            dialogs.append(hwnd)
+        return True
+
+    deadline = time.monotonic() + 20
+    while not dialogs and time.monotonic() < deadline:
+        user.EnumWindows(visit, 0)
+        if not dialogs:
+            time.sleep(.2)
+    assert len(dialogs) == 1, f'Expected one visible native file dialog owned by BadShop PID {pid}, got {dialogs}'
+    hwnd, = dialogs
+    dialog = Desktop(backend='uia').window(handle=hwnd)
     filename = dialog.child_window(auto_id='1001', control_type='Edit')
     if not filename.exists(timeout=1):
         filename = dialog.child_window(auto_id='1148', control_type='ComboBox').child_window(control_type='Edit')
     filename.set_edit_text(str(path))
     dialog.child_window(auto_id='1', control_type='Button').invoke()
-    dialog.wait_not('visible', timeout=20)
+    deadline = time.monotonic() + 20
+    while user.IsWindowVisible(hwnd):
+        assert time.monotonic() < deadline, f'Native file dialog did not close for {path.name}'
+        time.sleep(.2)
 
 
 def viewer_hash(page: Page) -> str:
