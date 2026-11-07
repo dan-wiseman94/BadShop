@@ -81,7 +81,9 @@ fn kill_group(_child: &Child) {
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
         }
-        unsafe { kill(-(_child.id() as i32), 9); }
+        unsafe {
+            kill(-(_child.id() as i32), 9);
+        }
     }
 }
 
@@ -382,8 +384,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pidfile = dir.path().join("pid");
         let mut child = Command::new("/bin/sh")
-            .args(["-c", "sleep 120 & echo $! > \"$1\"", "_", pidfile.to_str().unwrap()])
-            .stdin(Stdio::piped()).process_group(0).spawn().unwrap();
+            .args([
+                "-c",
+                "sleep 120 & echo $! > \"$1\"",
+                "_",
+                pidfile.to_str().unwrap(),
+            ])
+            .stdin(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap();
         assert!(child.wait().unwrap().success());
         let pid = fs::read_to_string(&pidfile).unwrap();
         terminate(&mut child);
@@ -397,7 +407,10 @@ mod tests {
                 if text.is_empty() || text.split(") ").nth(1).unwrap_or("").starts_with('Z') {
                     break;
                 }
-                assert!(Instant::now() < deadline, "core descendant survived shutdown");
+                assert!(
+                    Instant::now() < deadline,
+                    "core descendant survived shutdown"
+                );
                 thread::sleep(Duration::from_millis(10));
             }
         }

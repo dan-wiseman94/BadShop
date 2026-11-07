@@ -19,6 +19,7 @@ import stat
 import struct
 import time
 import zipfile
+from typing import BinaryIO
 import zlib
 from pathlib import Path, PurePosixPath
 
@@ -171,7 +172,8 @@ def save(session: Session, path: Path) -> Path:
             os.fsync(fh.fileno())
         with contextlib.suppress(FileNotFoundError):
             os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
-        _preflight(tmp)
+        with tmp.open("rb") as file:
+            _preflight(path, file)
         os.replace(tmp, path)
     except BaseException as e:
         if created:
@@ -319,20 +321,16 @@ def _finish_interrupted(data: SessionData, artifacts: ArtifactStore) -> None:
             step.result_text = result_text(step, artifacts)
 
 
-def _preflight(path: Path) -> None:
-    """Bound ZIP's central-directory allocation before constructing ZipFile.
+def _preflight(path: Path, file: BinaryIO) -> BinaryIO:
+    """Bound directory allocation on the stream ZipFile will actually read."""
+    from badshop.archives import check_directory
 
-    CPython's end-record reader reads at most the 64 KiB ZIP comment plus fixed
-    ZIP64 records. ZipFile itself eagerly allocates the complete directory before
-    our member checks can run. Supported Python versions are pinned in pyproject.
-    """
-    if path.stat().st_size > MAX_ARCHIVE_BYTES:
-        raise _too_big(path, "archive exceeds the on-disk size limit")
-    with path.open("rb") as file:
-        end = zipfile._EndRecData(file)
-    if end is not None and (end[zipfile._ECD_SIZE] > MAX_DIRECTORY_BYTES
-                            or end[zipfile._ECD_ENTRIES_TOTAL] > MAX_MEMBERS):
-        raise _too_big(path, "too many members or too much ZIP directory metadata")
+    try:
+        check_directory(file, archive_bytes=MAX_ARCHIVE_BYTES,
+                        directory_bytes=MAX_DIRECTORY_BYTES, members=MAX_MEMBERS)
+    except ValueError as e:
+        raise _too_big(path, str(e)) from None
+    return file
 
 
 def open_project(path: Path, **session_kw) -> Session:
@@ -346,8 +344,7 @@ def open_project(path: Path, **session_kw) -> Session:
     an EngineError; nothing outside the returned Session changes."""
     path = Path(path)
     try:
-        _preflight(path)
-        with zipfile.ZipFile(path) as zf:
+        with path.open("rb") as file, zipfile.ZipFile(_preflight(path, file)) as zf:
             members = _index(path, zf)
             try:
                 info = zf.getinfo(SESSION_JSON)

@@ -146,6 +146,10 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
         env.setdefault('FLATPAK_USER_DIR', str(Path(env.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'flatpak'))
         if sys.platform == 'linux':
             env['GDK_BACKEND'] = 'x11'
+            # Private Xvfb has no accelerated display. Mesa 26.2.2's Gallium
+            # teardown can abort WebKitWebProcess even after a clean shell exit.
+            # This harness setting does not change production Wayland rendering.
+            env.setdefault('WEBKIT_DISABLE_COMPOSITING_MODE', '1')
         for key, suffix in [('XDG_CONFIG_HOME', 'config'), ('XDG_DATA_HOME', 'data'),
                             ('XDG_CACHE_HOME', 'cache'), ('XDG_STATE_HOME', 'state'),
                             ('BADSHOP_CONFIG_DIR', 'core-config'), ('BADSHOP_DATA_DIR', 'core-data'),

@@ -5,6 +5,7 @@ import dataclasses
 import hashlib
 import inspect
 import re
+import subprocess
 import sys
 import tomllib
 import typing
@@ -120,6 +121,31 @@ def test_manifest_lists_every_download_once():
         assert (font.url, font.sha256, font.size) == pin
     offered = {a.rembg_model: a.md5 for a in manifest.ASSETS if a.rembg_model}
     assert offered == REMBG_MD5 and set(offered) == set(typing.get_args(cutout.RembgModel))
+
+
+def test_asset_status_does_not_load_inference_runtime(homes):
+    result = subprocess.run([sys.executable, "-c", """
+import sys
+from badshop.engine.manifest import status
+assert len(status()) == 7
+assert not any(name.split(".")[0] in {"rembg", "onnxruntime"} for name in sys.modules)
+"""], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("legacy", [None, "", "legacy-models"])
+def test_lightweight_model_path_matches_rembg(homes, monkeypatch, legacy):
+    from rembg.sessions import sessions
+
+    monkeypatch.setenv("REMBG_HOME", str(homes / "current-models"))
+    if legacy is None:
+        monkeypatch.delenv("U2NET_HOME")
+    else:
+        monkeypatch.setenv("U2NET_HOME", str(homes / legacy) if legacy else "")
+    for asset in manifest.ASSETS:
+        if asset.rembg_model:
+            actual = manifest.asset_path(asset)
+            assert actual == Path(sessions[asset.rembg_model].model_dir()) / f"{asset.rembg_model}.onnx"
 
 
 def test_rembg_assets_are_rembgs_own_files():

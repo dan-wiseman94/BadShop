@@ -1,9 +1,11 @@
 import json
+import io
 import struct
 import sys
 import zipfile
 
 import pytest
+from PIL import Image
 
 from badshop.engine.errors import EngineError
 from badshop.session import project
@@ -25,12 +27,21 @@ def write_project(path, payload):
 def test_ambiguous_timeline_identity_is_rejected(tmp_path, mutation, problem):
     session = Session.new()
     session.add_message("user", [Part(type="text", text="hello")])
+    image = io.BytesIO()
+    Image.new("RGB", (2, 2), "red").save(image, "PNG")
+    artifact = session.import_image(image.getvalue(), "photo")
+    session.run_tool("info", {"image": artifact.id}, "user")
+    path = project.save(session, tmp_path / "bad.badshop")
+    with zipfile.ZipFile(path) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
     payload = session.data.model_dump(mode="json", by_alias=True)
-    payload["steps"] = [{"id": "s1", "index": 1, "tool": "info", "params": {"image": "a" * 64},
-                         "actor": "user", "status": "rejected"}]
     mutation(payload)
+    members["session.json"] = json.dumps(payload).encode()
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, value in members.items():
+            archive.writestr(name, value)
     with pytest.raises(EngineError, match=problem):
-        project.open_project(write_project(tmp_path / "bad.badshop", payload))
+        project.open_project(path)
 
 
 def test_duplicate_session_member_is_rejected(tmp_path):

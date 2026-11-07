@@ -10,13 +10,17 @@ import json
 import math
 import os
 import stat
+import struct
 import time
 import uuid
 import zipfile
+import zlib
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 from pydantic import ValidationError
+
+from badshop.archives import check_directory
 
 from badshop.engine.common import font
 from badshop.engine.errors import EngineError
@@ -28,6 +32,8 @@ from badshop.session.session import Session
 MAX_PACK = 80 * 2**20
 MAX_ENTRY = 20 * 2**20
 MAX_ITEMS = 100
+MAX_DIRECTORY = 2**20
+READ_CHUNK = 2**20
 BUILTINS = {
     "school-lab": ("School computer lab", "Gold stars, certificates, pointing arrows and A+ badges",
                    ["GOLD STAR", "A+", "GOOD JOB", "LOOK HERE"]),
@@ -261,17 +267,35 @@ def export_pack(library: AssetLibrary, ids: list[str], path: str, name: str = "M
     return {"path": str(destination), "count": len(entries)}
 
 
+def _checked_pack(file):
+    check_directory(file, archive_bytes=MAX_PACK + 2 * 2**20,
+                    directory_bytes=MAX_DIRECTORY, members=MAX_ITEMS * 2 + 1)
+    return file
+
+
+def _read_member(archive: zipfile.ZipFile, name: str, cap: int) -> bytes:
+    # Even a lying size header cannot make a single inflate step unbounded.
+    chunks, total = [], 0
+    with archive.open(name) as file:
+        while chunk := file.read(min(READ_CHUNK, cap - total + 1)):
+            total += len(chunk)
+            if total > cap:
+                raise EngineError("pack member exceeds size limit")
+            chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def import_pack(library: AssetLibrary, path: str):
     source = _absolute(path)
     try:
-        if source.stat().st_size > MAX_PACK + 2 * 2**20:
-            raise EngineError("pack is too large (80 MB limit)")
-        with zipfile.ZipFile(source) as archive:
+        with source.open("rb") as file, zipfile.ZipFile(_checked_pack(file)) as archive:
             members = archive.infolist()
             names = [info.filename for info in members]
             if len(names) > MAX_ITEMS * 2 + 1 or len(set(names)) != len(names) or "pack.json" not in names:
                 raise EngineError("pack has duplicate, missing, or excessive members")
             for info in members:
+                if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                    raise EngineError("unsupported pack compression")
                 if ("\\" in info.filename or info.filename.startswith("/") or ".." in info.filename.split("/")
                         or stat.S_ISLNK(info.external_attr >> 16) or info.flag_bits & 1):
                     raise EngineError("unsafe pack member")
@@ -279,7 +303,7 @@ def import_pack(library: AssetLibrary, path: str):
                     raise EngineError("pack member exceeds size limit")
             if sum(info.file_size for info in members) > MAX_PACK + 2**20:
                 raise EngineError("unpacked assets exceed the pack limit")
-            manifest = json.loads(archive.read("pack.json"))
+            manifest = json.loads(_read_member(archive, "pack.json", 2**20))
             if manifest.get("schema") != 1 or not isinstance(manifest.get("entries"), list):
                 raise EngineError("unsupported asset pack format")
             raw_entries = manifest["entries"]
@@ -299,7 +323,7 @@ def import_pack(library: AssetLibrary, path: str):
                     expected.add(filename)
                     if filename in blobs:
                         continue
-                    data = archive.read(filename)
+                    data = _read_member(archive, filename, MAX_ENTRY)
                     if hashlib.sha256(data).hexdigest() != meta.id:
                         raise EngineError("pack image hash does not match")
                     checked = ArtifactStore()
@@ -309,7 +333,8 @@ def import_pack(library: AssetLibrary, path: str):
                     blobs[filename] = data
             if set(names) != expected:
                 raise EngineError("pack contains unexpected files")
-    except (OSError, zipfile.BadZipFile, KeyError, ValueError, TypeError, AttributeError, ValidationError, RuntimeError, NotImplementedError) as e:
+    except (OSError, zipfile.BadZipFile, KeyError, ValueError, TypeError, AttributeError,
+            ValidationError, RuntimeError, NotImplementedError, EOFError, struct.error, zlib.error) as e:
         raise EngineError(f"could not import asset pack: {e}") from None
     # Commit only after every record and image has passed validation; existing entries never overwrite.
     library.root.mkdir(parents=True, exist_ok=True)
