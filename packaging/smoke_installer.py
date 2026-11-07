@@ -8,6 +8,7 @@ The caller supplies a graphical session; missing display/keychain access is a fa
 import argparse
 import contextlib
 import os
+import platform
 import plistlib
 import shutil
 import subprocess
@@ -70,6 +71,9 @@ def main() -> None:
             resources = executable.parent.parent / 'Resources'
             core = resources / 'core-dist/badshop-core/badshop-core'
             assert core.is_file(), f'Installed macOS core missing: {core}'
+            for binary in (executable, core):
+                architectures = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).split()
+                assert platform.machine() in architectures, f'Wrong Mac architecture for {binary}: {architectures}'
             print(f'Installed macOS resource directory: {resources}', flush=True)
         try:
             smoke([str(executable)], args.screenshot)

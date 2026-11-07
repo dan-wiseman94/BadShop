@@ -54,7 +54,8 @@ def test_font_lookup_follows_data_dir(tmp_path, monkeypatch):
 
 
 def test_text_missing_absolute_font_falls_back_to_built_in(pair):
-    missing = pair.new_dir / "no-such-dir" / "Impact.ttf"
+    # Pillow also searches by basename on macOS, where Impact is a system font.
+    missing = pair.new_dir / "no-such-dir" / "BadshopMissingTestFont.ttf"
     p = pair.new("text", "lincoln.png", "hi", "--font", str(missing), check=False)
     assert p.returncode == 0, p.stderr
     assert "font built-in" in p.stdout

@@ -1,12 +1,16 @@
 [project]
 name = "badshop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Deliberately bad, old-internet photoshops, art-directed by any LLM"
 requires-python = ">=3.12,<3.14"
 license = "MIT"
 dependencies = [
     "pillow>=12.3",
-    "numpy>=2.5",
+    "numpy>=2.5; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    # Intel macOS wheels stop at these inference runtimes; numba requires NumPy <2.4.
+    "numpy>=2.3,<2.4; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "numba==0.62.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "opencv-python-headless>=4.14,<5",  # 5.x dropped the Haar cascades used for cat faces
     "rembg[cpu]>=2.0.85",  # manifest.asset_path relies on BaseSession.model_dir() and models/<name>
     "pydantic>=2.7,<3",

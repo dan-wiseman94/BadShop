@@ -1,6 +1,8 @@
 """Cross-platform installer smoke: handshake, registry, spawned find worker, EOF shutdown."""
 import argparse
 import asyncio
+import base64
+import io
 import json
 import os
 import shutil
@@ -9,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 import psutil
+from PIL import Image
 from websockets.asyncio.client import connect
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -117,7 +120,8 @@ async def observe_startup(pid: int):
             print('Frozen startup observation failed: ' + type(error).__name__, flush=True)
 
 
-async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
+async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
+                background_removal: bool = False):
     with tempfile.TemporaryDirectory(prefix='badshop-smoke-') as folder:
         env = {**os.environ, 'BADSHOP_CONFIG_DIR': folder + '/config',
                'BADSHOP_DATA_DIR': folder + '/data', 'BADSHOP_OUT': folder + '/out',
@@ -171,6 +175,14 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
                         observer.cancel()
                         await asyncio.gather(observer, return_exceptions=True)
                 assert step['status'] == 'done', step
+                if background_removal:
+                    step = await rpc('tools.run', tool='cutout',
+                                     params={'image': image['working']['id'], 'model': 'u2net'})
+                    assert step['status'] == 'done' and step['outputs'], step
+                    artifact = await rpc('artifacts.get', id=step['outputs'][0])
+                    with Image.open(io.BytesIO(base64.b64decode(artifact['data']))) as cutout:
+                        assert cutout.mode == 'RGBA' and cutout.getchannel('A').getextrema() == (0, 255)
+                    print('Frozen background removal passed: U2-Net produced a transparent cutout', flush=True)
                 children = psutil.Process(proc.pid).children(recursive=True)
                 assert children, 'find must have started a worker'
                 # Exercise the desktop's exact revision-bearing save/replacement API.
@@ -240,8 +252,8 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False):
                         print(f'could not read frozen trace: {type(error).__name__}')
 
 
-async def main(executable: Path, keychain: bool = False):
-    await smoke(executable, keychain=keychain)
+async def main(executable: Path, keychain: bool = False, background_removal: bool = False):
+    await smoke(executable, keychain=keychain, background_removal=background_removal)
     await smoke(executable, crash=True)
 
 
@@ -249,5 +261,7 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('executable', type=Path)
     p.add_argument('--keychain', action='store_true', help='require a real OS keychain round-trip')
+    p.add_argument('--background-removal', action='store_true',
+                   help='download U2-Net and verify background removal in the frozen worker')
     args = p.parse_args()
-    asyncio.run(main(args.executable, args.keychain))
+    asyncio.run(main(args.executable, args.keychain, args.background_removal))
