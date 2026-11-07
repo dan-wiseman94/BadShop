@@ -134,13 +134,13 @@ class TransferTests(unittest.TestCase):
 class ScopeTests(unittest.TestCase):
     def test_docs_skip_expensive_jobs_but_unknown_and_shared_inputs_do_not(self):
         docs = classify(['docs/development.md', 'skills/development/example/SKILL.md'])
-        self.assertFalse(any(docs[k] for k in ('core', 'frontend', 'native', 'installers')))
-        self.assertTrue(classify(['future-system/config'])['installers'])
-        self.assertTrue(classify(['skills/development/example/scripts/check.py'])['installers'])
+        self.assertFalse(any(docs[k] for k in ('core', 'frontend', 'native')))
+        self.assertTrue(classify(['future-system/config'])['native'])
+        self.assertTrue(classify(['skills/development/example/scripts/check.py'])['native'])
         self.assertTrue(classify(['core/uv.lock'])['core'])
-        self.assertTrue(classify(['app/src/App.tsx'])['installers'])
-        self.assertFalse(classify(['app/e2e/example.spec.ts'])['installers'])
-        self.assertTrue(classify(['README.md'], full=True)['installers'])
+        self.assertTrue(classify(['app/src/App.tsx'])['frontend'])
+        self.assertFalse(classify(['app/e2e/example.spec.ts'])['native'])
+        self.assertTrue(classify(['README.md'], full=True)['native'])
 
     def test_selected_ports_are_distinct(self):
         first, second = private_ports()

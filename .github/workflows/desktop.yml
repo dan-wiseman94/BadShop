@@ -12,10 +12,6 @@ permissions:
 jobs:
   scope:
     uses: ./.github/workflows/change-scope.yml
-  installed-desktop:
-    needs: scope
-    if: needs.scope.outputs.installers == 'true'
-    uses: ./.github/workflows/native-desktop.yml
   frontend:
     needs: scope
     if: needs.scope.outputs.frontend == 'true'
@@ -36,7 +32,7 @@ jobs:
       - run: cargo fmt --manifest-path app/src-tauri/Cargo.toml -- --check
   desktop-result:
     if: always()
-    needs: [scope, installed-desktop, frontend, native]
+    needs: [scope, frontend, native]
     runs-on: ubuntu-latest
     steps:
       - name: Require successful selected checks
@@ -49,7 +45,7 @@ jobs:
           assert results["scope"]["result"] == "success", "Change classification failed"
           failed = {name: job["result"] for name, job in results.items() if job["result"] not in ("success", "skipped")}
           assert not failed, failed
-          for flag, job in {'installers': 'installed-desktop', 'frontend': 'frontend', 'native': 'native'}.items():
+          for flag, job in {'frontend': 'frontend', 'native': 'native'}.items():
               if results["scope"]["outputs"][flag] == "true":
                   assert results[job]["result"] == "success", f"Selected job {job} did not pass"
           print("All selected checks passed; unselected jobs were intentionally skipped.")

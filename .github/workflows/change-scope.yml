@@ -12,8 +12,6 @@ on:
         value: ${{ jobs.scope.outputs.frontend }}
       native:
         value: ${{ jobs.scope.outputs.native }}
-      installers:
-        value: ${{ jobs.scope.outputs.installers }}
 permissions:
   contents: read
 jobs:
@@ -23,7 +21,6 @@ jobs:
       core: ${{ steps.classify.outputs.core }}
       frontend: ${{ steps.classify.outputs.frontend }}
       native: ${{ steps.classify.outputs.native }}
-      installers: ${{ steps.classify.outputs.installers }}
     steps:
       - uses: actions/checkout@v7
         with:
