@@ -1,3 +1,4 @@
+import { Button } from "./Button";
 import { useEffect, useRef, useState } from "react";
 import {
   Check,
@@ -40,14 +41,11 @@ export function cliCommand(step: Step, tool?: Tool) {
       value === null ||
       value === false ||
       value === undefined ||
-      (typeof schema === "object" &&
-        JSON.stringify(schema.default) === JSON.stringify(value))
+      (typeof schema === "object" && JSON.stringify(schema.default) === JSON.stringify(value))
     )
       continue;
     const words = Array.isArray(value)
-      ? value.map((v) =>
-          typeof v === "object" ? JSON.stringify(v) : String(v),
-        )
+      ? value.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v)))
       : [String(value)];
     if (tool?.cli_positionals?.includes(name)) {
       positional.push(...words);
@@ -83,11 +81,7 @@ function RunningTime({ step }: { step: Step }) {
     const timer = setInterval(() => setNow(Date.now() / 1000), 1000);
     return () => clearInterval(timer);
   }, []);
-  return (
-    <span>
-      {Math.max(0, Math.floor(now - (step.started_at ?? now)))}s elapsed
-    </span>
-  );
+  return <span>{Math.max(0, Math.floor(now - (step.started_at ?? now)))}s elapsed</span>;
 }
 export function Timeline() {
   const { data: session } = useSession();
@@ -106,11 +100,7 @@ export function Timeline() {
           className="quiet"
           title="Replay all steps"
           disabled={!session?.steps.length || busy}
-          onClick={() =>
-            run(() =>
-              action("steps.replay_from", { step_id: session!.steps[0].id }),
-            )
-          }
+          onClick={() => run(() => action("steps.replay_from", { step_id: session!.steps[0].id }))}
         >
           <RotateCcw size={15} />
         </button>
@@ -121,11 +111,7 @@ export function Timeline() {
             <button
               key={s.id}
               className={`step ${s.id === selected ? "selected" : ""}`}
-              onClick={() =>
-                useUI
-                  .getState()
-                  .set({ selectedStep: s.id, selectedArtifact: null })
-              }
+              onClick={() => useUI.getState().set({ selectedStep: s.id, selectedArtifact: null })}
             >
               <span className={`step-number ${s.status}`}>
                 {s.status === "done" ? <Check size={14} /> : s.index}
@@ -147,9 +133,7 @@ export function Timeline() {
                   ) : (
                     <User size={11} />
                   )}{" "}
-                  {s.actor === "user"
-                    ? "You"
-                    : s.actor.replace("agent:", "").replace("cli:", "")}{" "}
+                  {s.actor === "user" ? "You" : s.actor.replace("agent:", "").replace("cli:", "")}{" "}
                   {s.status === "running" ? (
                     <RunningTime step={s} />
                   ) : s.finished_at && s.started_at ? (
@@ -169,9 +153,7 @@ export function Timeline() {
               <br />
               on the record.
             </h3>
-            <p>
-              For a first edit, add a photo, choose Run tool, and search for deepfry.
-            </p>
+            <p>For a first edit, add a photo, choose Run tool, and search for deepfry.</p>
           </div>
         )}
       </div>
@@ -189,10 +171,7 @@ export function Timeline() {
             <h3>
               {step.index}. {step.tool}
             </h3>
-            <button
-              title="Close step details"
-              onClick={() => useUI.getState().set({ selectedStep: null })}
-            >
+            <button title="Close step details" onClick={() => useUI.getState().set({ selectedStep: null })}>
               <X size={16} />
             </button>
           </div>
@@ -211,9 +190,7 @@ export function Timeline() {
             initial={step.params}
             disabled={busy && step.status !== "proposed"}
             submitLabel={
-              session?.pending_approvals.includes(step.id)
-                ? "Approve with changes"
-                : "Apply & replay"
+              session?.pending_approvals.includes(step.id) ? "Approve with changes" : "Apply & replay"
             }
             onSubmit={async (params) => {
               if (session?.pending_approvals.includes(step.id))
@@ -224,21 +201,18 @@ export function Timeline() {
                 });
               await action("steps.edit", { step_id: step.id, params });
               const settings = await action("settings.get");
-              if (!settings.auto_replay)
-                await action("steps.replay_from", { step_id: step.id });
+              if (!settings.auto_replay) await action("steps.replay_from", { step_id: step.id });
             }}
           />
           <div className="detail-actions">
-            <button
+            <Button
               disabled={busy}
-              onClick={() =>
-                run(() => action("steps.replay_from", { step_id: step.id }))
-              }
-            >
-              <RotateCcw size={13} />
-              Replay from here
-            </button>
-            <button
+              onClick={() => run(() => action("steps.replay_from", { step_id: step.id }))}
+              label="Replay from here"
+              icon={RotateCcw}
+              iconSize={13}
+            />
+            <Button
               title="Copy CLI command"
               aria-label="Copy CLI command"
               onClick={() =>
@@ -246,30 +220,26 @@ export function Timeline() {
                   const params = { ...step.params };
                   for (const [name, value] of Object.entries(params)) {
                     if (typeof value === "string" && session?.artifacts[value])
-                      params[name] = (
-                        await action("export", { artifact_id: value })
-                      ).path;
+                      params[name] = (await action("export", { artifact_id: value })).path;
                     else if (Array.isArray(value))
                       params[name] = await Promise.all(
                         value.map(async (item) =>
                           typeof item === "string" && session?.artifacts[item]
-                            ? (await action("export", { artifact_id: item }))
-                                .path
+                            ? (await action("export", { artifact_id: item })).path
                             : item,
                         ),
                       );
                   }
                   await copyText(cliCommand({ ...step, params }, tool));
                   useUI.getState().set({
-                    notice:
-                      "CLI command copied. Input images exported to your output folder.",
+                    notice: "CLI command copied. Input images exported to your output folder.",
                   });
                 })
               }
-            >
-              <Code size={14} />
-              CLI
-            </button>
+              label="CLI"
+              icon={Code}
+              iconSize={14}
+            />
             {session?.steps.at(-1)?.id === step.id && (
               <button
                 title="Delete last step"
@@ -301,10 +271,7 @@ export function Timeline() {
             const artifact = session?.artifacts[id];
             return (
               <div key={id} className="provenance">
-                <ArtifactThumb
-                  id={id}
-                  onClick={() => useUI.getState().set({ selectedArtifact: id })}
-                />
+                <ArtifactThumb id={id} onClick={() => useUI.getState().set({ selectedArtifact: id })} />
                 <div>
                   <strong>{artifact?.label}</strong>
                   <span>
@@ -312,21 +279,12 @@ export function Timeline() {
                       ? (artifact.source.license ?? "License not provided")
                       : "Session artifact"}
                   </span>
-                  {artifact?.source?.creator && (
-                    <span>{artifact.source.creator}</span>
-                  )}
+                  {artifact?.source?.creator && <span>{artifact.source.creator}</span>}
                   {(artifact?.source?.page || artifact?.source?.url) && (
-                    <button
-                      onClick={() =>
-                        run(() =>
-                          openLink(
-                            artifact.source!.page ?? artifact.source!.url!,
-                          ),
-                        )
-                      }
-                    >
-                      View source
-                    </button>
+                    <Button
+                      onClick={() => run(() => openLink(artifact.source!.page ?? artifact.source!.url!))}
+                      label="View source"
+                    />
                   )}
                 </div>
               </div>
@@ -345,11 +303,7 @@ export function ToolPalette() {
   const { data: tools } = useCoreQuery("tools.list");
   const { data: session } = useSession();
   const groups = (tools ?? [])
-    .filter((t) =>
-      `${t.name} ${t.summary} ${t.category}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-    )
+    .filter((t) => `${t.name} ${t.summary} ${t.category}`.toLowerCase().includes(search.toLowerCase()))
     .reduce<Record<string, Tool[]>>(
       (groups, t) => ({
         ...groups,
@@ -361,38 +315,23 @@ export function ToolPalette() {
     <div
       className={`modal-backdrop ${picking ? "pick-active" : ""}`}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget)
-          useUI.getState().set({ paletteOpen: false });
+        if (event.target === event.currentTarget) useUI.getState().set({ paletteOpen: false });
       }}
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="Run a tool"
-        className="modal palette"
-      >
+      <section role="dialog" aria-modal="true" aria-label="Run a tool" className="modal palette">
         <div className="modal-heading">
           <div>
             <h2>{tool ? tool.name : "Run a tool"}</h2>
-            <p>
-              {tool
-                ? tool.summary
-                : "The exact same tools your agent uses. Your call."}
-            </p>
+            <p>{tool ? tool.summary : "The exact same tools your agent uses. Your call."}</p>
           </div>
-          <button
-            aria-label="Close tools"
-            onClick={() => useUI.getState().set({ paletteOpen: false })}
-          >
+          <button aria-label="Close tools" onClick={() => useUI.getState().set({ paletteOpen: false })}>
             <X size={20} />
           </button>
         </div>
         <ErrorNotice />
         {tool ? (
           <>
-            <button className="back-link" onClick={() => setTool(null)}>
-              Back to all tools
-            </button>
+            <Button className="back-link" onClick={() => setTool(null)} label="Back to all tools" />
             <ToolForm
               key={tool.name}
               tool={tool}
@@ -443,21 +382,19 @@ export function ToolPalette() {
                           )?.id;
                         const schema = normalizeSchema(t.schema);
                         defaults.current = Object.fromEntries(
-                          Object.entries(schema.properties ?? {}).flatMap<
-                            [string, unknown]
-                          >(([name, field]) => {
-                            if (typeof field !== "object" || !selected)
+                          Object.entries(schema.properties ?? {}).flatMap<[string, unknown]>(
+                            ([name, field]) => {
+                              if (typeof field !== "object" || !selected) return [];
+                              if (field.format === "badshop-image") return [[name, selected]];
+                              if (
+                                typeof field.items === "object" &&
+                                !Array.isArray(field.items) &&
+                                field.items.format === "badshop-image"
+                              )
+                                return [[name, [selected]]];
                               return [];
-                            if (field.format === "badshop-image")
-                              return [[name, selected]];
-                            if (
-                              typeof field.items === "object" &&
-                              !Array.isArray(field.items) &&
-                              field.items.format === "badshop-image"
-                            )
-                              return [[name, [selected]]];
-                            return [];
-                          }),
+                            },
+                          ),
                         );
                         setTool(t);
                       }}
@@ -469,9 +406,7 @@ export function ToolPalette() {
                   ))}
                 </div>
               ))}
-              {!Object.keys(groups).length && (
-                <p className="muted">No tools match “{search}”.</p>
-              )}
+              {!Object.keys(groups).length && <p className="muted">No tools match “{search}”.</p>}
             </div>
           </>
         )}

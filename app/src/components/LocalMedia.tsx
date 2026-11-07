@@ -1,47 +1,21 @@
+import { Button } from "./Button";
+import { useOperation } from "../useOperation";
+import { InputField, SelectField, TextAreaField } from "./Fields";
 import { useState } from "react";
 import "../localMedia.css";
 import { action, useCoreQuery, useSession } from "../data";
 import { chooseMediaFile, chooseCollectionFolder } from "../native";
 import { useUI } from "../store";
-import type { Artifact } from "../types";
-
-type Frame = {
-  id: string;
-  label: string;
-  time_s?: number;
-  page?: number;
-  thumbnail_data_url: string;
-  width: number;
-  height: number;
-};
-type Preview = {
-  id: string;
-  source_name: string;
-  kind: string;
-  width: number;
-  height: number;
-  sheet_data_url: string;
-  candidates: Frame[];
-  warnings: string[];
-};
-type Indexed = {
-  id: string;
-  name: string;
-  tags: string[];
-  description: string;
-  thumbnail_data_url: string;
-  width: number;
-  height: number;
-  duplicate_of?: string | null;
-};
+import type { Artifact, MediaPreview, CollectionEntry } from "../types";
 
 export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
+  const { busy, error, notice, setNotice, perform } = useOperation();
   const [mode, setMode] = useState<"video" | "document" | "folder">("video");
   const [path, setPath] = useState("");
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<MediaPreview | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [crop, setCrop] = useState<number[] | null>(null);
   const [origin, setOrigin] = useState<number[] | null>(null);
@@ -49,29 +23,16 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   const [delay, setDelay] = useState(100);
   const [collection, setCollection] = useState("");
   const [query, setQuery] = useState("");
-  const [entries, setEntries] = useState<Indexed[]>([]);
-  const [editing, setEditing] = useState<Indexed | null>(null);
+  const [entries, setEntries] = useState<CollectionEntry[]>([]);
+  const [editing, setEditing] = useState<CollectionEntry | null>(null);
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+
   const { data: collections = [] } = useCoreQuery("collections.list");
   const { data: session } = useSession();
   const ready = useUI((state) => state.status === "ready");
   const disabled = busy || !ready || !!session?.turn_running;
-  async function perform(work: () => Promise<void>) {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await work();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+
   function attach(images: Artifact[]) {
     images.forEach((image) => onAttach(image.id));
     setNotice(`${images.length} image(s) added to chat`);
@@ -80,14 +41,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   function point(event: React.PointerEvent<HTMLImageElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     return [
-      Math.round(
-        Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) *
-          active!.width,
-      ),
-      Math.round(
-        Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) *
-          active!.height,
-      ),
+      Math.round(Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * active!.width),
+      Math.round(Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) * active!.height),
     ];
   }
   return (
@@ -98,7 +53,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
           ["document", "Pages / scans"],
           ["folder", "My folders"],
         ].map(([id, title]) => (
-          <button
+          <Button
             key={id}
             aria-pressed={mode === id}
             disabled={busy}
@@ -109,9 +64,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
               setCrop(null);
               setSelected([]);
             }}
-          >
-            {title}
-          </button>
+            label={title}
+          />
         ))}
       </nav>
       <p>
@@ -142,9 +96,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
               const result = await action("media.preview", {
                 path,
                 kind: mode,
-                ...(mode === "video"
-                  ? { start, ...(end ? { end: Number(end) } : {}) }
-                  : { page }),
+                ...(mode === "video" ? { start, ...(end ? { end: Number(end) } : {}) } : { page }),
               });
               setPreview(result);
               setSelected([]);
@@ -167,10 +119,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
           disabled={disabled}
           onClick={() =>
             void perform(async () => {
-              const chosen =
-                mode === "folder"
-                  ? await chooseCollectionFolder()
-                  : await chooseMediaFile(mode);
+              const chosen = mode === "folder" ? await chooseCollectionFolder() : await chooseMediaFile(mode);
               if (chosen) setPath(chosen);
             })
           }
@@ -179,57 +128,37 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
         </button>
         {mode === "video" && (
           <>
-            <label>
-              Start time (seconds)
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={start}
-                onChange={(e) => setStart(Number(e.target.value))}
-              />
-            </label>
-            <label>
-              End time (optional)
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-                placeholder="Up to 30 seconds by default"
-              />
-            </label>
+            <InputField
+              label="Start time (seconds)"
+              type="number"
+              min="0"
+              step="0.1"
+              bind={[start, setStart]}
+            />
+            <InputField
+              label="End time (optional)"
+              type="number"
+              min="0"
+              step="0.1"
+              placeholder="Up to 30 seconds by default"
+              bind={[end, setEnd]}
+            />
           </>
         )}
         {mode === "document" && (
-          <label>
-            Page number
-            <input
-              type="number"
-              min="1"
-              value={page}
-              onChange={(e) => setPage(Number(e.target.value))}
-            />
-          </label>
+          <InputField label="Page number" type="number" min="1" bind={[page, setPage]} />
         )}
-        <button className="primary" disabled={disabled || !path.trim()}>
-          {busy
-            ? "Working…"
-            : mode === "folder"
-              ? "Index selected folder"
-              : "Preview source"}
-        </button>
+        <Button
+          className="primary"
+          disabled={disabled || !path.trim()}
+          label={busy ? "Working…" : mode === "folder" ? "Index selected folder" : "Preview source"}
+        />
       </form>
       {preview && (
         <>
           <details>
             <summary>Contact sheet</summary>
-            <img
-              className="media-sheet"
-              src={preview.sheet_data_url}
-              alt="Numbered source frames"
-            />
+            <img className="media-sheet" src={preview.sheet_data_url} alt="Numbered source frames" />
           </details>
           {preview.warnings.map((w) => (
             <p key={w}>{w}</p>
@@ -237,11 +166,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
           <div className="studio-grid">
             {preview.candidates.map((frame) => (
               <label className="studio-card" key={frame.id}>
-                <img
-                  className="studio-thumb"
-                  src={frame.thumbnail_data_url}
-                  alt={frame.label}
-                />
+                <img className="studio-thumb" src={frame.thumbnail_data_url} alt={frame.label} />
                 <span>
                   <input
                     type="checkbox"
@@ -249,9 +174,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
                     checked={selected.includes(frame.id)}
                     onChange={(e) => {
                       setSelected((old) =>
-                        e.target.checked
-                          ? [...old, frame.id]
-                          : old.filter((id) => id !== frame.id),
+                        e.target.checked ? [...old, frame.id] : old.filter((id) => id !== frame.id),
                       );
                       setCrop(null);
                     }}
@@ -264,8 +187,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
           {active && selected.length === 1 && (
             <>
               <p>
-                Drag across this preview to choose a region. Coordinates refer
-                to the {active.width} × {active.height} working image.
+                Drag across this preview to choose a region. Coordinates refer to the {active.width} ×{" "}
+                {active.height} working image.
               </p>
               <div
                 className="media-crop-stage"
@@ -314,14 +237,10 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
                       type="number"
                       min="0"
                       max={i % 2 ? active.height : active.width}
-                      value={
-                        crop?.[i] ?? [0, 0, active.width, active.height][i]
-                      }
+                      value={crop?.[i] ?? [0, 0, active.width, active.height][i]}
                       onChange={(e) =>
                         setCrop((old) => {
-                          const next = [
-                            ...(old ?? [0, 0, active.width, active.height]),
-                          ];
+                          const next = [...(old ?? [0, 0, active.width, active.height])];
                           next[i] = Number(e.target.value);
                           return next;
                         })
@@ -330,33 +249,25 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
                   </label>
                 ))}
               </div>
-              {crop && (
-                <button onClick={() => setCrop(null)}>
-                  Use whole frame / page
-                </button>
-              )}
+              {crop && <Button onClick={() => setCrop(null)} label="Use whole frame / page" />}
             </>
           )}
           {selected.length > 1 && (
             <div className="studio-form">
-              <label className="check-label">
-                <input
-                  type="checkbox"
-                  checked={animate}
-                  onChange={(e) => setAnimate(e.target.checked)}
-                />
-                Make an animated sequence
-              </label>
-              <label>
-                Frame delay (milliseconds)
-                <input
-                  type="number"
-                  min="20"
-                  max="10000"
-                  value={delay}
-                  onChange={(e) => setDelay(Number(e.target.value))}
-                />
-              </label>
+              <InputField
+                label="Make an animated sequence"
+                inputFirst
+                labelClassName="check-label"
+                type="checkbox"
+                bind={[animate, setAnimate]}
+              />
+              <InputField
+                label="Frame delay (milliseconds)"
+                type="number"
+                min="20"
+                max="10000"
+                bind={[delay, setDelay]}
+              />
             </div>
           )}
           <button
@@ -388,50 +299,37 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
             onSubmit={(e) => {
               e.preventDefault();
               void perform(async () =>
-                setEntries(
-                  await action("collections.search", { id: collection, query }),
-                ),
+                setEntries(await action("collections.search", { id: collection, query })),
               );
             }}
           >
-            <label>
-              Indexed collection
-              <select
-                value={collection}
-                onChange={(e) => {
-                  setCollection(e.target.value);
-                  setEntries([]);
-                  setEditing(null);
-                }}
-              >
-                <option value="">Choose a collection</option>
-                {collections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.count})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Find by name, tag, or description
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Disappointed dog"
-              />
-            </label>
-            <button disabled={disabled || !collection}>
-              Search collection
-            </button>
+            <SelectField
+              label="Indexed collection"
+              value={collection}
+              onChange={(e) => {
+                setCollection(e.target.value);
+                setEntries([]);
+                setEditing(null);
+              }}
+            >
+              <option value="">Choose a collection</option>
+              {collections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.count})
+                </option>
+              ))}
+            </SelectField>
+            <InputField
+              label="Find by name, tag, or description"
+              placeholder="Disappointed dog"
+              bind={[query, setQuery]}
+            />
+            <Button disabled={disabled || !collection} label="Search collection" />
           </form>
           <div className="studio-grid">
             {entries.map((entry) => (
               <article className="studio-card" key={entry.id}>
-                <img
-                  className="studio-thumb"
-                  src={entry.thumbnail_data_url}
-                  alt={entry.name}
-                />
+                <img className="studio-thumb" src={entry.thumbnail_data_url} alt={entry.name} />
                 <strong>{entry.name}</strong>
                 <small>
                   {entry.tags.join(" · ")}
@@ -439,7 +337,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
                 </small>
                 <p>{entry.description}</p>
                 <div className="studio-actions">
-                  <button
+                  <Button
                     disabled={disabled}
                     onClick={() =>
                       void perform(async () => {
@@ -450,20 +348,18 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
                         attach([result.working]);
                       })
                     }
-                  >
-                    Use local image
-                  </button>
-                  <button
+                    label="Use local image"
+                  />
+                  <Button
                     disabled={disabled}
                     onClick={() => {
                       setEditing(entry);
                       setTags(entry.tags.join(", "));
                       setDescription(entry.description);
                     }}
-                  >
-                    Edit description / tags
-                  </button>
-                  <button
+                    label="Edit description / tags"
+                  />
+                  <Button
                     disabled={disabled || !session?.provider_profile_id}
                     onClick={() =>
                       void perform(async () => {
@@ -481,9 +377,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
                         );
                       })
                     }
-                  >
-                    Ask agent for tags
-                  </button>
+                    label="Ask agent for tags"
+                  />
                 </div>
               </article>
             ))}
@@ -514,21 +409,10 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
               }}
             >
               <strong className="wide">Describe {editing.name}</strong>
-              <label>
-                Description
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </label>
-              <label>
-                Collection tags
-                <input value={tags} onChange={(e) => setTags(e.target.value)} />
-              </label>
-              <button disabled={disabled}>Save searchable description</button>
-              <button type="button" onClick={() => setEditing(null)}>
-                Cancel
-              </button>
+              <TextAreaField label="Description" bind={[description, setDescription]} />
+              <InputField label="Collection tags" bind={[tags, setTags]} />
+              <Button disabled={disabled} label="Save searchable description" />
+              <Button type="button" onClick={() => setEditing(null)} label="Cancel" />
             </form>
           )}
         </>

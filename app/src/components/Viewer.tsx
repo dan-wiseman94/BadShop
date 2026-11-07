@@ -1,35 +1,15 @@
+import { Button } from "./Button";
 import { useEffect, useRef, useState } from "react";
-import {
-  Grid2X2,
-  ScanFace,
-  Maximize,
-  ImagePlus,
-  MousePointer2,
-  ChevronDown,
-  Download,
-} from "lucide-react";
+import { Grid2X2, ScanFace, Maximize, ImagePlus, MousePointer2, ChevronDown, Download } from "lucide-react";
 import { imageUrl, useArtifact, useSession, run, action } from "../data";
 import { useUI } from "../store";
 import { useReducedMotion } from "../appearance";
 import { reveal, openLink } from "../native";
 import type { Params } from "../types";
-export function ArtifactThumb({
-  id,
-  onClick,
-  label,
-}: {
-  id: string;
-  onClick?: () => void;
-  label?: string;
-}) {
+export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
   const { data } = useArtifact(id, true);
   return (
-    <button
-      type="button"
-      className="artifact-thumb"
-      onClick={onClick}
-      title={label ?? data?.meta.label}
-    >
+    <button type="button" className="artifact-thumb" onClick={onClick} title={label ?? data?.meta.label}>
       <img src={imageUrl(data)} alt={label ?? data?.meta.label ?? "Image"} />
     </button>
   );
@@ -41,9 +21,7 @@ function faceBoxes(data: Params | undefined): number[][] {
   return faces.flatMap((face) => {
     if (!face || typeof face !== "object") return [];
     const value = (face as Params).head ?? (face as Params).box;
-    return Array.isArray(value) && value.length === 4
-      ? [value as number[]]
-      : [];
+    return Array.isArray(value) && value.length === 4 ? [value as number[]] : [];
   });
 }
 export function Viewer({ onImport }: { onImport: () => void }) {
@@ -76,17 +54,17 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const inputId = selected
     ? Object.values(selected.params)
         .flatMap((value) => (Array.isArray(value) ? value : [value]))
-        .find(
-          (value): value is string =>
-            typeof value === "string" && !!session?.artifacts[value],
-        )
+        .find((value): value is string => typeof value === "string" && !!session?.artifacts[value])
     : undefined;
   const id = pick?.artifactId ?? (before && inputId ? inputId : afterId);
-  const motion = useUI(s => s.motion);
+  const motion = useUI((s) => s.motion);
   const reduced = useReducedMotion(motion);
   const [playing, setPlaying] = useState<boolean | null>(null);
   const [frame, setFrame] = useState(0);
-  useEffect(() => { setPlaying(null); setFrame(0); }, [id, reduced]);
+  useEffect(() => {
+    setPlaying(null);
+    setFrame(0);
+  }, [id, reduced]);
   const paused = playing === null ? reduced : !playing;
   const { data, error } = useArtifact(id, false, paused, frame);
   const meta = data?.meta;
@@ -107,34 +85,21 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   }, [selectedStep]);
   const scale = meta
     ? zoom === "fit"
-      ? Math.min(
-          (size.width - 72) / meta.width,
-          (size.height - 72) / meta.height,
-          1,
-        )
+      ? Math.min((size.width - 72) / meta.width, (size.height - 72) / meta.height, 1)
       : zoom
     : 1;
   const point = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!meta) return [0, 0];
     const rect = event.currentTarget.getBoundingClientRect();
     return [
-      Math.max(
-        0,
-        Math.min(meta.width, Math.round((event.clientX - rect.left) / scale)),
-      ),
-      Math.max(
-        0,
-        Math.min(meta.height, Math.round((event.clientY - rect.top) / scale)),
-      ),
+      Math.max(0, Math.min(meta.width, Math.round((event.clientX - rect.left) / scale))),
+      Math.max(0, Math.min(meta.height, Math.round((event.clientY - rect.top) / scale))),
     ];
   };
   const detected =
     session?.steps
       .filter(
-        (step) =>
-          step.tool === "find" &&
-          step.status === "done" &&
-          Object.values(step.params).includes(id),
+        (step) => step.tool === "find" && step.status === "done" && Object.values(step.params).includes(id),
       )
       .flatMap((step) => faceBoxes(step.data)) ?? [];
   return (
@@ -144,31 +109,33 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           <MousePointer2 size={15} />
           Canvas
         </span>
-        <span className="muted">
-          {meta ? `${meta.width} × ${meta.height}` : "No image selected"}
-        </span>
+        <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
       </div>
       <div className="viewer-tools">
         <div className="segmented">
-          <button
+          <Button
             disabled={!inputId}
             className={before ? "active" : ""}
             onClick={() => setBefore(true)}
-          >
-            Before
-          </button>
-          <button
-            className={!before ? "active" : ""}
-            onClick={() => setBefore(false)}
-          >
-            After
-          </button>
+            label="Before"
+          />
+          <Button className={!before ? "active" : ""} onClick={() => setBefore(false)} label="After" />
         </div>
         <div className="viewer-toggles">
-          {(meta?.frames ?? 1) > 1 && <>
-            <button onClick={() => setPlaying(paused)}>{paused ? 'Play preview' : 'Pause preview'}</button>
-            <button disabled={!paused} onClick={() => { setPlaying(false); setFrame((frame + 1) % Math.min(meta?.frames ?? 1, 1001)); }}>Next frame ({frame + 1})</button>
-          </>}
+          {(meta?.frames ?? 1) > 1 && (
+            <>
+              <Button onClick={() => setPlaying(paused)} label={paused ? "Play preview" : "Pause preview"} />
+              <button
+                disabled={!paused}
+                onClick={() => {
+                  setPlaying(false);
+                  setFrame((frame + 1) % Math.min(meta?.frames ?? 1, 1001));
+                }}
+              >
+                Next frame ({frame + 1})
+              </button>
+            </>
+          )}
           <button
             title="Coordinate grid"
             aria-label="Coordinate grid"
@@ -191,13 +158,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           <select
             aria-label="Zoom"
             value={zoom}
-            onChange={(event) =>
-              setZoom(
-                event.target.value === "fit"
-                  ? "fit"
-                  : Number(event.target.value),
-              )
-            }
+            onChange={(event) => setZoom(event.target.value === "fit" ? "fit" : Number(event.target.value))}
           >
             <option value="fit">Fit</option>
             <option value="0.5">50%</option>
@@ -220,8 +181,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
             onPointerMove={(event) => {
               const p = point(event);
               setCursor(p);
-              if (origin.current && pick && pick.kind !== "point")
-                setSelection([...origin.current, ...p]);
+              if (origin.current && pick && pick.kind !== "point") setSelection([...origin.current, ...p]);
             }}
             onPointerLeave={() => setCursor(null)}
             onPointerDown={(event) => {
@@ -253,52 +213,27 @@ export function Viewer({ onImport }: { onImport: () => void }) {
               useUI.getState().set({ pick: null });
             }}
           >
-            <img
-              className="canvas-image"
-              src={imageUrl(data)}
-              alt={meta.label}
-              draggable={false}
-            />
+            <img className="canvas-image" src={imageUrl(data)} alt={meta.label} draggable={false} />
             {(grid || boxes || selection) && (
-              <svg
-                className="image-overlay"
-                viewBox={`0 0 ${meta.width} ${meta.height}`}
-                aria-hidden="true"
-              >
+              <svg className="image-overlay" viewBox={`0 0 ${meta.width} ${meta.height}`} aria-hidden="true">
                 {grid && (
                   <>
-                    {Array.from(
-                      { length: Math.floor(meta.width / 50) },
-                      (_, i) => (
-                        <g key={`x${i}`}>
-                          <line
-                            x1={(i + 1) * 50}
-                            y1="0"
-                            x2={(i + 1) * 50}
-                            y2={meta.height}
-                          />
-                          <text x={(i + 1) * 50 + 3} y="14">
-                            {(i + 1) * 50}
-                          </text>
-                        </g>
-                      ),
-                    )}
-                    {Array.from(
-                      { length: Math.floor(meta.height / 50) },
-                      (_, i) => (
-                        <g key={`y${i}`}>
-                          <line
-                            x1="0"
-                            y1={(i + 1) * 50}
-                            x2={meta.width}
-                            y2={(i + 1) * 50}
-                          />
-                          <text x="4" y={(i + 1) * 50 - 4}>
-                            {(i + 1) * 50}
-                          </text>
-                        </g>
-                      ),
-                    )}
+                    {Array.from({ length: Math.floor(meta.width / 50) }, (_, i) => (
+                      <g key={`x${i}`}>
+                        <line x1={(i + 1) * 50} y1="0" x2={(i + 1) * 50} y2={meta.height} />
+                        <text x={(i + 1) * 50 + 3} y="14">
+                          {(i + 1) * 50}
+                        </text>
+                      </g>
+                    ))}
+                    {Array.from({ length: Math.floor(meta.height / 50) }, (_, i) => (
+                      <g key={`y${i}`}>
+                        <line x1="0" y1={(i + 1) * 50} x2={meta.width} y2={(i + 1) * 50} />
+                        <text x="4" y={(i + 1) * 50 - 4}>
+                          {(i + 1) * 50}
+                        </text>
+                      </g>
+                    ))}
                   </>
                 )}
                 {boxes &&
@@ -335,10 +270,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
               </span>
             </div>
             <p>Drop an image, paste one, or let your agent find it.</p>
-            <button onClick={onImport}>
-              <ImagePlus size={16} />
-              Add images
-            </button>
+            <Button onClick={onImport} label="Add images" icon={ImagePlus} iconSize={16} />
             {error && <p className="error-text">{error.message}</p>}
           </div>
         )}
@@ -355,9 +287,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
                   : "Click a point on the image"}
             </span>
           </div>
-          <button onClick={() => useUI.getState().set({ pick: null })}>
-            Cancel
-          </button>
+          <Button onClick={() => useUI.getState().set({ pick: null })} label="Cancel" />
         </div>
       )}
       <div className="viewer-foot">
@@ -379,17 +309,13 @@ export function Viewer({ onImport }: { onImport: () => void }) {
       {meta?.source && (
         <div className="source-bar">
           <span>
-            {meta.source.creator ?? meta.source.kind} /{" "}
-            {meta.source.license ?? "License not provided"}
+            {meta.source.creator ?? meta.source.kind} / {meta.source.license ?? "License not provided"}
           </span>
           {(meta.source.page || meta.source.url) && (
-            <button
-              onClick={() =>
-                run(() => openLink(meta.source!.page ?? meta.source!.url!))
-              }
-            >
-              View source
-            </button>
+            <Button
+              onClick={() => run(() => openLink(meta.source!.page ?? meta.source!.url!))}
+              label="View source"
+            />
           )}
         </div>
       )}
@@ -426,9 +352,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
               />
             ))}
           {!all.length && (
-            <span className="muted text-xs">
-              Imported images and every tool output appear here.
-            </span>
+            <span className="muted text-xs">Imported images and every tool output appear here.</span>
           )}
         </div>
         {id && (

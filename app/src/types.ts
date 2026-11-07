@@ -312,6 +312,7 @@ export interface MethodMap {
   "providers.save": [{ profile: Partial<Profile>; api_key?: string }, Profile];
   "providers.delete": [{ profile_id: string }, { deleted: boolean }];
   "providers.select": [{ profile_id: string }, Session];
+  "providers.on_device": [undefined, Session];
   "providers.test": [
     { profile_id: string; probe?: boolean },
     {

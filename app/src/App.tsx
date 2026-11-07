@@ -1,3 +1,4 @@
+import { Button } from "./components/Button";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
@@ -14,6 +15,7 @@ import {
   ClipboardPaste,
 } from "lucide-react";
 import { Chat } from "./components/Chat";
+import { ON_DEVICE } from "./constants";
 import { Viewer } from "./components/Viewer";
 import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
@@ -22,14 +24,7 @@ import { Studio } from "./components/Studio";
 import { sourceCard } from "./sourceCard";
 import { SaveChangesDialog, useSessionActions } from "./sessionActions";
 import { usePaneLayout } from "./layout";
-import {
-  action,
-  importBlob,
-  run,
-  startCore,
-  useCoreQuery,
-  useSession,
-} from "./data";
+import { action, importBlob, run, startCore, useCoreQuery, useSession } from "./data";
 import { useUI } from "./store";
 import {
   clipboardImage,
@@ -72,12 +67,10 @@ function Resizer({
       tabIndex={0}
       onDoubleClick={onReset}
       onKeyDown={(event) => {
-        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
-          event.preventDefault();
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) event.preventDefault();
         if (event.key === "ArrowLeft") onResize(side === "left" ? -16 : 16);
         if (event.key === "ArrowRight") onResize(side === "left" ? 16 : -16);
-        if (event.key === "Home")
-          onResize((side === "left" ? 260 : 270) - value);
+        if (event.key === "Home") onResize((side === "left" ? 260 : 270) - value);
         if (event.key === "End") onResize(maximum - value);
       }}
       onPointerDown={(event) => {
@@ -103,20 +96,18 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.density = ui.density;
     document.documentElement.dataset.motion = reducedMotion ? "reduced" : "full";
-    document.documentElement.style.fontSize = `${13 * ui.textScale / 100}px`;
+    document.documentElement.style.fontSize = `${(13 * ui.textScale) / 100}px`;
   }, [ui.density, ui.textScale, reducedMotion]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const { workbench, widths, resize, reset, contentWidth } = usePaneLayout();
   const documents = useSessionActions();
   const updates = useUpdates(() => documents.request({ kind: "close" }));
-  const [welcome, setWelcome] = useState(
-    !localStorage.getItem("badshop.welcome"),
-  );
+  const [welcome, setWelcome] = useState(!localStorage.getItem("badshop.welcome"));
   const [menu, setMenu] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
   const [ideaDrafts, setIdeaDrafts] = useState<{ id: string; text: string; generation: number }[]>([]);
   const consumeIdeaDraft = useCallback((id: string) => {
-    setIdeaDrafts(previous => previous.filter(draft => draft.id !== id));
+    setIdeaDrafts((previous) => previous.filter((draft) => draft.id !== id));
   }, []);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [restoredDismissed, setRestoreDismissed] = useState(false);
@@ -128,14 +119,30 @@ export default function App() {
   useEffect(() => {
     if (!native) return;
     let current = true;
-    void reportNativeReadiness({
-      ready: ui.status === "ready" && Boolean(session?.id) && Boolean(profiles) && !sessionError,
-      sessionId: session?.id ?? "", revision: session?.document_revision ?? 0,
-      unsaved: session?.unsaved_changes ?? false, welcome, closePending: Boolean(documents.pending),
-    }, () => current).catch(error => console.error("Native readiness probe failed", error));
-    return () => { current = false; };
-  }, [ui.status, session?.id, session?.document_revision, session?.unsaved_changes,
-    sessionError, !!profiles, welcome, documents.pending]);
+    void reportNativeReadiness(
+      {
+        ready: ui.status === "ready" && Boolean(session?.id) && Boolean(profiles) && !sessionError,
+        sessionId: session?.id ?? "",
+        revision: session?.document_revision ?? 0,
+        unsaved: session?.unsaved_changes ?? false,
+        welcome,
+        closePending: Boolean(documents.pending),
+      },
+      () => current,
+    ).catch((error) => console.error("Native readiness probe failed", error));
+    return () => {
+      current = false;
+    };
+  }, [
+    ui.status,
+    session?.id,
+    session?.document_revision,
+    session?.unsaved_changes,
+    sessionError,
+    !!profiles,
+    welcome,
+    documents.pending,
+  ]);
   useEffect(() => {
     if (previousSession.current && previousSession.current !== session?.id) {
       setAttachments([]);
@@ -203,10 +210,7 @@ export default function App() {
       void unlisten.then((fn) => fn());
     };
   }, [addPath]);
-  const save = useCallback(
-    (as = false) => run(() => documents.save(as)),
-    [documents.save],
-  );
+  const save = useCallback((as = false) => run(() => documents.save(as)), [documents.save]);
   useEffect(() => {
     if (!menu) return;
     const closeOutside = (event: PointerEvent) => {
@@ -228,9 +232,7 @@ export default function App() {
           useUI.getState().set({ pick: null });
           return;
         }
-        useUI
-          .getState()
-          .set({ settingsOpen: false, paletteOpen: false, pick: null });
+        useUI.getState().set({ settingsOpen: false, paletteOpen: false, pick: null });
         setMenu(false);
       }
       if (document.querySelector('[role="dialog"]')) return;
@@ -248,10 +250,7 @@ export default function App() {
   }, [save, documents.open, documents.pending, documents.cancel]);
   useEffect(() => {
     if (!ui.notice) return;
-    const timer = setTimeout(
-      () => useUI.getState().set({ notice: null }),
-      6000,
-    );
+    const timer = setTimeout(() => useUI.getState().set({ notice: null }), 6000);
     return () => clearTimeout(timer);
   }, [ui.notice]);
   const paste = (event: React.ClipboardEvent) => {
@@ -265,14 +264,12 @@ export default function App() {
         const step = await action("tools.run", { tool: "acquire", params });
         if (step.status !== "done" || !step.outputs[0])
           throw new Error(step.error?.message ?? "The image could not be imported.");
-        setAttachments(previous => [...new Set([...previous, step.outputs[0]])]);
+        setAttachments((previous) => [...new Set([...previous, step.outputs[0]])]);
         useUI.getState().set({ selectedArtifact: step.outputs[0] });
       });
       return;
     }
-    const images = Array.from(event.clipboardData.files).filter((file) =>
-      file.type.startsWith("image/"),
-    );
+    const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
     if (images.length) {
       event.preventDefault();
       event.stopPropagation();
@@ -298,17 +295,12 @@ export default function App() {
       const nodes = focusable();
       const first = nodes[0];
       const last = nodes.at(-1);
-      if (
-        event.shiftKey &&
-        (document.activeElement === first ||
-          !dialog.contains(document.activeElement))
-      ) {
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
         event.preventDefault();
         last?.focus();
       } else if (
         !event.shiftKey &&
-        (document.activeElement === last ||
-          !dialog.contains(document.activeElement))
+        (document.activeElement === last || !dialog.contains(document.activeElement))
       ) {
         event.preventDefault();
         first?.focus();
@@ -343,8 +335,7 @@ export default function App() {
         setDragging(true);
       }}
       onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node))
-          setDragging(false);
+        if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false);
       }}
       onDrop={(event) => {
         event.preventDefault();
@@ -369,11 +360,7 @@ export default function App() {
           >
             <span className="session-label">{session?.name ?? "Untitled"}</span>
             {session?.unsaved_changes && (
-              <span
-                className="unsaved-dot"
-                aria-hidden="true"
-                title="Unsaved changes"
-              >
+              <span className="unsaved-dot" aria-hidden="true" title="Unsaved changes">
                 ●
               </span>
             )}
@@ -381,16 +368,16 @@ export default function App() {
           </button>
           {menu && (
             <div className="dropdown" id="session-actions">
-              <button
+              <Button
                 disabled={ui.status !== "ready" || session?.turn_running}
                 onClick={() => {
                   setMenu(false);
                   setNewSessionOpen(true);
                 }}
-              >
-                <Plus size={15} />
-                New session
-              </button>
+                label="New session"
+                icon={Plus}
+                iconSize={15}
+              />
               <button
                 disabled={ui.status !== "ready" || session?.turn_running}
                 onClick={() => {
@@ -411,17 +398,17 @@ export default function App() {
                 <Save size={15} />
                 Save session<kbd>Ctrl S</kbd>
               </button>
-              <button
+              <Button
                 disabled={ui.status !== "ready"}
                 onClick={() => {
                   setMenu(false);
                   save(true);
                 }}
-              >
-                <Save size={15} />
-                Save as…
-              </button>
-              <button
+                label="Save as…"
+                icon={Save}
+                iconSize={15}
+              />
+              <Button
                 onClick={() => {
                   setMenu(false);
                   run(async () => {
@@ -429,31 +416,31 @@ export default function App() {
                     if (path) await action("session.export_recipe", { path });
                   });
                 }}
-              >
-                <FileJson size={15} />
-                Export recipe
-              </button>
+                label="Export recipe"
+                icon={FileJson}
+                iconSize={15}
+              />
               <hr />
-              <button
+              <Button
                 onClick={() => {
                   setMenu(false);
                   importImages();
                 }}
-              >
-                <Plus size={15} />
-                Import images
-              </button>
+                label="Import images"
+                icon={Plus}
+                iconSize={15}
+              />
               {native && (
-                <button
+                <Button
                   onClick={() =>
                     run(async () => {
                       await addBlob(await clipboardImage());
                     })
                   }
-                >
-                  <ClipboardPaste size={15} />
-                  Paste clipboard image
-                </button>
+                  label="Paste clipboard image"
+                  icon={ClipboardPaste}
+                  iconSize={15}
+                />
               )}
             </div>
           )}
@@ -476,13 +463,11 @@ export default function App() {
               }
             >
               <option value="" disabled>
-                {profiles?.length
-                  ? "Select provider"
-                  : "Choose your art director"}
+                {profiles?.length ? "Select provider" : "Choose your art director"}
               </option>
               {profiles?.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.label} / {profile.model || profile.cli}
+                  {profile.id === ON_DEVICE ? profile.label : `${profile.label} / ${profile.model || profile.cli}`}
                 </option>
               ))}
               <option value="add">+ Add provider…</option>
@@ -510,8 +495,14 @@ export default function App() {
           </label>
         </div>
         <div className="header-actions">
-          <button className="studio-launch" aria-label="Images & directions" disabled={ui.status !== "ready"} onClick={() => setStudioOpen(true)}>
-            <span className="studio-launch-full">Images & directions</span><span className="studio-launch-short">Images</span>
+          <button
+            className="studio-launch"
+            aria-label="Images & directions"
+            disabled={ui.status !== "ready"}
+            onClick={() => setStudioOpen(true)}
+          >
+            <span className="studio-launch-full">Images & directions</span>
+            <span className="studio-launch-short">Images</span>
           </button>
           <button
             className="quiet"
@@ -530,19 +521,16 @@ export default function App() {
           >
             <Settings2 size={18} />
           </button>
-          <button
+          <Button
             className="export"
             type="submit"
             form="export-canvas-image"
             title="Export the image shown on the canvas"
-            disabled={
-              ui.status !== "ready" ||
-              !Object.keys(session?.artifacts ?? {}).length
-            }
-          >
-            <Download size={15} />
-            Export
-          </button>
+            disabled={ui.status !== "ready" || !Object.keys(session?.artifacts ?? {}).length}
+            label="Export"
+            icon={Download}
+            iconSize={15}
+          />
         </div>
       </header>
       {!ui.settingsOpen &&
@@ -559,44 +547,39 @@ export default function App() {
       {session?.restorable && !restoredDismissed && (
         <div className="restore-banner">
           <span>An autosaved session is available from your last run.</span>
-          <button
+          <Button
             disabled={ui.status !== "ready" || session?.turn_running}
             onClick={() => run(() => documents.request({ kind: "restore" }))}
-          >
-            Restore session
-          </button>
-          <button onClick={() => setRestoreDismissed(true)}>Dismiss</button>
+            label="Restore session"
+          />
+          <Button onClick={() => setRestoreDismissed(true)} label="Dismiss" />
         </div>
       )}
       {disconnected && (
         <main className="core-error">
           <AlertTriangle size={40} />
-          <h1>
-            {ui.status === "failed"
-              ? "The core could not start."
-              : "The core connection was lost."}
-          </h1>
-          <p>
-            Your session is autosaved after every step. Restart the core to
-            continue.
-          </p>
+          <h1>{ui.status === "failed" ? "The core could not start." : "The core connection was lost."}</h1>
+          <p>Your session is autosaved after every step. Restart the core to continue.</p>
           {ui.logPath && <code>{ui.logPath}</code>}
           <div>
-            <button className="primary" onClick={() => run(restart)}>
-              <RefreshCw size={16} />
-              Restart core
-            </button>
-            <button
+            <Button
+              className="primary"
+              onClick={() => run(restart)}
+              label="Restart core"
+              icon={RefreshCw}
+              iconSize={16}
+            />
+            <Button
               onClick={() =>
                 run(async () => {
                   await copyText(await diagnostics());
                   ui.set({ notice: "Diagnostics copied" });
                 })
               }
-            >
-              <Copy size={16} />
-              Copy diagnostics
-            </button>
+              label="Copy diagnostics"
+              icon={Copy}
+              iconSize={16}
+            />
           </div>
         </main>
       )}
@@ -616,7 +599,7 @@ export default function App() {
           onAttachments={setAttachments}
           onImport={importImages}
           onPaste={paste}
-          draft={ideaDrafts.find(draft => draft.generation === ui.documentGeneration)}
+          draft={ideaDrafts.find((draft) => draft.generation === ui.documentGeneration)}
           onDraftConsumed={consumeIdeaDraft}
         />
         <Resizer
@@ -626,10 +609,7 @@ export default function App() {
           onResize={(delta) => resize("left", delta)}
           onReset={reset}
         />
-        <Viewer
-          key={`viewer-${ui.documentGeneration}`}
-          onImport={importImages}
-        />
+        <Viewer key={`viewer-${ui.documentGeneration}`} onImport={importImages} />
         <Resizer
           side="right"
           value={widths.right}
@@ -642,8 +622,7 @@ export default function App() {
       <footer className="app-footer">
         <span className="footer-brand">Bad is the deliverable.</span>
         <span>
-          {session?.steps.length ?? 0} steps /{" "}
-          {Object.keys(session?.artifacts ?? {}).length ?? 0} images
+          {session?.steps.length ?? 0} steps / {Object.keys(session?.artifacts ?? {}).length ?? 0} images
         </span>
         <span>
           {session?.turn_running
@@ -671,20 +650,24 @@ export default function App() {
       )}
       <UpdateProgress updates={updates} />
       {ui.paletteOpen && !documents.pending && <ToolPalette />}
-      {studioOpen && !documents.pending && <Studio
-        onClose={() => setStudioOpen(false)}
-        onAttach={id => setAttachments(previous => [...new Set([...previous, id])])}
-        onDraft={text => {
-          setIdeaDrafts(previous => [...previous, { id: crypto.randomUUID(), text, generation: ui.documentGeneration }]);
-          setStudioOpen(false);
-          useUI.getState().set({ notice: "Brief added to chat. Review it before sending." });
-        }}
-      />}
+      {studioOpen && !documents.pending && (
+        <Studio
+          onClose={() => setStudioOpen(false)}
+          onAttach={(id) => setAttachments((previous) => [...new Set([...previous, id])])}
+          onDraft={(text) => {
+            setIdeaDrafts((previous) => [
+              ...previous,
+              { id: crypto.randomUUID(), text, generation: ui.documentGeneration },
+            ]);
+            setStudioOpen(false);
+            useUI.getState().set({ notice: "Brief added to chat. Review it before sending." });
+          }}
+        />
+      )}
       <SaveChangesDialog actions={documents} />
-      {welcome &&
-        ui.status === "ready" &&
-        !ui.settingsOpen &&
-        !documents.pending && <Welcome onClose={closeWelcome} />}
+      {welcome && ui.status === "ready" && !ui.settingsOpen && !documents.pending && (
+        <Welcome onClose={closeWelcome} />
+      )}
       {dragging && (
         <div className="drop-overlay">
           <Plus size={40} />
@@ -695,10 +678,7 @@ export default function App() {
       {ui.notice && (
         <div className="toast" role="status">
           {ui.notice}
-          <button
-            aria-label="Dismiss notification"
-            onClick={() => ui.set({ notice: null })}
-          >
+          <button aria-label="Dismiss notification" onClick={() => ui.set({ notice: null })}>
             <X size={14} />
           </button>
         </div>
@@ -733,12 +713,7 @@ function NewSession({
   const [busy, setBusy] = useState(false);
   return (
     <div className="modal-backdrop">
-      <section
-        className="modal new-session-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="New session"
-      >
+      <section className="modal new-session-modal" role="dialog" aria-modal="true" aria-label="New session">
         <div className="modal-heading">
           <div>
             <h2>New session</h2>
@@ -765,20 +740,16 @@ function NewSession({
         >
           <label>
             Session name
-            <input
-              autoFocus
-              value={name}
-              maxLength={200}
-              onChange={(event) => setName(event.target.value)}
-            />
+            <input autoFocus value={name} maxLength={200} onChange={(event) => setName(event.target.value)} />
           </label>
           <div>
-            <button type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="primary" disabled={busy}>
-              {busy ? "Creating…" : "Create session"}
-            </button>
+            <Button type="button" onClick={onClose} label="Cancel" />
+            <Button
+              type="submit"
+              className="primary"
+              disabled={busy}
+              label={busy ? "Creating…" : "Create session"}
+            />
           </div>
         </form>
       </section>

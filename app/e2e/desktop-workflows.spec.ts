@@ -207,6 +207,39 @@ test("the empty chat remains at the top at the minimum desktop size", async ({
   expect(visible).toBe(true);
 });
 
+test("local vision can be deferred on first launch and found in Settings", async ({
+  page,
+  emptyCore,
+}) => {
+  const requested: string[] = [];
+  page.on("websocket", (socket) => {
+    socket.on("framesent", ({ payload }) => {
+      if (typeof payload === "string") requested.push(JSON.parse(payload).method);
+    });
+  });
+  const assets = (await emptyCore.call("assets.status")) as { name: string }[];
+  const supported = assets.some((asset) => asset.name.startsWith("local-vision/"));
+  await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
+  const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  if (supported) {
+    await expect(welcome.getByRole("button", { name: /Download and use on-device AI/ })).toBeEnabled();
+  } else {
+    await expect(welcome.getByText("On-device AI is unavailable on this computer.")).toBeVisible();
+  }
+  await welcome.getByRole("button", { name: "Download later" }).click();
+  await page.reload();
+  await expect(welcome).toHaveCount(0);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Assets", exact: true }).click();
+  if (supported) {
+    await expect(settings.getByRole("button", { name: /Download and use on-device AI/ })).toBeEnabled();
+  } else {
+    await expect(settings.getByText("On-device AI is unavailable on this computer.")).toBeVisible();
+  }
+  expect(requested).not.toContain("assets.download");
+});
+
 test("first run with saved profiles explicitly selects a provider before continuing", async ({
   page,
   core,

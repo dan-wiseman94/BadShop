@@ -1,3 +1,6 @@
+import { Button } from "./Button";
+import { useOperation } from "../useOperation";
+import { InputField, SelectField, TextAreaField } from "./Fields";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
@@ -36,8 +39,7 @@ type Candidate = {
 function LibraryImage({ entry }: { entry: LibraryEntry }) {
   const { data } = useQuery({
     queryKey: ["library.thumbnail", entry.id],
-    queryFn: ({ signal }) =>
-      rpc.request("library.thumbnail", { id: entry.id, max_px: 240 }, signal),
+    queryFn: ({ signal }) => rpc.request("library.thumbnail", { id: entry.id, max_px: 240 }, signal),
   });
   return <img className="studio-thumb" src={imageUrl(data)} alt={entry.name} />;
 }
@@ -50,9 +52,9 @@ export function Studio({
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
 }) {
+  const { busy, error, setError, perform } = useOperation();
   const [tab, setTab] = useState("discover");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [purpose, setPurpose] = useState("subject");
@@ -75,7 +77,8 @@ export function Studio({
   const { data: branches } = useCoreQuery("branches.list");
   const { data: sources = [], error: sourceError } = useCoreQuery("sources.status");
   useEffect(() => {
-    if (sources.length && source !== "all" && !sources.some(item => item.id === source && item.configured)) setSource("all");
+    if (sources.length && source !== "all" && !sources.some((item) => item.id === source && item.configured))
+      setSource("all");
   }, [sources, source]);
   const selected = useUI((s) => s.selectedArtifact);
   const selectedStep = useUI((s) => s.selectedStep);
@@ -94,62 +97,39 @@ export function Studio({
     setNotes("");
   }, [session?.id]);
   const disabled = busy || !ready || !!session?.turn_running;
-  async function perform(work: () => Promise<void>) {
-    setBusy(true);
-    setError("");
-    try {
-      await work();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+
   async function acquire(params: Params) {
     const step = await action("tools.run", { tool: "acquire", params });
     if (step.status !== "done" || !step.outputs[0])
       throw new Error(
-        [
-          step.error?.message ?? "The image could not be imported.",
-          step.error?.hint,
-        ]
+        [step.error?.message ?? "The image could not be imported.", step.error?.hint]
           .filter(Boolean)
           .join(" "),
       );
     onAttach(step.outputs[0]);
-    useUI
-      .getState()
-      .set({
-        selectedArtifact: step.outputs[0],
-        notice: "Image added to your session and attached to chat",
-      });
+    useUI.getState().set({
+      selectedArtifact: step.outputs[0],
+      notice: "Image added to your session and attached to chat",
+    });
   }
   async function search(variation = "balanced", candidate?: Candidate) {
     const step = await action("tools.run", {
       tool: "discover",
       params: {
         query: query || candidate?.title,
-        source: sources.some(item => item.id === source && item.configured) ? source : "all",
+        source: sources.some((item) => item.id === source && item.configured) ? source : "all",
         purpose,
         n: 8,
-        ...(candidate
-          ? { reference_url: candidate.thumbnail || candidate.url }
-          : {}),
+        ...(candidate ? { reference_url: candidate.thumbnail || candidate.url } : {}),
         ...(pose.trim() ? { pose: pose.trim() } : {}),
         ...(expression.trim() ? { expression: expression.trim() } : {}),
         same_subject: sameSubject,
         variation,
-        ...(variation === "different"
-          ? { exclude_urls: candidates.map((c) => c.url) }
-          : {}),
+        ...(variation === "different" ? { exclude_urls: candidates.map((c) => c.url) } : {}),
       },
     });
     if (step.status !== "done")
-      throw new Error(
-        [step.error?.message ?? "Search failed.", step.error?.hint]
-          .filter(Boolean)
-          .join(" "),
-      );
+      throw new Error([step.error?.message ?? "Search failed.", step.error?.hint].filter(Boolean).join(" "));
     setCandidates((step.data?.candidates ?? []) as Candidate[]);
     setSheet(step.outputs[0] ?? null);
     setNotes(step.result_text);
@@ -161,12 +141,7 @@ export function Studio({
       .filter(Boolean);
   return (
     <div className="modal-backdrop">
-      <section
-        className="modal studio"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="studio-title"
-      >
+      <section className="modal studio" role="dialog" aria-modal="true" aria-labelledby="studio-title">
         <div className="modal-heading">
           <div>
             <h2 id="studio-title">Images & directions</h2>
@@ -189,16 +164,15 @@ export function Studio({
             ["pairs", "Image pairs"],
             ["recent", "Recent choices"],
           ].map(([id, label]) => (
-            <button
+            <Button
               key={id}
               aria-pressed={tab === id}
               onClick={() => {
                 setTab(id);
                 setError("");
               }}
-            >
-              {label}
-            </button>
+              label={label}
+            />
           ))}
         </nav>
         {error && (
@@ -206,21 +180,52 @@ export function Studio({
             {error}
           </p>
         )}
-        {session?.turn_running && (
-          <p>Stop the agent before changing images or branches.</p>
-        )}
+        {session?.turn_running && <p>Stop the agent before changing images or branches.</p>}
         {tab === "discover" && (
           <>
-              <p className="muted">{[['pexels','Photos provided by Pexels','https://www.pexels.com/'],['pixabay','Images from Pixabay','https://pixabay.com/']].filter(([id])=>candidates.some(c=>c.source.kind===id)).map(([id,label,url])=><button key={id} onClick={()=>run(()=>openLink(url))}>{label}</button>)}</p>
+            <p className="muted">
+              {[
+                ["pexels", "Photos provided by Pexels", "https://www.pexels.com/"],
+                ["pixabay", "Images from Pixabay", "https://pixabay.com/"],
+              ]
+                .filter(([id]) => candidates.some((c) => c.source.kind === id))
+                .map(([id, label, url]) => (
+                  <Button key={id} onClick={() => run(() => openLink(url))} label={label} />
+                ))}
+            </p>
             <details className="collection-status">
               <summary>Collection availability</summary>
-              <p>Ready means the required configuration is present; it does not test the service or validate its credentials.</p>
-              {sourceError && <p role="alert">Could not read collection configuration. Reconnect to the core and try again.</p>}
-              <table><thead><tr><th>Collection</th><th>Status</th><th>Setup</th></tr></thead><tbody>{sources.map(item => <tr key={item.id}>
-                <td>{item.name}</td><td>{item.configured ? "Ready" : "Needs configuration"}</td>
-                <td>{item.env_var ? <code>{item.env_var}</code> : "No key needed"}</td>
-              </tr>)}</tbody></table>
-              <p>Set the named environment variable before starting the app. Credential values are never shown here.</p>
+              <p>
+                Ready means the required configuration is present; it does not test the service or validate
+                its credentials.
+              </p>
+              {sourceError && (
+                <p role="alert">
+                  Could not read collection configuration. Reconnect to the core and try again.
+                </p>
+              )}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Collection</th>
+                    <th>Status</th>
+                    <th>Setup</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sources.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.name}</td>
+                      <td>{item.configured ? "Ready" : "Needs configuration"}</td>
+                      <td>{item.env_var ? <code>{item.env_var}</code> : "No key needed"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p>
+                Set the named environment variable before starting the app. Credential values are never shown
+                here.
+              </p>
             </details>
             <form
               className="studio-form"
@@ -229,115 +234,82 @@ export function Studio({
                 void perform(() => search());
               }}
             >
-              <label className="wide">
-                Subject or scene
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="A furious dog at an office desk"
-                  required
-                />
-              </label>
-              <label>
-                Collection
-                <select
-                  value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                >
-                  <option value="all">All public collections</option>
-                  {sources.map(item => (
-                    <option key={item.id} value={item.id} disabled={!item.configured}>
-                      {item.name}{!item.configured ? " (needs configuration)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Needed for
-                <select
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                >
-                  {[
-                    ["subject", "Main subject"],
-                    ["head", "Head swap"],
-                    ["background", "Background"],
-                    ["object", "Object / prop"],
-                  ].map(([id, title]) => (
-                    <option key={id} value={id}>
-                      {title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Pose / framing
-                <input
-                  value={pose}
-                  onChange={(e) => setPose(e.target.value)}
-                  placeholder="Facing left, whole head visible"
-                />
-              </label>
-              <label>
-                Expression
-                <input
-                  value={expression}
-                  onChange={(e) => setExpression(e.target.value)}
-                  placeholder="Surprised, mouth open"
-                />
-              </label>
-              <label className="check-label">
-                <input
-                  type="checkbox"
-                  checked={sameSubject}
-                  onChange={(e) => setSameSubject(e.target.checked)}
-                />
-                More pictures of this exact subject
-              </label>
-              <button className="primary" disabled={disabled || !query.trim()}>
-                {busy ? "Working…" : "Find candidates"}
-              </button>
+              <InputField
+                label="Subject or scene"
+                labelClassName="wide"
+                placeholder="A furious dog at an office desk"
+                required
+                bind={[query, setQuery]}
+              />
+              <SelectField label="Collection" bind={[source, setSource]}>
+                <option value="all">All public collections</option>
+                {sources.map((item) => (
+                  <option key={item.id} value={item.id} disabled={!item.configured}>
+                    {item.name}
+                    {!item.configured ? " (needs configuration)" : ""}
+                  </option>
+                ))}
+              </SelectField>
+              <SelectField
+                label="Needed for"
+                bind={[purpose, setPurpose]}
+                options={[
+                  ["subject", "Main subject"],
+                  ["head", "Head swap"],
+                  ["background", "Background"],
+                  ["object", "Object / prop"],
+                ].map(([id, title]) => [id, title] as const)}
+              />
+              <InputField
+                label="Pose / framing"
+                placeholder="Facing left, whole head visible"
+                bind={[pose, setPose]}
+              />
+              <InputField
+                label="Expression"
+                placeholder="Surprised, mouth open"
+                bind={[expression, setExpression]}
+              />
+              <InputField
+                label="More pictures of this exact subject"
+                inputFirst
+                labelClassName="check-label"
+                type="checkbox"
+                bind={[sameSubject, setSameSubject]}
+              />
+              <Button
+                className="primary"
+                disabled={disabled || !query.trim()}
+                label={busy ? "Working…" : "Find candidates"}
+              />
             </form>
             {sheet && (
               <div className="studio-sheet">
                 <ArtifactThumb
                   id={sheet}
                   label="Candidate contact sheet"
-                  onClick={() =>
-                    useUI.getState().set({ selectedArtifact: sheet })
-                  }
+                  onClick={() => useUI.getState().set({ selectedArtifact: sheet })}
                 />
               </div>
             )}
             {!!candidates.length && (
               <div className="studio-grid">
                 {candidates.map((c, i) => {
-                  const preview = [
-                    c.thumbnail_data_url,
-                    c.preview,
-                    c.thumbnail,
-                  ].find((v) => v?.startsWith("data:image/"));
+                  const preview = [c.thumbnail_data_url, c.preview, c.thumbnail].find((v) =>
+                    v?.startsWith("data:image/"),
+                  );
                   return (
                     <article className="studio-card" key={c.id ?? c.url}>
-                      {preview && (
-                        <img
-                          className="studio-thumb"
-                          src={preview}
-                          alt={c.title}
-                        />
-                      )}
+                      {preview && <img className="studio-thumb" src={preview} alt={c.title} />}
                       <strong>
                         {i + 1}. {c.title}
                       </strong>
                       <small>
-                        {c.source.kind} ·{" "}
-                        {c.source.license || "Rights not supplied"}
+                        {c.source.kind} · {c.source.license || "Rights not supplied"}
                       </small>
-                      {c.reasons?.length ? (
-                        <small>{c.reasons.join(" · ")}</small>
-                      ) : null}
+                      {c.reasons?.length ? <small>{c.reasons.join(" · ")}</small> : null}
                       <div className="studio-actions">
-                        <button
+                        <Button
                           disabled={disabled}
                           onClick={() =>
                             void perform(() =>
@@ -351,35 +323,27 @@ export function Studio({
                               }),
                             )
                           }
-                        >
-                          Use image
-                        </button>
-                        <button
+                          label="Use image"
+                        />
+                        <Button
                           disabled={disabled}
-                          onClick={() =>
-                            void perform(() => search("similar", c))
-                          }
-                        >
-                          More like this
-                        </button>
-                        <button
+                          onClick={() => void perform(() => search("similar", c))}
+                          label="More like this"
+                        />
+                        <Button
                           disabled={disabled}
-                          onClick={() =>
-                            void perform(() => search("different", c))
-                          }
-                        >
-                          Different view
-                        </button>
+                          onClick={() => void perform(() => search("different", c))}
+                          label="Different view"
+                        />
                         {(c.source.page ?? c.page)?.match(/^https?:\/\//) && (
-                          <button
+                          <Button
                             onClick={() =>
                               void perform(async () => {
                                 await openLink((c.source.page ?? c.page)!);
                               })
                             }
-                          >
-                            Source
-                          </button>
+                            label="Source"
+                          />
                         )}
                       </div>
                     </article>
@@ -403,17 +367,12 @@ export function Studio({
                 });
               }}
             >
-              <label>
-                Image URL or browser source card
-                <textarea
-                  value={link}
-                  onChange={(e) => setLink(e.target.value)}
-                  placeholder="Paste an image address or use the browser helper’s Send image to badshop action"
-                />
-              </label>
-              <button disabled={disabled || !link.trim()}>
-                Import selected web image
-              </button>
+              <TextAreaField
+                label="Image URL or browser source card"
+                placeholder="Paste an image address or use the browser helper’s Send image to badshop action"
+                bind={[link, setLink]}
+              />
+              <Button disabled={disabled || !link.trim()} label="Import selected web image" />
             </form>
           </>
         )}
@@ -434,20 +393,13 @@ export function Studio({
                     const faceStep = session?.steps
                       .slice()
                       .reverse()
-                      .find(
-                        (s) =>
-                          s.tool === "find" &&
-                          s.params.image === image &&
-                          s.data?.faces,
-                      );
+                      .find((s) => s.tool === "find" && s.params.image === image && s.data?.faces);
                     await action("library.save", {
                       artifact_id: image,
                       name,
                       tags: tagList(),
                       metadata: {
-                        ...(faceStep?.data?.faces
-                          ? { faces: faceStep.data.faces }
-                          : {}),
+                        ...(faceStep?.data?.faces ? { faces: faceStep.data.faces } : {}),
                       },
                     });
                   }
@@ -462,71 +414,51 @@ export function Studio({
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={
-                    image
-                      ? session?.artifacts[image]?.label
-                      : "Select an image first"
-                  }
+                  placeholder={image ? session?.artifacts[image]?.label : "Select an image first"}
                   required
                 />
               </label>
-              <label>
-                Tags, separated by commas
-                <input
-                  value={tags}
-                  onChange={(e) => setTags(e.target.value)}
-                  placeholder="screaming, facing right, giant head"
-                />
-              </label>
-              <button
+              <InputField
+                label="Tags, separated by commas"
+                placeholder="screaming, facing right, giant head"
+                bind={[tags, setTags]}
+              />
+              <Button
                 disabled={disabled || (!image && !editing) || !name.trim()}
-              >
-                {editing ? "Update asset" : "Save to junk drawer"}
-              </button>
+                label={editing ? "Update asset" : "Save to junk drawer"}
+              />
               {editing && (
-                <button
+                <Button
                   type="button"
                   onClick={() => {
                     setEditing(null);
                     setName("");
                     setTags("");
                   }}
-                >
-                  Cancel editing
-                </button>
+                  label="Cancel editing"
+                />
               )}
             </form>
-            <label className="studio-filter">
-              Search saved images
-              <input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Name or tag"
-              />
-            </label>
+            <InputField
+              label="Search saved images"
+              labelClassName="studio-filter"
+              placeholder="Name or tag"
+              bind={[filter, setFilter]}
+            />
             {!library.length && (
-              <p>
-                Keep useful heads, props, backgrounds, and cutouts here for your
-                next session.
-              </p>
+              <p>Keep useful heads, props, backgrounds, and cutouts here for your next session.</p>
             )}
             <div className="studio-grid">
               {library
-                .filter((e) =>
-                  `${e.name} ${e.tags.join(" ")}`
-                    .toLowerCase()
-                    .includes(filter.toLowerCase()),
-                )
+                .filter((e) => `${e.name} ${e.tags.join(" ")}`.toLowerCase().includes(filter.toLowerCase()))
                 .map((entry) => (
                   <article className="studio-card" key={entry.id}>
                     <LibraryImage entry={entry} />
                     <strong>{entry.name}</strong>
                     <small>{entry.tags.join(" · ")}</small>
-                    <small>
-                      {entry.artifact.source?.license || "Rights not supplied"}
-                    </small>
+                    <small>{entry.artifact.source?.license || "Rights not supplied"}</small>
                     <div className="studio-actions">
-                      <button
+                      <Button
                         disabled={disabled}
                         onClick={() =>
                           void perform(async () => {
@@ -534,37 +466,28 @@ export function Studio({
                               id: entry.id,
                             });
                             onAttach(result.working.id);
-                            useUI
-                              .getState()
-                              .set({
-                                selectedArtifact: result.working.id,
-                                notice: `${entry.name} attached to chat`,
-                              });
+                            useUI.getState().set({
+                              selectedArtifact: result.working.id,
+                              notice: `${entry.name} attached to chat`,
+                            });
                           })
                         }
-                      >
-                        Use image
-                      </button>
-                      <button
+                        label="Use image"
+                      />
+                      <Button
                         disabled={disabled}
                         onClick={() => {
                           setEditing(entry);
                           setName(entry.name);
                           setTags(entry.tags.join(", "));
                         }}
-                      >
-                        Edit tags / name
-                      </button>
-                      <button
-                        disabled={disabled}
-                        onClick={() => setConfirmRemove(entry.id)}
-                      >
-                        Remove
-                      </button>
+                        label="Edit tags / name"
+                      />
+                      <Button disabled={disabled} onClick={() => setConfirmRemove(entry.id)} label="Remove" />
                       {confirmRemove === entry.id && (
                         <>
                           <span>Remove from the drawer?</span>
-                          <button
+                          <Button
                             disabled={disabled}
                             onClick={() =>
                               void perform(async () => {
@@ -574,12 +497,9 @@ export function Studio({
                                 setConfirmRemove(null);
                               })
                             }
-                          >
-                            Yes, remove
-                          </button>
-                          <button onClick={() => setConfirmRemove(null)}>
-                            Keep
-                          </button>
+                            label="Yes, remove"
+                          />
+                          <Button onClick={() => setConfirmRemove(null)} label="Keep" />
                         </>
                       )}
                     </div>
@@ -591,9 +511,8 @@ export function Studio({
         {tab === "branches" && (
           <>
             <p>
-              Each branch keeps its own images, chat, and editable steps.
-              Switching preserves your current work; save the project to keep
-              every branch together.
+              Each branch keeps its own images, chat, and editable steps. Switching preserves your current
+              work; save the project to keep every branch together.
             </p>
             <form
               className="studio-form"
@@ -610,51 +529,36 @@ export function Studio({
                 });
               }}
             >
-              <label>
-                New branch name
-                <input
-                  value={branchName}
-                  onChange={(e) => setBranchName(e.target.value)}
-                  placeholder="Giant dog version"
-                  required
-                />
-              </label>
-              <label>
-                Start from
-                <select
-                  value={fromStep}
-                  onChange={(e) => setFromStep(e.target.value)}
-                >
-                  <option value="">Current state</option>
-                  {session?.steps
-                    .filter((s) => s.status === "done")
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        Step {s.index}: {s.tool}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <button disabled={disabled || !branchName.trim()}>
-                Create & switch
-              </button>
+              <InputField
+                label="New branch name"
+                placeholder="Giant dog version"
+                required
+                bind={[branchName, setBranchName]}
+              />
+              <SelectField label="Start from" bind={[fromStep, setFromStep]}>
+                <option value="">Current state</option>
+                {session?.steps
+                  .filter((s) => s.status === "done")
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Step {s.index}: {s.tool}
+                    </option>
+                  ))}
+              </SelectField>
+              <Button disabled={disabled || !branchName.trim()} label="Create & switch" />
             </form>
             <div className="studio-grid">
               {branches?.branches.map((branch) => (
                 <article className="studio-card" key={branch.id}>
-                  {branch.preview_id &&
-                    session?.artifacts[branch.preview_id] && (
-                      <ArtifactThumb
-                        id={branch.preview_id}
-                        label={branch.name}
-                      />
-                    )}
+                  {branch.preview_id && session?.artifacts[branch.preview_id] && (
+                    <ArtifactThumb id={branch.preview_id} label={branch.name} />
+                  )}
                   <strong>
                     {branch.name}
                     {branch.id === branches.active_id ? " (current)" : ""}
                   </strong>
                   <small>{branch.step_count} steps</small>
-                  <button
+                  <Button
                     disabled={disabled || branch.id === branches.active_id}
                     onClick={() =>
                       void perform(async () => {
@@ -664,23 +568,46 @@ export function Studio({
                         });
                       })
                     }
-                  >
-                    Switch to this take
-                  </button>
+                    label="Switch to this take"
+                  />
                 </article>
               ))}
             </div>
           </>
         )}
         {tab === "layouts" && <LayoutsPacks key={session?.id} onAttach={onAttach} />}
-        {tab === "retro" && <RetroStudio key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} onDraft={onDraft} />}
-        {tab === "ideas" && <IdeaMixer key={`${session?.id}-${useUI.getState().documentGeneration}`} onDraft={onDraft} onSearch={value => {
-          setQuery(value); setPurpose("background"); setSource("all"); setPose(""); setExpression("");
-          setSameSubject(false); setCandidates([]); setSheet(null); setNotes(""); setTab("discover");
-        }} />}
-        {tab === "sheets" && <SpriteSheet key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />}
+        {tab === "retro" && (
+          <RetroStudio
+            key={`${session?.id}-${useUI.getState().documentGeneration}`}
+            onAttach={onAttach}
+            onDraft={onDraft}
+          />
+        )}
+        {tab === "ideas" && (
+          <IdeaMixer
+            key={`${session?.id}-${useUI.getState().documentGeneration}`}
+            onDraft={onDraft}
+            onSearch={(value) => {
+              setQuery(value);
+              setPurpose("background");
+              setSource("all");
+              setPose("");
+              setExpression("");
+              setSameSubject(false);
+              setCandidates([]);
+              setSheet(null);
+              setNotes("");
+              setTab("discover");
+            }}
+          />
+        )}
+        {tab === "sheets" && (
+          <SpriteSheet key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />
+        )}
         {tab === "local" && <LocalMedia key={session?.id} onAttach={onAttach} />}
-        {tab === "pairs" && <ImagePairs key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />}
+        {tab === "pairs" && (
+          <ImagePairs key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />
+        )}
         {tab === "recent" && <RecentChoices />}
       </section>
     </div>

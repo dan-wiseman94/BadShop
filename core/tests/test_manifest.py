@@ -111,7 +111,9 @@ def test_manifest_lists_every_download_once():
     assert len(set(names)) == len(names)
     assert set(names) == ({f"fonts/{f}" for f in text.FONT_DOWNLOADS} | {"face_detection_yunet_2023mar.onnx"}
                           | {f"rembg/{m}.onnx" for m in REMBG_MD5})
-    for a in manifest.ASSETS:
+    all_assets = (*manifest.ASSETS, *manifest.vision_assets())
+    assert len({asset.name for asset in all_assets}) == len(all_assets)
+    for a in all_assets:
         assert a.label and a.size and a.approx_mb == max(1, round(a.size / 2**20)), a.name
         assert (a.sha256 is None) != (a.md5 is None), a.name  # exactly one pinned hash
     yunet = manifest.get_asset("face_detection_yunet_2023mar.onnx")
@@ -127,7 +129,7 @@ def test_asset_status_does_not_load_inference_runtime(homes):
     result = subprocess.run([sys.executable, "-c", """
 import sys
 from badshop.engine.manifest import status
-assert len(status()) == 7
+assert sum(not row["name"].startswith("local-vision/") for row in status()) == 7
 assert not any(name.split(".")[0] in {"rembg", "onnxruntime"} for name in sys.modules)
 """], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
@@ -201,7 +203,7 @@ def test_unknown_assets_and_models():
 def test_status_and_download(homes, monkeypatch):
     font = pin_local(monkeypatch, homes, "fonts/Anton-Regular.ttf", b"a font")
     rows = manifest.status()
-    assert [r["name"] for r in rows] == [a.name for a in manifest.ASSETS]
+    assert [r["name"] for r in rows] == [a.name for a in (*manifest.ASSETS, *manifest.vision_assets())]
     assert rows[0] == {"name": font.name, "label": font.label, "approx_mb": 1, "present": False}
     assert not any(r["present"] for r in rows)
     heard = []

@@ -1,3 +1,4 @@
+import { Button } from "./Button";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, RotateCcw, X } from "lucide-react";
 import { action, run, useSession } from "../data";
@@ -17,16 +18,11 @@ export function ErrorNotice({ className = "" }: { className?: string }) {
   }, [error]);
   if (!error) return null;
   return (
-    <div
-      className={`error-notice ${className}`}
-      role="alert"
-      ref={notice}
-      tabIndex={-1}
-    >
+    <div className={`error-notice ${className}`} role="alert" ref={notice} tabIndex={-1}>
       <AlertTriangle size={16} />
       <span>{error}</span>
       {errorAction === "retry-turn" && (
-        <button
+        <Button
           disabled={busy || session?.turn_running}
           onClick={() =>
             run(async () => {
@@ -39,10 +35,10 @@ export function ErrorNotice({ className = "" }: { className?: string }) {
               }
             })
           }
-        >
-          <RotateCcw size={13} />
-          {busy ? "Retrying…" : "Retry turn"}
-        </button>
+          label={busy ? "Retrying…" : "Retry turn"}
+          icon={RotateCcw}
+          iconSize={13}
+        />
       )}
       <button
         aria-label="Dismiss error"
