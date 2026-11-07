@@ -25,7 +25,7 @@ from badshop.agent import approval
 from badshop.agent.approval import ApprovalGate
 from badshop.agent.fake import ScriptedProvider
 from badshop.agent.provider import Provider, ProviderError
-from badshop.providers import profiles
+from badshop.providers import local_vision, profiles
 from badshop.providers.litellm_provider import LiteLLMProvider, close_clients
 from badshop.providers.cli_provider import CLIProvider, discover_clis, inspect_cli
 from badshop.providers.cli_turn import run_cli_turn
@@ -33,7 +33,7 @@ from badshop.agent.loop import TurnConfig, _to_the_end, run_turn
 from badshop.engine import assets, manifest
 from badshop.engine.common import fit, has_alpha, to_rgb
 from badshop.engine.errors import EngineError
-from badshop.server import rpc
+from badshop.server import local_runtime, rpc
 from badshop.server.rpc import INVALID_PARAMS, Dispatcher, RpcError
 from badshop.server.settings import ApprovalMode, Settings, load_settings, save_settings
 from badshop.session import branches, project
@@ -164,6 +164,8 @@ class CoreApp:
         self._provider: Provider | None = None
         self._connection: tuple[str, str] | None = None
         self._cli_providers: dict[tuple[str, str], CLIProvider] = {}
+        self._local_runtime = local_runtime.LocalVisionRuntime()
+        self._local_vision = local_vision.LocalVisionProvider(self._local_runtime.endpoint, local_runtime.available)
         self._retired_clis: list[CLIProvider] = []
         self._cli_turn_actor: str | None = None
         self._cli_message_id: str | None = None
@@ -243,6 +245,8 @@ class CoreApp:
         session.data.approval_mode = self.settings.approval_mode
         # Pinned image ids belong to one project; new documents have no such artifacts.
         session.data.creative = self.settings.creative_defaults.model_copy(update={"source_roles": {}}, deep=True)
+        if local_vision.PROFILE_ID in self._profiles and local_runtime.available():
+            session.data.provider_profile_id = local_vision.PROFILE_ID
         return session
 
     def _changed(self) -> None:  # Session.on_change: called from whichever thread changed it
@@ -430,7 +434,9 @@ class CoreApp:
         register_secret(token)
         self._connection = (url, token)
 
-    def _make_provider(self, profile: profiles.Profile) -> LiteLLMProvider | CLIProvider:
+    def _make_provider(self, profile: profiles.Profile) -> LiteLLMProvider | CLIProvider | local_vision.LocalVisionProvider:
+        if profile.id == local_vision.PROFILE_ID:
+            return self._local_vision
         if self.settings.no_remote:
             from urllib.parse import urlsplit
             host = urlsplit(profile.api_base or '').hostname
@@ -547,6 +553,7 @@ class CoreApp:
             signal.set()
         self._cancel_approvals("badshop is closing")
         await self._stop_turn("badshop is closing")
+        await self._local_runtime.close()
         await asyncio.gather(*(p.close() for p in [*self._cli_providers.values(), *self._retired_clis]),
                              return_exceptions=True)
         self._cli_providers.clear()
@@ -604,6 +611,7 @@ class CoreApp:
             ("providers.add", self._providers_save, "user"),
             ("providers.delete", self._providers_delete, "user"),
             ("providers.select", self._providers_select, "user"),
+            ("providers.on_device", self._providers_on_device, "user"),
             ("providers.test", self._providers_test, "user"),
             ("providers.detect", self._providers_detect, "user"),
             ("diagnostics.get", self._diagnostics_get, "user"),
@@ -1091,6 +1099,8 @@ class CoreApp:
             self._check_idle()
             self._check_profiles()
             p = profiles.parse_profile(profile)
+            if p.id == local_vision.PROFILE_ID:
+                raise EngineError("manage On-device AI in Settings → Assets")
             if p.kind == "cli" and api_key is not None:
                 raise EngineError("CLI profiles use the CLI's own subscription login")
             old = self._profiles.get(p.id)
@@ -1129,6 +1139,34 @@ class CoreApp:
             self._changed()
         await self._blocking(select)
         self._emit("provider.status", {"profile_id": profile_id, "status": "selected"})
+        return self._snapshot()
+
+    async def _providers_on_device(self, actor: str) -> dict:
+        self._check_idle()
+        self._check_profiles()
+        if not local_runtime.available():
+            raise EngineError("finish the On-device AI download first")
+        session = self.session
+        try:
+            await self._local_runtime.endpoint()
+        except ProviderError as e:
+            raise EngineError(str(e)) from e
+
+        def enable() -> None:
+            self._check_idle()
+            self._check_profiles()
+            if self.session is not session:
+                raise EngineError("the project changed during setup", hint="choose On-device AI in Settings")
+            profile = profiles.Profile(id=local_vision.PROFILE_ID, kind="local",
+                                       label=local_vision.LABEL, model="badshop")
+            if self._profiles.get(profile.id) != profile:
+                updated = {**self._profiles, profile.id: profile}
+                profiles.save_profiles(updated)
+                self._profiles = updated
+            self.session.data.provider_profile_id = profile.id
+            self._changed()
+        await self._blocking(enable)
+        self._emit("provider.status", {"profile_id": local_vision.PROFILE_ID, "status": "selected"})
         return self._snapshot()
 
     async def _providers_delete(self, actor: str, profile_id: str) -> dict:

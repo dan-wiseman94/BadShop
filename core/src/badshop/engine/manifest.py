@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from badshop.engine import assets, faces, text
+from badshop.engine import assets, faces, text, vision_packages
 from badshop.engine.errors import EngineError
 
 
@@ -27,6 +27,14 @@ _COMIC = text.FONT_DOWNLOADS["ComicNeue-Bold.ttf"]
 # rembg's own release files, URLs and md5s as in rembg's session classes (a test compares them).
 # Each is stored as <model>.onnx: birefnet-general comes from BiRefNet-general-epoch_244.onnx.
 _REMBG = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
+_QWEN = ("https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/"
+         "f36b1ea49a332ede8fe5f389bbf5b3575ef71f48/")
+
+
+def _qwen_asset(filename: str, label: str, size: int, sha256: str) -> Asset:
+    return Asset(f"local-vision/{filename}", label, _QWEN + filename + "?download=true",
+                 round(size / 2**20), size=size, sha256=sha256)
+
 
 ASSETS: tuple[Asset, ...] = (
     Asset("fonts/Anton-Regular.ttf", "Anton font (an Impact lookalike)", _ANTON.url, 1,
@@ -48,9 +56,27 @@ ASSETS: tuple[Asset, ...] = (
           size=972666916, md5="7a35a0141cbbc80de11d9c9a28f52697", rembg_model="birefnet-general"),
 )
 
+VISION_WEIGHTS = (
+    _qwen_asset("Qwen_Qwen3.5-0.8B-Q4_K_M.gguf", "AI model", 579615840,
+                "fb044e93939a70469c905781334f5de1e6c8b608ced6cbc8c9249bd4127d9526"),
+    _qwen_asset("mmproj-Qwen_Qwen3.5-0.8B-f16.gguf", "image recognition", 204987104,
+                "1dc1351c82e41b48edb55fd6ddfa7ca60fb5a16b3d5abf3ce7054880dd022847"),
+)
+
+
+def vision_assets() -> tuple[Asset, ...]:
+    keys = vision_packages.selected()
+    runtime = []
+    for key in keys:
+        filename, size, sha256 = vision_packages.PACKAGES[key]
+        runtime.append(Asset(f"local-vision/{filename}", "GPU support" if key == "cuda-libraries" else
+                             "local AI runtime", vision_packages.BASE + filename,
+                             round(size / 2**20), size=size, sha256=sha256))
+    return (*VISION_WEIGHTS, *runtime) if keys else ()
+
 
 def get_asset(name: str) -> Asset:
-    for a in ASSETS:
+    for a in (*ASSETS, *vision_assets()):
         if a.name == name:
             return a
     raise EngineError(f"unknown asset {name!r}", hint=f"assets: {', '.join(a.name for a in ASSETS)}")
@@ -75,7 +101,7 @@ def is_present(a: Asset) -> bool:
 
 def status() -> list[dict]:
     return [{"name": a.name, "label": a.label, "approx_mb": a.approx_mb, "present": is_present(a)}
-            for a in ASSETS]
+            for a in (*ASSETS, *vision_assets())]
 
 
 def _fetch(a: Asset) -> Path:
@@ -92,6 +118,7 @@ def ensure_rembg_model(model: str) -> Path:
     file rembg's session class opens, so rembg's own downloader (pooch) never runs or prints."""
     for a in ASSETS:
         if a.rembg_model == model:
+            assets.configure_rembg()
             return _fetch(a)
     offered = ", ".join(a.rembg_model for a in ASSETS if a.rembg_model)
     raise EngineError(f"{model} is not a background remover badshop offers", hint=f"models: {offered}")

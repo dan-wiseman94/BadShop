@@ -133,6 +133,7 @@ name = "badshop"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "keyring" },
     { name = "litellm" },
     { name = "mcp" },
@@ -167,6 +168,7 @@ quality = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "keyring", specifier = ">=25,<26" },
     { name = "litellm", specifier = ">=1.106.6,<2" },
     { name = "mcp", specifier = ">=2.3,<3" },
