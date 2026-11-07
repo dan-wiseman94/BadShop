@@ -21,7 +21,7 @@ from native_windows import screenshot as capture_window
 from smoke_desktop import smoke
 
 
-def choose_file(pid: int, window: int, path: Path) -> None:
+def choose_file(pid: int, window: int, path: Path, *, saving: bool = False) -> None:
     """Use the owned Windows common dialog, scoped to the app and its window."""
     user = ctypes.WinDLL('user32', use_last_error=True)
     visit_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -59,7 +59,15 @@ def choose_file(pid: int, window: int, path: Path) -> None:
     filename = dialog.child_window(auto_id='1001', control_type='Edit')
     if not filename.exists(timeout=1):
         filename = dialog.child_window(auto_id='1148', control_type='ComboBox').child_window(control_type='Edit')
-    filename.set_edit_text(str(path))
+    if saving:
+        # Replace the prefilled save name through the native edit control so
+        # the shell receives the edit-change notification, then let the file
+        # type selected in the dialog supply the project extension.
+        edit = Desktop(backend='win32').window(handle=filename.handle).wrapper_object()
+        edit.set_edit_text(str(path))
+        assert edit.text_block() == str(path), 'The native Save dialog did not accept the target filename'
+    else:
+        filename.set_edit_text(str(path))
     dialog.child_window(auto_id='1', control_type='Button').invoke()
     deadline = time.monotonic() + 20
     while user.IsWindowVisible(hwnd):
@@ -126,6 +134,7 @@ def runner_webview_policy(executable: Path, profile: Path):
 
 
 def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path) -> None:
+    root = root.resolve()
     project = root / 'native-edit.badshop'
     summary = {'status': 'failed', 'stages': []}
     screenshot.parent.mkdir(parents=True, exist_ok=True)
@@ -182,9 +191,23 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path)
         summary['stages'].append('edited and cancelled native close')
         capture_window(window, screenshot.with_name('native-edited.png').resolve())
         close()
+        network = page.context.new_cdp_session(page)
+        network.send('Network.enable')
+
+        def record_save(frame: dict) -> None:
+            with contextlib.suppress(ValueError, KeyError, TypeError):
+                message = json.loads(frame['response']['payloadData'])
+                if message.get('method') == 'session.save_as':
+                    summary['save_request_path'] = message['params']['path']
+
+        network.on('Network.webSocketFrameSent', record_save)
         guard.get_by_role('button', name='Save & close', exact=True).click()
         page.context.tracing.stop(path=trace)
-        choose_file(pid, window, project)
+        choose_file(pid, window, project.with_suffix(''), saving=True)
+        # The renderer may close as soon as the core acknowledges the save.
+        # Pump CDP until that happens so the submitted path survives failures.
+        with contextlib.suppress(PlaywrightError):
+            page.wait_for_event('close', timeout=15000)
 
     def reopen(page: Page, pid: int, window: int, close: Callable[[], None], trace: Path) -> None:
         page.locator('.session-name').click()
@@ -201,6 +224,11 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path)
 
     try:
         run(screenshot, edit)
+        assert project.is_file(), (
+            f'Native Save did not write {project.name}. '
+            f'Submitted path: {summary.get("save_request_path")!r}. '
+            f'Project files in the test directory: {[path.name for path in root.glob("*.badshop*")]}'
+        )
         saved = open_project(project, output_dir=root)
         step, = saved.data.steps
         assert (step.tool, step.status, step.outputs) == ('deepfry', 'done', [output_hash])
