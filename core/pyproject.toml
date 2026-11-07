@@ -30,7 +30,8 @@ badshop-core = "badshop.server.main:main"
 build = [
     "pyinstaller>=6,<7",
 ]
-dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4"]  # jsonschema: the registry's JSON schemas are really checked
+# jsonschema is used to validate the registry's generated schemas.
+dev = ["pytest>=8", "pytest-xdist>=3,<4", "ruff>=0.6", "jsonschema>=4"]
 
 [build-system]
 requires = ["hatchling"]
