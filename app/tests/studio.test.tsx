@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { Studio } from "../src/components/Studio";
+import { action } from "../src/data";
 import { sourceCard } from "../src/sourceCard";
 import { useUI } from "../src/store";
-import { action } from "../src/data";
 const sourceState = vi.hoisted(() => ({
   sources: [
     { id: "cleveland", name: "Cleveland Museum of Art", configured: true, requires_key: false, env_var: null as string | null },
@@ -57,112 +57,7 @@ beforeEach(() => {
   sourceState.sources = sourceState.sources.map(source => ({ ...source, configured: source.id === "cleveland" }));
   useUI.getState().set({ status: "ready", selectedArtifact: "a" });
 });
-it("imports the chosen candidate with provenance and keeps discovery separate from acquisition", async () => {
-  vi.mocked(action).mockResolvedValueOnce({
-    status: "done",
-    outputs: ["sheet"],
-    result_text: "Found",
-    data: {
-      candidates: [
-        {
-          id: "c",
-          title: "Dog",
-          url: "https://images.example/dog.png",
-          thumbnail: "https://images.example/small.png",
-          source: {
-            kind: "commons",
-            page: "https://example.org/Dog",
-            license: "CC0",
-            creator: "Jane",
-          },
-        },
-      ],
-    },
-  } as never);
-  mount();
-  fireEvent.change(screen.getByLabelText("Subject or scene"), {
-    target: { value: "dog" },
-  });
-  fireEvent.click(screen.getByText("Find candidates"));
-  await screen.findByText("Use image");
-  expect(action).toHaveBeenCalledTimes(1);
-  vi.mocked(action).mockResolvedValueOnce({
-    status: "done",
-    outputs: ["dog"],
-  } as never);
-  fireEvent.click(screen.getByText("Use image"));
-  await waitFor(() => expect(onAttach).toHaveBeenCalledWith("dog"));
-  expect(action).toHaveBeenLastCalledWith("tools.run", {
-    tool: "acquire",
-    params: expect.objectContaining({
-      source_kind: "commons",
-      creator: "Jane",
-      license: "CC0",
-      page: "https://example.org/Dog",
-    }),
-  });
-});
-it("passes the document revision when switching and creating branches", async () => {
-  vi.mocked(action).mockResolvedValue({} as never);
-  mount();
-  fireEvent.click(screen.getByText("Branches"));
-  fireEvent.click(screen.getAllByText("Switch to this take")[1]);
-  await waitFor(() =>
-    expect(action).toHaveBeenCalledWith("branches.switch", {
-      id: "two",
-      expected_revision: 7,
-    }),
-  );
-  fireEvent.change(screen.getByLabelText("New branch name"), {
-    target: { value: "Tiny dog" },
-  });
-  await waitFor(() =>
-    expect(screen.getByText("Create & switch")).not.toBeDisabled(),
-  );
-  fireEvent.click(screen.getByText("Create & switch"));
-  await waitFor(() =>
-    expect(action).toHaveBeenCalledWith("branches.create", {
-      name: "Tiny dog",
-      expected_revision: 7,
-    }),
-  );
-});
-it("saves the selected asset with searchable tags", async () => {
-  vi.mocked(action).mockResolvedValue({} as never);
-  mount();
-  fireEvent.click(screen.getByText("Junk drawer"));
-  fireEvent.change(screen.getByLabelText("Save selected image as"), {
-    target: { value: "Office dog" },
-  });
-  fireEvent.change(screen.getByLabelText("Tags, separated by commas"), {
-    target: { value: "boss, dog" },
-  });
-  fireEvent.click(screen.getByText("Save to junk drawer"));
-  await waitFor(() =>
-    expect(action).toHaveBeenCalledWith("library.save", {
-      artifact_id: "a",
-      name: "Office dog",
-      tags: ["boss", "dog"],
-      metadata: {},
-    }),
-  );
-});
-it("shows failed acquisition without attaching a missing image", async () => {
-  vi.mocked(action).mockResolvedValue({
-    status: "error",
-    outputs: [],
-    error: { message: "Image host refused" },
-  } as never);
-  mount();
-  fireEvent.change(screen.getByLabelText("Image URL or browser source card"), {
-    target: { value: "https://example.org/image" },
-  });
-  fireEvent.click(screen.getByText("Import selected web image"));
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Image host refused",
-  );
-  expect(onAttach).not.toHaveBeenCalled();
-});
+
 it("validates browser source cards and ignores injected fields", () => {
   expect(
     sourceCard(

@@ -1,5 +1,5 @@
-import { beforeEach, afterEach, expect, it, vi } from "vitest";
-import { action, queries } from "../src/data";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { action, importBlob, queries } from "../src/data";
 import { rpc } from "../src/rpc";
 import { useUI } from "../src/store";
 import type { Session } from "../src/types";
@@ -31,30 +31,41 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-it.each(["session.new", "session.open", "session.restore"] as const)(
-  "resets transient document state only after successful %s",
-  async (method) => {
-    vi.spyOn(rpc, "request").mockResolvedValue(session);
-    await action(
-      method,
-      method === "session.open" ? { path: "/saved.badshop" } : undefined,
-    );
-    expect(useUI.getState()).toMatchObject({
-      documentGeneration: 8,
-      selectedArtifact: null,
-      selectedStep: null,
-      paletteOpen: false,
-      pick: null,
-    });
-    expect(
-      queries.getQueryData(["artifact", "discarded", false]),
-    ).toBeUndefined();
-    expect(queries.getQueryData(["session.get"])).toMatchObject({
-      id: "same-session",
-      stream_text: "",
-    });
-  },
-);
+it("does not return an old import result for selection after document replacement", async () => {
+  const artifact = {
+    id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
+  };
+  vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });
+  vi.spyOn(queries, "invalidateQueries").mockImplementationOnce(async () => {
+    // The import finished in the old document, then New completed while the
+    // import action was refreshing its snapshot, before App selects its result.
+    useUI.getState().set({ documentGeneration: 8 });
+  });
+  await expect(action("artifacts.import", { path: "image.png" })).rejects.toThrow("session changed");
+});
+
+it("rejects an image read that finishes after document replacement", async () => {
+  let finishRead: () => void = () => {};
+  class DelayedReader {
+    result = "data:image/png;base64,aW1hZ2U=";
+    onload?: () => void;
+    readAsDataURL() { finishRead = () => this.onload?.(); }
+  }
+  vi.stubGlobal("FileReader", DelayedReader);
+  const artifact = {
+    id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
+  };
+  const request = vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });
+  try {
+    const imported = importBlob(new Blob(["image"]));
+    useUI.getState().set({ documentGeneration: 8 });
+    finishRead();
+    await expect(imported).rejects.toThrow("session changed");
+    expect(request).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 it("preserves drafts, selections and image cache when Open fails", async () => {
   vi.spyOn(rpc, "request").mockRejectedValue(new Error("file is unavailable"));

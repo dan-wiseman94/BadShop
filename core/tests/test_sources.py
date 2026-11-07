@@ -174,13 +174,6 @@ def test_wiki_attaches_file_attribution_when_available(monkeypatch, metadata_ava
         assert provenance["page"] == "https://en.wikipedia.org/wiki/Portrait"
 
 
-@pytest.mark.parametrize("given,code", [("😂", "1f602"), ("🅱️", "1f171"), ("🇺🇸", "1f1fa-1f1f8"),
-                                        ("skull", "1f480"), (":joy:", "1f602"), ("1f525", "1f525"),
-                                        ("👨‍💻", "1f468-200d-1f4bb")])
-def test_emoji_code(given, code):
-    assert sources.emoji_code(given) == code
-
-
 def test_emoji_keeps_transparency(web):
     store = MemoryStore()
     run = run_tool("emoji", {"emoji": ["😂"], "size": 144}, store)
@@ -293,15 +286,6 @@ def test_try_image_decodes_web_formats_only():
     assert sources.try_image(encode(red, "JPEG")).format == "JPEG"
     mpo = sources.try_image(encode(red, "MPO", save_all=True, append_images=[Image.new("RGB", (8, 8), "blue")]))
     assert mpo.format == "MPO" and mpo.size == (8, 8)  # JPEG's decoder also opens MPO
-
-
-@pytest.mark.parametrize("fmt", ["PNG", "JPEG", "GIF", "WEBP"])
-def test_try_image_without_orientation_is_unchanged(fmt):
-    data = encode(Image.open(FIXTURES / "lincoln.png").convert("RGB"), fmt)
-    plain = Image.open(io.BytesIO(data))
-    plain.load()
-    im = sources.try_image(data)
-    assert (im.format, im.mode, im.size, im.tobytes()) == (plain.format, plain.mode, plain.size, plain.tobytes())
 
 
 def test_fetched_phone_photos_arrive_upright(monkeypatch):

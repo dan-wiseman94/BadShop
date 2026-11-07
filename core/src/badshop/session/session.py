@@ -264,7 +264,7 @@ class Session:
             raise EngineError(f"step {step.id} is {step.status}, so it can't run",
                               hint="only a proposed step runs; edit a finished step and replay it instead")
         if raw is not None:
-            params = self._resolved(runner.validate(step.tool, raw, "user"))
+            params = self.validate_step_params(step_id, raw)
             if params != step.params:
                 step.params, step.edited = params, True
         self._execute(step, cancel)
@@ -462,6 +462,14 @@ class Session:
                                                                                      exclude_defaults=True)
         return f"{step.tool} {json.dumps(_map_refs(step.tool, shown, short), ensure_ascii=False)}"
 
+    def validate_step_params(self, step_id: str, raw: dict) -> dict:
+        """Check a user's edit without changing the step or consuming a pending approval."""
+        pos = self._position(step_id)
+        step = self.data.steps[pos]
+        params = self._resolved(runner.validate(step.tool, raw, "user"))
+        self._refuse_later(step, pos, params)
+        return params
+
     def edit(self, step_id: str, raw: dict) -> list[Step]:
         """Give a finished (or failed, stale or rejected) step new params, as the user. It and every later
         step that was not rejected become `stale`; nothing runs until replay_from. Stale steps keep their
@@ -470,8 +478,7 @@ class Session:
         pos = self._position(step_id)
         step = self.data.steps[pos]
         self._refuse_busy(self.data.steps[pos:])
-        params = self._resolved(runner.validate(step.tool, raw, "user"))
-        self._refuse_later(step, pos, params)
+        params = self.validate_step_params(step_id, raw)
         changed = params != step.params
         if changed:
             step.params, step.edited = params, True
@@ -488,7 +495,8 @@ class Session:
         """The successful runs the steps remember, by cache_key: done steps, and stale steps whose last
         run worked. Copies, so a replay that overwrites a step still finds what that step had."""
         return {s.cache_key: s.model_copy(deep=True) for s in self.data.steps
-                if s.cache_key and s.error is None and s.status in ("done", "stale")}
+                if s.cache_key and s.error is None and s.status in ("done", "stale")
+                and not registry.get(s.tool).writes_files}
 
     def _reuse(self, step: Step, hit: Step, key: str) -> None:
         """Take a remembered run's results instead of running: no step.started, only step.finished."""
@@ -538,7 +546,7 @@ class Session:
                 step.previous_outputs, failed = old, step
                 break
             step.previous_outputs = []
-            if use_cache:
+            if use_cache and not registry.get(step.tool).writes_files:
                 cache[key] = step.model_copy(deep=True)
             _advance(remap, old, step.outputs)
         if failed is not None:

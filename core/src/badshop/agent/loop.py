@@ -219,10 +219,10 @@ class _Turn:
         self.emit("message.delta", {"text": chunk})
 
     async def run(self, text: str, images: list[ArtifactMeta], *, retry: bool = False) -> str:
+        note = await self.call(_changes_note, self.session)
+        if note is not None:
+            self.emit("message.done", {"message": note.model_dump(mode="json")})
         if not retry:
-            note = await self.call(_changes_note, self.session)
-            if note is not None:
-                self.emit("message.done", {"message": note.model_dump(mode="json")})
             lines = ([text] if text else []) + [image_placeholder(m) for m in images]
             await self.call(_record, self.session, {"role": "user", "content": "\n".join(lines)})
             await self.message("user", ([Part(type="text", text=text)] if text else [])

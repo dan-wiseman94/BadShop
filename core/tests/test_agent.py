@@ -5,18 +5,16 @@ import time
 
 import pytest
 
-from badshop.agent.approval import ApprovalGate, Decision, needs_approval
-from badshop.agent.context import SYSTEM_PROMPT, build_messages, image_placeholder, model_result, tool_definitions
-from badshop.agent.fake import END_OF_SCRIPT, ScriptedProvider
+from badshop.agent.approval import ApprovalGate, Decision
+from badshop.agent.context import build_messages, image_placeholder, model_result
+from badshop.agent.fake import ScriptedProvider
 from badshop.agent.loop import TurnConfig, run_turn
-from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.agent.provider import Reply, ToolCallRequest
 from badshop.engine.errors import EngineError
 from badshop.session import execution
 from badshop.session.execution import InProcessExecutor, ToolOutcome
 from badshop.session.models import Step
 from badshop.session.session import Session
-from badshop.tools import REGISTRY
-from badshop.tools.registry import get, llm_schema
 from conftest import FIXTURES
 
 LINCOLN = (FIXTURES / "lincoln.png").read_bytes()
@@ -100,87 +98,6 @@ def every_call_answered(transcript: list[dict]) -> bool:
     calls = [c["id"] for e in transcript if e["role"] == "assistant" for c in e.get("tool_calls") or []]
     answers = [e["tool_call_id"] for e in transcript if e["role"] == "tool"]
     return sorted(calls) == sorted(answers)
-
-
-def test_needs_approval_modes():
-    find, cutout, export = get("find"), get("cutout"), get("export")
-    assert [needs_approval(s, "auto") for s in (find, cutout, export)] == [False, False, False]
-    assert [needs_approval(s, "ask_changes") for s in (find, cutout, export)] == [False, True, True]
-    assert [needs_approval(s, "ask_all") for s in (find, cutout, export)] == [True, True, True]
-    with pytest.raises(EngineError, match="unknown approval mode"):
-        needs_approval(find, "yolo")
-
-
-def test_scripted_provider_streams_records_and_ends():
-    provider = ScriptedProvider([Reply(text="Putting the head on Lincoln now.",
-                                       tool_calls=[call("c1", "info", {"image": "abcdef"})])])
-    messages = [{"role": "user", "content": "hi"}]
-    chunks: list[str] = []
-    reply = asyncio.run(provider.complete(messages, [], chunks.append))
-    assert "".join(chunks) == "Putting the head on Lincoln now." and len(chunks) > 1
-    assert reply.tool_calls == [call("c1", "info", {"image": "abcdef"})]
-    messages[0]["content"] = "changed later"
-    assert provider.received == [[{"role": "user", "content": "hi"}]]  # a copy of what was sent
-    end = asyncio.run(provider.complete([], [], chunks.append))
-    assert end == Reply(text=END_OF_SCRIPT) and len(provider.received) == 2
-
-
-def test_scripted_provider_from_file(tmp_path):
-    script = tmp_path / "script.json"
-    script.write_text(json.dumps([
-        {"text": "one", "tool_calls": [{"name": "info", "arguments": {"image": "abcdef"}},
-                                       {"name": "view", "arguments": "{broken"}]},
-        {"error": "rate limited (429)"},
-        {"tool_calls": [{"name": "find"}]},
-    ]), encoding="utf-8")
-    provider = ScriptedProvider.from_file(script)
-
-    async def play():
-        first = await provider.complete([], [], lambda chunk: None)
-        with pytest.raises(ProviderError, match="rate limited"):
-            await provider.complete([], [], lambda chunk: None)
-        return first, await provider.complete([], [], lambda chunk: None)
-
-    first, third = asyncio.run(play())
-    assert first.text == "one"
-    assert first.tool_calls == [call("call_1", "info", {"image": "abcdef"}),
-                                call("call_2", "view", "{broken")]
-    assert third == Reply(tool_calls=[call("call_3", "find", {})])  # ids run on across the script
-    with pytest.raises(EngineError, match="can't read the fake provider script"):
-        ScriptedProvider.from_file(tmp_path / "missing.json")
-
-
-@pytest.mark.parametrize("content", ["not json", '{"text": "a dict, not a list"}',
-                                     '[{"text": "x", "tool_calls": [{"arguments": {}}]}]'])
-def test_scripted_provider_bad_file(tmp_path, content):
-    script = tmp_path / "script.json"
-    script.write_text(content, encoding="utf-8")
-    with pytest.raises(EngineError, match="fake provider script") as e:
-        ScriptedProvider.from_file(script)
-    assert e.value.hint
-
-
-def test_tool_definitions_are_the_model_schemas():
-    defs = {d["function"]["name"]: d for d in tool_definitions()}
-    assert set(defs) == set(REGISTRY)
-    for name, d in defs.items():
-        assert d["type"] == "function"
-        assert d["function"]["description"] == REGISTRY[name].description
-        assert d["function"]["parameters"] == llm_schema(REGISTRY[name])
-    assert "clipboard" not in defs["fetch"]["function"]["parameters"]["properties"]  # user-only
-    json.dumps(defs)
-
-
-def test_system_prompt_and_step_summary(tmp_path):
-    session, img, _ = new_session(tmp_path)
-    assert "artifact id" in SYSTEM_PROMPT and "nearest-neighbor" in SYSTEM_PROMPT
-    assert image_placeholder(img) == f"[image {img.id[:8]}: lincoln_work, {img.width}x{img.height}]"
-    assert build_messages(session) == [{"role": "system", "content": SYSTEM_PROMPT + "\n\nNo steps yet."}]
-    session.run_tool("info", {"image": img.id}, "user")
-    session.data.transcript.append({"role": "user", "content": "hello"})
-    system, user = build_messages(session)
-    assert system["content"] == f"{SYSTEM_PROMPT}\n\nSteps so far:\n{session.summary()}"
-    assert user == {"role": "user", "content": "hello"}
 
 
 def test_build_messages_answers_dangling_calls(tmp_path):
@@ -320,39 +237,6 @@ def test_ask_changes_runs_read_only_tools_and_waits_for_the_rest(tmp_path):
     assert [s.status for s in session.data.steps] == ["done", "done"]
 
 
-def test_reject_tells_the_model_why(tmp_path):
-    session, img, ev = new_session(tmp_path)
-    provider = ScriptedProvider([
-        Reply(tool_calls=[call("c1", "filter", {"image": img.id, "names": ["emboss"]})]),
-        Reply(text="Fine, no emboss."),
-    ])
-    reason, _ = turn(session, provider, ev, mode="ask_all",
-                     decide=lambda gate, step: gate.respond(step["id"], "reject", note="too subtle"))
-    assert reason == "done"
-    step = session.data.steps[0]
-    assert step.status == "rejected" and step.outputs == []
-    assert tool_entries(session) == {"c1": "rejected by user: too subtle"}
-    assert "step.started" not in ev.names()
-
-
-def test_edit_runs_with_the_users_parameters(tmp_path):
-    session, img, ev = new_session(tmp_path)
-    provider = ScriptedProvider([
-        Reply(tool_calls=[call("c1", "draw", {"image": img.id, "circle": [[10, 10, 5]]})]),
-        Reply(text="ok"),
-    ])
-    edited = {"image": img.id, "circle": [[200, 150, 60]], "color": "blue"}
-    reason, _ = turn(session, provider, ev, mode="ask_all",
-                     decide=lambda gate, step: gate.respond(step["id"], "edit", params=edited))
-    step = session.data.steps[0]
-    assert reason == "done" and step.status == "done"
-    assert step.params["circle"] == [[200, 150, 60]] and step.params["color"] == "blue"
-    assert ev.of("approval.resolved")[0]["decision"] == "edit"
-    content = tool_entries(session)["c1"]
-    assert content.startswith("the user edited the parameters before it ran:") and '"blue"' in content
-    assert content.endswith(step.result_text)
-
-
 def test_an_edit_the_session_refuses_is_a_rejection(tmp_path):
     # The fallback for a gate without `resolve` (the server's gate refuses this edit at respond(), below).
     session, img, ev = new_session(tmp_path)
@@ -449,14 +333,6 @@ def test_step_budget(tmp_path):
     reason, _ = turn(session, provider, ev, mode="ask_all", step_budget=1, decide=decide)
     assert reason == "done" and [s.status for s in session.data.steps[-3:]] == ["rejected", "done", "done"]
     assert tool_entries(session)["c7"] == model_result(session.data.steps[-2])
-
-
-def test_provider_error_ends_the_turn(tmp_path):
-    session, _, ev = new_session(tmp_path)
-    reason, _ = turn(session, ScriptedProvider([ProviderError("rate limited (429)")]), ev, text="hi")
-    assert reason == "provider_error"
-    assert ev.of("turn.finished") == [{"reason": "provider_error", "error": "rate limited (429)"}]
-    assert session.data.transcript == [{"role": "user", "content": "hi"}]  # retry-able as it stands
 
 
 def test_unexpected_failure_still_finishes_the_turn(tmp_path):

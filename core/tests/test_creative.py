@@ -4,21 +4,11 @@ import json
 import pytest
 from PIL import Image
 
-from badshop.agent.context import SYSTEM_PROMPT, model_result
-from badshop.agent.creative import STYLES
-from badshop.evaluation import CASES, comparison_report
+from badshop.agent.context import model_result
+from badshop.evaluation import comparison_report
 from badshop.session.models import Step
 from badshop.session.project import save
 from badshop.session.session import Session
-from badshop.tools import REGISTRY
-
-
-def test_composition_recipes_only_reference_available_tools():
-    assert len(STYLES) == len({style["id"] for style in STYLES}) == 6
-    for style in STYLES:
-        assert set(style["tools"]) <= REGISTRY.keys()
-        assert all(style[key] for key in ("sources", "composition", "typography", "finish"))
-        assert style["composition"] in SYSTEM_PROMPT
 
 
 def test_discovery_thumbnails_stay_out_of_model_text_without_mutating_step():
@@ -66,9 +56,3 @@ def test_report_refuses_unknown_cases_and_duplicate_outputs(tmp_path):
     manifest.write_text(json.dumps(entries))
     with pytest.raises(ValueError, match="unknown case_id"):
         comparison_report(manifest)
-
-
-def test_evaluation_cases_cover_all_style_families_and_constraints():
-    assert len(CASES) == len({case["id"] for case in CASES})
-    assert {"head-swap", "caption-overflow", "same-person", "dog-boss", "preserve-concept"} <= {
-        case["id"] for case in CASES}

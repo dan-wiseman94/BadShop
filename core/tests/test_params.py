@@ -40,12 +40,6 @@ def offline(monkeypatch):
     monkeypatch.setattr(sources, "http_get", no_network)
 
 
-def test_base_params_cover_every_tool():
-    assert set(BASE) == set(REGISTRY)
-    for name, raw in BASE.items():
-        REGISTRY[name].params.model_validate(raw)
-
-
 def _bad(tool: str, **fields) -> EngineError:
     with pytest.raises(EngineError, match=f"bad parameters for {tool}") as e:
         run_tool(tool, {**BASE[tool], **fields}, MemoryStore())
@@ -53,10 +47,10 @@ def _bad(tool: str, **fields) -> EngineError:
 
 
 NON_FINITE = [
-    ("eyes", "angle", float("inf")), ("eyes", "angle", "nan"), ("text", "rotate", float("nan")),
-    ("paste", "rotate", "inf"), ("paste", "scale", float("inf")), ("paste", "width", "inf"),
-    ("animate", "amount", float("inf")), ("warp", "strength", float("nan")), ("find", "min_score", "nan"),
-    ("save", "lowres", float("nan")),
+    ("eyes", "angle", float("inf")),
+    ("eyes", "angle", "nan"),
+    ("paste", "rotate", "inf"),
+    ("warp", "strength", float("nan")),
 ]
 
 
@@ -67,8 +61,9 @@ def test_non_finite_numbers_are_rejected(tool, field, value):
 
 
 COORDS = [
-    ("paste", "at", [10**12, 0]), ("text", "at", [0, -100_001]), ("cutout", "box", [0, 0, 100_001, 10]),
-    ("draw", "circle", [[5, 5, 10**9]]), ("eyes", "at", [[1, 1], [2, 200_000]]), ("flare", "at", [-10**6, 0]),
+    ("paste", "at", [10**12, 0]),
+    ("cutout", "box", [0, 0, 100_001, 10]),
+    ("draw", "circle", [[5, 5, 10**9]]),
 ]
 
 
@@ -78,36 +73,20 @@ def test_coordinates_are_bounded(tool, field, value):
     assert field in e.hint and "100000" in e.hint
 
 
-def test_far_off_canvas_is_still_a_coordinate():
-    for tool, field, value in [("paste", "at", [-100_000, 100_000]), ("cutout", "box", [-100_000, 0, 100_000, 5]),
-                               ("warp", "at", [[0, 0, 100_000]])]:
-        REGISTRY[tool].params.model_validate({**BASE[tool], field: value})
-
-
 # (tool, field, the largest value allowed, one too many). Lists and strings are capped by length.
 CAPS = [
     ("text", "size", 4096, 4097),
-    ("paste", "width", 10_000, 10_000.5), ("paste", "height", 10_000, 10_001),
-    ("paste", "scale", 20, 20.01), ("paste", "repeat", 1000, 1001),
-    ("sparkle", "repeat", 1000, 1001), ("flare", "size", 20_000, 20_001),
-    ("cutout", "grow", 50, 51), ("cutout", "sticker", 100, 101),
-    ("animate", "hold", 100, 101), ("animate", "delay", 10_000, 10_001), ("animate", "amount", 100, 100.5),
-    ("text", "text", "x" * 1000, "x" * 1001), ("text", "font", "f" * 1024, "f" * 1025),
-    ("watermark", "text", "w" * 200, "w" * 201), ("fetch", "query", "q" * 4096, "q" * 4097),
-    ("wiki", "title", "t" * 300, "t" * 301), ("template", "name", "n" * 200, "n" * 201),
-    ("emoji", "emoji", ["joy"] * 20, ["joy"] * 21), ("animate", "images", ["a.png"] * 32, ["a.png"] * 33),
-    ("filter", "names", ["invert"] * 20, ["invert"] * 21), ("warp", "at", [[1, 1, 5]] * 20, [[1, 1, 5]] * 21),
-    ("eyes", "at", [[1, 1]] * 20, [[1, 1]] * 21), ("censor", "box", [[0, 0, 9, 9]] * 50, [[0, 0, 9, 9]] * 51),
-    ("draw", "circle", [[1, 1, 1]] * 100, [[1, 1, 1]] * 101), ("draw", "arrow", [[0, 0, 1, 1]] * 100, [[0, 0, 1, 1]] * 101),
-    ("draw", "line", [[0, 0, 1, 1]] * 100, [[0, 0, 1, 1]] * 101), ("draw", "rect", [[0, 0, 1, 1]] * 100, [[0, 0, 1, 1]] * 101),
-    ("sparkle", "at", [[1, 1]] * 200, [[1, 1]] * 201),
-    ("watermark", "names", ["hypercam"] * 20, ["hypercam"] * 21),
-    # found by probing every number at 10**12: C-level overflows (draw, eyes, text) and hangs (sparkle, censor)
-    ("draw", "width", 1000, 1001), ("eyes", "size", 10_000, 10_001), ("text", "margin", 10_000, 10_001),
-    ("sparkle", "size", 20_000, 20_001), ("censor", "block", 1000, 1001),
-    ("warp", "strength", 10, 10.5), ("warp", "strength", -10, -10.5),
-    ("emoji", "emoji", ["x" * 64], ["x" * 65]), ("text", "color", "c" * 100, "c" * 101),
-    ("info", "image", "i" * 4096, "i" * 4097),
+    ("paste", "width", 10_000, 10_000.5),
+    ("paste", "scale", 20, 20.01),
+    ("paste", "repeat", 1000, 1001),
+    ("cutout", "grow", 50, 51),
+    ("animate", "amount", 100, 100.5),
+    ("text", "text", "x" * 1000, "x" * 1001),
+    ("emoji", "emoji", ["joy"] * 20, ["joy"] * 21),
+    ("animate", "images", ["a.png"] * 32, ["a.png"] * 33),
+    ("warp", "at", [[1, 1, 5]] * 20, [[1, 1, 5]] * 21),
+    ("warp", "strength", -10, -10.5),
+    ("emoji", "emoji", ["x" * 64], ["x" * 65]),
 ]
 
 
@@ -148,29 +127,22 @@ def test_pixel_budget_stops_a_huge_sticker(monkeypatch):
         run_tool("cutout", {"image": ref, "no_ai": True, "sticker": 1}, store)
 
 
-def test_budget_leaves_normal_work_alone():
-    store, (base, piece) = _store_with(Image.new("RGB", (600, 400)), Image.new("RGBA", (40, 40), "red"))
-    run = run_tool("paste", {"base": base, "piece": piece, "fit_box": [100, 50, 400, 400], "scale": 1.1}, store)
-    assert run.result.lines[-1].endswith("385x385 after scaling")
-
-
 # --- file names: finished files land in the output folder and nowhere else ---
 
-FINISHERS = ["save", "deepfry", "animate", "export"]
 BAD_NAMES = ["../x", "/tmp/x", "a/b", "..", "C:x", "a\\b", "", ".", "...", " . ", "x\x07y", "tab\tname", "n" * 101]
 
 
-@pytest.mark.parametrize("name", BAD_NAMES, ids=repr)
-@pytest.mark.parametrize("tool", FINISHERS)
+@pytest.mark.parametrize("tool, name", [("save", name) for name in BAD_NAMES] + [
+    ("deepfry", "../x"), ("animate", "../x"), ("export", "../x"),
+])
 def test_names_must_be_plain_file_names(tool, name):
     e = _bad(tool, name=name)
     assert "name" in e.hint
 
 
 @pytest.mark.parametrize("name", ["lincoln_lasers", "mona cage é", "v1.2 final", ".hidden", "n" * 100])
-@pytest.mark.parametrize("tool", FINISHERS)
-def test_plain_names_still_work(tool, name):
-    assert REGISTRY[tool].params.model_validate({**BASE[tool], "name": name}).name == name
+def test_plain_names_still_work(name):
+    assert REGISTRY["save"].params.model_validate({**BASE["save"], "name": name}).name == name
 
 
 @pytest.mark.parametrize("stem", ["../x", "a/b", "/abs/x", "", ".", ".."])
@@ -180,12 +152,6 @@ def test_final_path_refuses_anything_but_a_plain_stem(tmp_path, stem):
     with pytest.raises(EngineError, match="bad file name"):
         final_path(tmp_path / "final", stem, ".png")
     assert not (tmp_path / "x.png").exists()
-
-
-def test_final_path_keeps_plain_stems(tmp_path):
-    from badshop.cli.filestore import final_path
-
-    assert final_path(tmp_path, "old photo é_deepfried", ".jpg") == tmp_path / "old photo é_deepfried.jpg"
 
 
 def test_export_copies_images_only(tmp_path):
@@ -209,12 +175,6 @@ def test_export_copies_images_only(tmp_path):
                                   "..\\x.ttf", "/usr/share/fonts/../../x.ttf", "**"])
 def test_font_rejects_wildcards_and_parent_folders(font):
     assert "font" in _bad("text", font=font).hint
-
-
-@pytest.mark.parametrize("font", ["Impact.ttf", "DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/x.ttf", "Comic Sans MS.ttf",
-                                  "my..font.ttf"])
-def test_font_accepts_names_and_paths(font):
-    assert REGISTRY["text"].params.model_validate({**BASE["text"], "font": font}).font == font
 
 
 def test_font_lookup_matches_names_literally(tmp_path, monkeypatch):

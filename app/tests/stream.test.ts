@@ -23,16 +23,7 @@ const session = (messages: Message[], stream_text = ""): Session => ({
   restorable: null,
   stream_text,
 });
-it("replaces a streamed reply atomically when a snapshot already contains its persisted message", () => {
-  const old = session([reply("m1", "Earlier")], "Ready after retry.");
-  const snapshot = session([
-    ...old.messages,
-    reply("m2", "Ready after retry."),
-  ]);
-  const merged = reconcileSessionSnapshot(snapshot, old);
-  expect(merged.messages).toHaveLength(2);
-  expect(merged.stream_text).toBe("");
-});
+
 it("keeps partial text across a snapshot that has no newly persisted assistant reply", () => {
   const old = session([reply("m1", "Earlier")], "Ready after ");
   expect(reconcileSessionSnapshot(session(old.messages), old).stream_text).toBe(

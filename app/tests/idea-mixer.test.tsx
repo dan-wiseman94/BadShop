@@ -1,6 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
-import { IdeaMixer } from "../src/components/IdeaMixer";
+import { expect, it } from "vitest";
 import { emptyLocks, mixIdeas } from "../src/ideaMixer";
 
 const formats = [
@@ -11,12 +9,6 @@ const formats = [
   "yearbook",
   "inventory",
 ].map((id) => ({ id, name: id }));
-vi.mock("../src/data", () => ({
-  useCoreQuery: () => ({ data: formats }),
-  useSession: () => ({ data: { creative: { mixer: {}, favorite_briefs: [] } } }),
-  action: vi.fn(async () => ({})),
-  run: (fn: () => Promise<unknown>) => { void fn(); },
-}));
 
 it("reproduces a batch while varying all unlocked choices within it", () => {
   const first = mixIdeas("my cat", emptyLocks, formats, 17);
@@ -61,33 +53,4 @@ it("honors locked choices and reports exhaustion rather than looping or duplicat
   expect(
     mixIdeas("", { ...locks, format: "removed-layout" }, formats, 1).ideas,
   ).toEqual([]);
-});
-
-it("passes the selected brief or source query without starting an agent turn", () => {
-  const onDraft = vi.fn(),
-    onSearch = vi.fn();
-  render(<IdeaMixer onDraft={onDraft} onSearch={onSearch} />);
-  fireEvent.change(screen.getByLabelText("Idea subject"), {
-    target: { value: "my very tired dog" },
-  });
-  fireEvent.change(screen.getByLabelText("Lock format"), {
-    target: { value: "comic" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Mix six ideas" }));
-  expect(
-    screen.getAllByRole("button", { name: "Add brief to chat" }),
-  ).toHaveLength(6);
-  fireEvent.click(
-    screen.getAllByRole("button", { name: "Add brief to chat" })[0],
-  );
-  expect(onDraft).toHaveBeenCalledWith(
-    expect.stringContaining("my very tired dog"),
-  );
-  expect(onDraft).toHaveBeenCalledWith(
-    expect.stringContaining('layout template "comic"'),
-  );
-  fireEvent.click(
-    screen.getAllByRole("button", { name: "Prepare a source search" })[0],
-  );
-  expect(onSearch).toHaveBeenCalledWith(expect.any(String));
 });

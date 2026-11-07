@@ -25,11 +25,23 @@
 - Define concrete acceptance criteria before implementation. Include the user action,
   expected visible result, persistence/error behavior, and cleanup where applicable.
   Use the acceptance matrix in `docs/development.md` as a starting point.
-- Run `./verify.sh quick` for local checks, `./verify.sh browser` for UI/core workflows,
-  and `./verify.sh desktop` for real Linux windows and launcher lifecycle checks.
-  `./verify.sh all` runs all three. Pick the affected layers; do not rerun expensive checks
-  without a changed input, failure, or unresolved concern. Fix regressions introduced by
-  the task; clearly identify pre-existing failures.
+- Run only the minimum relevant tests for new or changed behavior. Start with the named
+  test case or affected test file, plus the one end-to-end workflow that exercises the
+  change. State that selection and its purpose before running it. Documentation-only
+  changes need no application test run. A deleted test needs collection/lint checks,
+  not a rerun of unrelated application behavior.
+- Do not run `./verify.sh quick`, `browser`, `desktop`, `all`, an entire unit suite, or
+  rebuild installers by default. Broaden only for a changed shared dependency/fixture,
+  a failure, an identified coverage gap, a release requirement, or an explicit user
+  request. Explain the reason first. Once relevant checks pass, stop testing unless a
+  later edit changes their inputs. See `docs/development.md#pick-the-relevant-checks`
+  for commands selecting individual Python, component, and browser tests.
+- Prefer a meaningful end-to-end regression over several mocked component assertions.
+  Check persisted data, actual output pixels/bytes, recovery and cleanup where relevant;
+  a toast or a mocked function call alone does not prove that the user's task succeeded.
+  Keep focused unit tests for boundary conditions, security, concurrency and algorithms
+  that an end-to-end check cannot reliably isolate. Do not replace removed tests with
+  loops or giant combined tests just to lower the reported count.
 - Verify user-visible changes through the actual affected workflow whenever possible.
   Distinguish mocked checks from real integration tests. Report exactly what was exercised
   and what remains unverified. If the environment prevents verification, investigate

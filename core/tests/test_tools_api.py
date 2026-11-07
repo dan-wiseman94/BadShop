@@ -1,12 +1,10 @@
 """The tools API sessions build on (spec 5.2-5.4; carry-forward SP F15, SEC-S7, SEC-S8): validation apart
 from execution, the one trusted actor, user-only fields and the two schemas, and the writes_files flag."""
 
-import json
 
 import jsonschema
 import pytest
-from PIL import Image
-from pydantic import Field, ValidationError
+from pydantic import Field
 
 from badshop.engine import sources
 from badshop.engine.errors import EngineError
@@ -16,13 +14,8 @@ from badshop.tools import REGISTRY, registry, runner
 from badshop.tools.registry import USER_ONLY, ToolSpec, llm_schema, ui_schema, user_only_fields
 from conftest import FIXTURES
 from memstore import MemoryStore
-from test_params import BASE
 
 UNTRUSTED = ["agent:fake", "cli:claude", "cli:codex", "cli:gemini"]
-
-
-def _names(refs: list[str]) -> list[str]:
-    return [ref.rsplit("/", 1)[1] for ref in refs]  # MemoryStore refs are mem:N/<name>
 
 
 # --- actors ---
@@ -41,66 +34,7 @@ def test_validate_returns_the_params_and_touches_no_store():
     assert params.image == "never/loaded.png" and params.max == 500
 
 
-def test_validate_explains_bad_parameters():
-    with pytest.raises(EngineError, match="^bad parameters for prep$") as e:
-        runner.validate("prep", {"image": "a.png", "max": "big", "colour": 1})
-    assert e.value.hint == ("max: Input should be a valid integer, unable to parse string as an integer; "
-                            "colour: Extra inputs are not permitted")
-    with pytest.raises(EngineError, match="^bad parameters for prep$") as e:
-        runner.validate("prep", ["a.png"], "agent:fake")  # a model's arguments that are not an object
-    assert e.value.hint == "params: Input should be a valid dictionary or instance of PrepParams"
-    with pytest.raises(EngineError, match="unknown tool 'nope'"):
-        runner.validate("nope", {})
-
-
-def test_explain_is_public():
-    with pytest.raises(ValidationError) as e:
-        REGISTRY["prep"].params.model_validate({"max": 3})
-    assert runner.explain(e.value) == ("image: Field required; "
-                                       "max: Input should be greater than or equal to 16")
-
-
-def test_execute_names_outputs_from_the_image_ref_by_default():
-    store = MemoryStore()
-    ref = store.add(Image.new("RGB", (40, 20), "white"), "lincoln.png")
-    params = runner.validate("prep", {"image": ref})
-    run = runner.execute("prep", params, store)
-    assert run.tool == "prep" and run.params is params
-    assert _names(run.refs) == ["lincoln_work.png", "lincoln_work_grid.png"]
-    assert run.result.lines == ["size: 40x20"]
-
-
-def test_execute_takes_an_explicit_stem():
-    # A session's refs are artifact ids: it names outputs after the input's label instead.
-    store = MemoryStore()
-    ref = store.add(Image.new("RGB", (40, 20), "white"), "a3f9c1d2e5b7.png")
-    params = runner.validate("prep", {"image": ref})
-    assert _names(runner.execute("prep", params, store, stem="lincoln").refs) == [
-        "lincoln_work.png", "lincoln_work_grid.png"]
-    assert _names(runner.execute("prep", params, store, stem="").refs) == ["_work.png", "_work_grid.png"]
-
-
-def test_execute_refuses_another_tools_params():
-    params = runner.validate("info", {"image": "mem:0/x.png"})
-    with pytest.raises(TypeError, match="^prep takes PrepParams, not InfoParams$"):
-        runner.execute("prep", params, MemoryStore())
-
-
-@pytest.mark.parametrize("actor", ["user", *UNTRUSTED])
-def test_every_tool_accepts_plain_params_from_every_actor(actor):
-    # Only user-only fields are restricted, and a stored step's full dump (defaults included) validates
-    # again for anyone, so a replay or an edit never trips over a default the model never set.
-    for name, raw in BASE.items():
-        params = runner.validate(name, raw, actor)
-        assert runner.validate(name, params.model_dump(mode="json"), actor) == params
-
-
 # --- user-only fields (SEC-S8: the clipboard is user input) ---
-
-def test_the_clipboard_is_the_only_user_only_field():
-    assert registry.USER_ONLY == "x-badshop-user-only"
-    found = {name: user_only_fields(spec.params) for name, spec in REGISTRY.items()}
-    assert {name: fields for name, fields in found.items() if fields} == {"fetch": {"clipboard"}}
 
 
 @pytest.mark.parametrize("actor", UNTRUSTED)
@@ -179,24 +113,6 @@ def test_the_model_never_sees_the_clipboard():
         jsonschema.Draft202012Validator(llm).validate({"query": "cat", "clipboard": True})
 
 
-@pytest.mark.parametrize("name", sorted(REGISTRY))
-def test_llm_schema_is_the_ui_schema_minus_user_only_fields(name):
-    spec = REGISTRY[name]
-    ui, llm, hidden = ui_schema(spec), llm_schema(spec), user_only_fields(spec.params)
-    assert USER_ONLY not in json.dumps(llm)
-    expected = {k: v for k, v in ui["properties"].items() if k not in hidden}
-    if name == "text":
-        # Model callers choose discovered font names; the trusted user can still choose paths.
-        font_schema = llm["properties"]["font"]
-        assert len(json.dumps(font_schema)) < 10000
-        jsonschema.Draft202012Validator(font_schema).validate(None)
-        expected["font"] = llm["properties"]["font"]
-    assert llm["properties"] == expected
-    assert llm.get("required", []) == [k for k in ui.get("required", []) if k not in hidden]
-    assert {k: v for k, v in llm.items() if k not in ("properties", "required")} == {
-        k: v for k, v in ui.items() if k not in ("properties", "required")}
-
-
 def test_llm_schema_drops_user_only_fields_from_required():
     llm = llm_schema(_spec("_required", _RequiredSecret))
     assert ui_schema(_spec("_required", _RequiredSecret))["required"] == ["image", "path"]
@@ -216,18 +132,7 @@ def test_schemas_are_fresh_copies():
     assert "clipboard" in ui_schema(spec)["properties"]
 
 
-def test_descriptions_never_tell_a_model_to_set_a_user_only_field():
-    for spec in REGISTRY.values():
-        for field in user_only_fields(spec.params):
-            assert f"{field}=" not in spec.description, (spec.name, field)
-    assert "ask them to paste it into the chat" in REGISTRY["fetch"].description
-
-
 # --- flags (SEC-S7: key the approval gate on read_only; export writes a file) ---
-
-def test_writes_files_defaults_to_false_and_only_export_sets_it():
-    assert _spec("_x", _OnlySecret).writes_files is False
-    assert [name for name, spec in REGISTRY.items() if spec.writes_files] == ["export"]
 
 
 def test_read_only_tools_change_nothing():

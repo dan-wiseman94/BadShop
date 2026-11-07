@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   rpc.disconnect();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 async function connect() {
@@ -122,4 +123,51 @@ it("rejects an in-progress handshake when a new connection replaces it", async (
   const assertion = expect(opening).rejects.toThrow("replaced");
   await connect();
   await assertion;
+});
+
+it("does not send an action before authentication completes", async () => {
+  const ready = rpc.connect({ port: 1234, token: "secret" });
+  void ready.catch(() => {}); // cleanup may replace it when this regression fails
+  const socket = FakeSocket.instances.at(-1)!;
+  socket.open();
+  const requested = rpc.request("session.new");
+  void requested.catch(() => {});
+  expect(socket.sent).toHaveLength(1); // hello only
+  await expect(requested).rejects.toThrow("disconnected");
+  socket.receive({ type: "welcome" });
+  await ready;
+});
+
+it("a timed-out handshake ignores buffered messages while the socket is closing", async () => {
+  vi.useFakeTimers();
+  const ready = rpc.connect({ port: 1234, token: "secret" });
+  const assertion = expect(ready).rejects.toThrow("did not answer");
+  const socket = FakeSocket.instances.at(-1)!;
+  socket.open();
+  // Browser close is asynchronous; buffered messages may arrive before the close event.
+  socket.close = () => { socket.readyState = 2; };
+  const status = vi.fn();
+  const event = vi.fn();
+  rpc.onStatus(status);
+  rpc.onEvent(event);
+  await vi.advanceTimersByTimeAsync(10000);
+  await assertion;
+  socket.receive({ type: "welcome" });
+  socket.receive({ method: "step.finished", params: { step: { id: "s1" } } });
+  expect(status.mock.calls).toEqual([["disconnected"]]);
+  expect(event).not.toHaveBeenCalled();
+});
+
+it("an error retires the socket immediately and a fresh connection works", async () => {
+  const ready = rpc.connect({ port: 1234, token: "secret" });
+  const assertion = expect(ready).rejects.toThrow("Could not connect");
+  const socket = FakeSocket.instances.at(-1)!;
+  const status = vi.fn();
+  rpc.onStatus(status);
+  socket.onerror?.();
+  await assertion;
+  expect(status.mock.calls).toEqual([["disconnected"]]);
+  expect(socket.readyState).toBe(3);
+  expect(socket.sent).toHaveLength(0);
+  await connect();
 });
