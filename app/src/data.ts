@@ -157,6 +157,8 @@ export async function action<K extends keyof MethodMap>(
     await queries.invalidateQueries({ queryKey: ["providers.list"] });
   if (method.startsWith("settings."))
     await queries.invalidateQueries({ queryKey: ["settings.get"] });
+  if (method.startsWith("sources."))
+    await queries.invalidateQueries({ queryKey: ["sources.status"] });
   if (method.startsWith("assets."))
     await queries.invalidateQueries({ queryKey: ["assets.status"] });
   if (method.startsWith("library.") || method.startsWith("packs.")) {
@@ -386,11 +388,11 @@ export function startCore() {
     rpc.disconnect();
   };
 }
-export function useArtifact(id: string | null, thumb = false) {
+export function useArtifact(id: string | null, thumb = false, still = false, frame = 0) {
   const ready = useUI((s) => s.status === "ready");
   return useQuery({
-    queryKey: ["artifact", id, thumb],
-    queryFn: ({ signal }) =>
+    queryKey: ["artifact", id, thumb, still, frame],
+    queryFn: ({ signal }) => still ? rpc.request('artifacts.frame', {id:id!, frame}, signal) :
       rpc.request(
         "artifacts.get",
         { id: id!, ...(thumb ? { max_px: 160 } : {}) },

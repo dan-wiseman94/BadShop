@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { readPreference, validTheme, type Density, type Motion } from "./appearance";
 export type PickRequest = {
   kind: "point" | "box" | "segment";
   artifactId: string;
@@ -18,6 +19,9 @@ interface UIState {
   errorAction: "retry-turn" | null;
   notice: string | null;
   theme: string;
+  density: Density;
+  textScale: number;
+  motion: Motion;
   set: (patch: Partial<UIState>) => void;
 }
 export const useUI = create<UIState>()((set) => ({
@@ -31,7 +35,10 @@ export const useUI = create<UIState>()((set) => ({
   error: null,
   errorAction: null,
   notice: null,
-  theme: localStorage.getItem("badshop.theme") ?? "system",
+  theme: validTheme(readPreference("theme", "system")),
+  density: readPreference("density", "comfortable") === "compact" ? "compact" : "comfortable",
+  textScale: [100, 115, 130, 150].includes(Number(readPreference("textScale", "100"))) ? Number(readPreference("textScale", "100")) : 100,
+  motion: ["reduced", "full"].includes(readPreference("motion", "system")) ? readPreference("motion", "system") as Motion : "system",
   set: (patch) => set(patch),
 }));
 export function showError(

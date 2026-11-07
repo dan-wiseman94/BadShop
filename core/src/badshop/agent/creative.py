@@ -4,6 +4,7 @@ import json
 from importlib.resources import files
 
 from badshop.engine.layouts import LAYOUTS
+from badshop.engine.retro import STYLES as RETRO_STYLES
 
 
 STYLES = json.loads(files(__package__).joinpath("creative_styles.json").read_text(encoding="utf-8"))
@@ -35,6 +36,15 @@ runs out, report what remains. A request to preserve a concept while changing a 
 source, or intensity keeps the premise and composition; edit from the appropriate clean base.
 
 Structured layouts and source pairing:
+Use retro_layout for pixel-era furniture and exact-sized buttons. Supported style ids:
+{", ".join(RETRO_STYLES)}. It accepts images, title, caption, density, seed and fit.
+Use bitmap_text for bundled Latin-1 pixel lettering, palette for fixed colors, pattern for
+seeded tiled furniture, animate_sticker for bounded animation, export_profile for exact sizes.
+Tiny layouts require short captions; preserve exact user text or explain a fit error.
+The user's era fidelity is an art direction constraint: strict means era-appropriate assets
+and typography, inspired allows modern subjects, mashup deliberately combines eras.
+Collection_items browses a selected IIIF manifest, Archive item or Lospec palette.
+Unknown rights stay unknown. Never claim that a source search establishes permission.
 Use layout for real editable image/caption slots. Available template ids: {", ".join(LAYOUTS)}.
 Supply images in slot order (or image_slots for gaps), title and captions; optional slots
 override image boxes. Use contain to keep the image, cover to crop, stretch for intentional

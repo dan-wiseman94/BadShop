@@ -30,3 +30,4 @@ packaging/*.flatpak
 # Local verification evidence and isolated task checkouts
 artifacts/verification/
 .worktrees/
+.tooling/

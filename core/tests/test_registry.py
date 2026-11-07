@@ -234,7 +234,7 @@ def test_coordinate_fields_keep_their_own_description():
 def test_seeds_are_marked_for_a_reroll_control():
     seeds = {(spec.name, name) for spec in registry.REGISTRY.values()
              for name, prop in registry.llm_schema(spec)["properties"].items() if name == "seed"}
-    assert seeds == {("paste", "seed"), ("sparkle", "seed"), ("deepfry", "seed"), ("animate", "seed")}
+    assert seeds == {("paste", "seed"), ("sparkle", "seed"), ("deepfry", "seed"), ("animate", "seed"), ('retro_layout', 'seed'), ('pattern', 'seed')}
     for tool, name in seeds:
         prop = registry.llm_schema(registry.get(tool))["properties"][name]
         assert prop["format"] == "badshop-seed" and prop["type"] == "integer", tool

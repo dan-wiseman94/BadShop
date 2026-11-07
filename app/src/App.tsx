@@ -42,6 +42,8 @@ import {
   restart,
 } from "./native";
 import type { ApprovalMode } from "./types";
+import { useReducedMotion } from "./appearance";
+import "./themes.css";
 function Resizer({
   side,
   onResize,
@@ -95,6 +97,12 @@ export default function App() {
   const { data: session, error: sessionError } = useSession();
   const { data: profiles } = useCoreQuery("providers.list");
   const ui = useUI();
+  const reducedMotion = useReducedMotion(ui.motion);
+  useEffect(() => {
+    document.documentElement.dataset.density = ui.density;
+    document.documentElement.dataset.motion = reducedMotion ? "reduced" : "full";
+    document.documentElement.style.fontSize = `${13 * ui.textScale / 100}px`;
+  }, [ui.density, ui.textScale, reducedMotion]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const { workbench, widths, resize, reset, contentWidth } = usePaneLayout();
   const documents = useSessionActions();

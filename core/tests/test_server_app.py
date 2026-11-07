@@ -33,6 +33,8 @@ TRUMP = FIXTURES / "trump.png"
 HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
 NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
+    'retro.list', 'creative.set', 'recipes.capture', 'recipes.save', 'recipes.remove', 'recipes.run', 'recipes.stop',
+    'credits.get', 'credits.export', 'sources.key', 'cache.status', 'cache.clear', 'artifacts.frame',
     "sources.status",
     "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",
     "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
@@ -80,9 +82,12 @@ def test_settings_round_trip_and_bad_files(env):
 
 
 def test_settings_bounds():
+    from badshop.session.preferences import CreativePreferences
     assert Settings().model_dump() == {
         "approval_mode": "ask_changes", "auto_replay": True, "output_dir": None, "step_budget": 40,
-        "tool_timeout_s": 120.0, "tool_memory_mb": 3072, "fake_provider_script": None}
+        "tool_timeout_s": 120.0, "tool_memory_mb": 3072, "fake_provider_script": None,
+        'creative_defaults': CreativePreferences().model_dump(), 'no_remote': False, 'remember_history': True,
+        'source_allowlist': [], 'rights_filter': 'any', 'source_orientation': 'any'}
     for bad in ({"step_budget": 0}, {"step_budget": 501}, {"tool_timeout_s": 0.5}, {"tool_timeout_s": 3601},
                 {"tool_timeout_s": float("inf")}, {"tool_memory_mb": 255}, {"tool_memory_mb": 65537},
                 {"approval_mode": "yolo"}, {"output_dir": "relative/folder"},
@@ -371,7 +376,7 @@ def test_import_run_get_and_events(env, monkeypatch):
 
         snap = await c.call("session.get")
         assert [s["status"] for s in snap["steps"]] == ["done", "error"]
-        assert snap["schema"] == 2 and snap["id"] == app.session.data.id and snap["path"] is None
+        assert snap["schema"] == 3 and snap["id"] == app.session.data.id and snap["path"] is None
         assert snap["turn_running"] is False and snap["pending_approvals"] == []
 
     run(body)

@@ -11,7 +11,12 @@ const formats = [
   "yearbook",
   "inventory",
 ].map((id) => ({ id, name: id }));
-vi.mock("../src/data", () => ({ useCoreQuery: () => ({ data: formats }) }));
+vi.mock("../src/data", () => ({
+  useCoreQuery: () => ({ data: formats }),
+  useSession: () => ({ data: { creative: { mixer: {}, favorite_briefs: [] } } }),
+  action: vi.fn(async () => ({})),
+  run: (fn: () => Promise<unknown>) => { void fn(); },
+}));
 
 it("reproduces a batch while varying all unlocked choices within it", () => {
   const first = mixIdeas("my cat", emptyLocks, formats, 17);

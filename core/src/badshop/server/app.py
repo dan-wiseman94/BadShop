@@ -200,6 +200,8 @@ class CoreApp:
         register_media(self)
         from badshop.server.packs_api import register as register_packs
         register_packs(self)
+        from badshop.server.retro_api import register as register_retro
+        register_retro(self)
 
     # --- plumbing -------------------------------------------------------------------------------
 
@@ -229,11 +231,15 @@ class CoreApp:
 
         session.emit = emit
         session.on_change = changed
+        session.no_remote = self.settings.no_remote
+        session.source_defaults = {'allow_sources': self.settings.source_allowlist,
+                                   'rights': self.settings.rights_filter, 'orientation': self.settings.source_orientation}
         return session
 
     def _new_session(self, name: str) -> Session:
         session = self._own(Session.new(name, **self._session_kw()))
         session.data.approval_mode = self.settings.approval_mode
+        session.data.creative = self.settings.creative_defaults.model_copy(deep=True)
         return session
 
     def _changed(self) -> None:  # Session.on_change: called from whichever thread changed it
@@ -266,7 +272,7 @@ class CoreApp:
             project.autosave(self.session)
         except (EngineError, OSError) as e:
             self._log("warning", f"autosave failed: {getattr(e, 'message', e)}")
-        if hasattr(self, "novelty"):
+        if hasattr(self, "novelty") and self.settings.remember_history and self.session.data.creative.remember_history:
             try:
                 self.novelty.remember(self.session)
             except (EngineError, OSError):
@@ -361,10 +367,13 @@ class CoreApp:
                 "document_revision": self._document_revision,
                 "unsaved_changes": self._document_revision != self._saved_revision,
                 "turn_running": self._turn is not None or self._starting,
+                "batch_running": getattr(self, '_recipe_cancel', None) is not None,
                 "pending_approvals": self.gate.pending() + self._cli_gate.pending(),
                 "restorable": str(self._restorable) if self._restorable else None}
 
     def _check_idle(self) -> None:
+        if getattr(self, '_recipe_cancel', None) is not None:
+            raise EngineError('a recipe batch is running', hint='stop the batch or wait for it to finish')
         if self._closed:
             raise EngineError("badshop is closing")
         if self._turn is not None or self._starting:
@@ -410,6 +419,11 @@ class CoreApp:
         self._connection = (url, token)
 
     def _make_provider(self, profile: profiles.Profile) -> LiteLLMProvider | CLIProvider:
+        if self.settings.no_remote:
+            from urllib.parse import urlsplit
+            host = urlsplit(profile.api_base or '').hostname
+            if profile.kind != 'local' or host not in ('localhost', '127.0.0.1', '::1'):
+                raise EngineError('Local only requires a local provider at a loopback address')
         if profile.kind == "cli":
             if self._connection is None:
                 raise EngineError("the local core connection is not ready")
@@ -507,6 +521,8 @@ class CoreApp:
         if self._closed:
             return
         self._closed = True
+        if getattr(self, '_recipe_cancel', None) is not None:
+            self._recipe_cancel.set()
         downloads = list(self._downloads.values())
         for signal, _ in downloads:
             signal.set()
@@ -877,6 +893,8 @@ class CoreApp:
     async def _tools_run(self, actor: str, tool: str, params: dict | None = None) -> dict:
         """The user's tools run at once. Any other actor's call is proposed, then waits for the approval
         the session's mode asks for (spec 7), exactly like the in-app agent's calls."""
+        if getattr(self, '_recipe_cancel', None) is not None:
+            raise EngineError('a recipe batch is running')
         raw = params or {}
         if runner.is_trusted(actor):
             step = await self._blocking(lambda: self.session.run_tool(tool, raw, actor))
@@ -1135,6 +1153,7 @@ class CoreApp:
             raise RpcError(INVALID_PARAMS, "invalid settings", {"hint": runner.explain(e)}) from None
         save_settings(new)
         old, self.settings = self.settings, new
+        self._own(self.session)
         if (new.tool_timeout_s, new.tool_memory_mb) != (old.tool_timeout_s, old.tool_memory_mb):
             retired, self._executor = self._executor, self._new_executor()
             self.session.executor = self._executor
@@ -1148,6 +1167,8 @@ class CoreApp:
         return await asyncio.to_thread(manifest.status)
 
     async def _assets_download(self, actor: str, name: str) -> dict:
+        if self.settings.no_remote:
+            raise EngineError('remote downloads are disabled in Local only mode')
         # Not under the lock: a 170 MB model download must not hold up tools. Progress arrives as
         # asset.progress events through assets.PROGRESS.
         manifest.get_asset(name)

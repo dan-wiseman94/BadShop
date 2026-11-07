@@ -85,7 +85,8 @@ def add_tool_parser(sub: argparse._SubParsersAction, spec: ToolSpec) -> None:
             continue
         flag = model.FLAGS.get(name, "--" + name.replace("_", "-"))
         if kind == "bool":
-            s.add_argument(flag, dest=name, action="store_true", help=kw["help"], default=argparse.SUPPRESS)
+            boolean_action = argparse.BooleanOptionalAction if f.get_default(call_default_factory=True) is True else "store_true"
+            s.add_argument(flag, dest=name, action=boolean_action, help=kw["help"], default=argparse.SUPPRESS)
         else:
             if kind in ("list_scalar", "list_choice"):
                 kw["action"] = "append"
@@ -132,6 +133,9 @@ def to_argv(spec: ToolSpec, params: dict) -> list[str]:
         kind, _ = _classify(f.annotation)
         flag = model.FLAGS.get(name, "--" + name.replace("_", "-"))
         if kind == "bool":
+            if value is False and f.get_default(call_default_factory=True) is True:
+                flags.append('--no-' + flag.removeprefix('--'))
+                continue
             if value is not True:  # store_true flags can only switch a False default on
                 raise ValueError(f"{spec.name}: {name}={value!r} can't be written as a command-line flag")
             flags.append(flag)

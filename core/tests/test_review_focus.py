@@ -47,6 +47,9 @@ ODD = ["cmyk.jpg", "keyed.gif", "la.png", "sixteen.png", "phone.jpg"]
 
 # Every non-network tool (some twice), with baseline parameters; "{}" is the odd image.
 STEPS = [
+    ('retro_layout', {'title':'TEST'}), ('canvas', {'width':180,'height':100}),
+    ('pattern', {'width':128,'height':128}), ('palette', {}), ('bitmap_text', {'text':'HI'}),
+    ('animate_sticker', {'width':44,'frames':4}), ('export_profile', {'profile':'web-button'}),
     ("info", {}), ("prep", {}), ("view", {"grid": True, "max": 64}), ("find", {"detector": "haar"}),
     ("text", {"text": "top\nbottom"}), ("text", {"text": "hi", "style": "wordart", "at": [60, 45]}),
     ("cutout", {"box": [5, 5, 100, 80], "no_ai": True, "sticker": 3}), ("cutout", {"oval": True, "no_ai": True}),

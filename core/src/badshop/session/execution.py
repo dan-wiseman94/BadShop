@@ -31,6 +31,7 @@ class ToolCall:
     stem: str  # the label stem outputs are named from (the first input's label), for runner.execute
     trusted_urls: frozenset[str] = frozenset()  # links the user typed (netpolicy.typed_urls)
     guard_network: bool = True  # run under netpolicy.guarded(trusted_urls)
+    no_remote: bool = False
 
 
 @dataclass
@@ -95,7 +96,7 @@ def execute_call(call: ToolCall) -> ToolOutcome:
     store = BytesStore(call.inputs)
     try:
         params = runner.validate(call.tool, call.params)  # as "user": the session already checked the actor
-        with netpolicy.guarded(call.trusted_urls) if call.guard_network else nullcontext():
+        with netpolicy.guarded(call.trusted_urls, call.no_remote) if call.guard_network or call.no_remote else nullcontext():
             run = runner.execute(call.tool, params, store, stem=call.stem)
         data = json_safe(run.result.data)
         return ToolOutcome(ok=True, outputs=store.outputs, lines=list(run.result.lines), data=data)

@@ -2,11 +2,12 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from badshop.engine.result import EXT as OUTPUT_EXT
+from badshop.session.preferences import CreativePreferences
 
-SCHEMA = 2  # session.json's "schema"; bump it (and migrate older files) whenever the saved shape changes
+SCHEMA = 3  # v3 adds portable per-direction creative preferences; v1/v2 use defaults
 
 ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF"]
 EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff"}  # tool outputs keep their CLI extensions
@@ -96,6 +97,7 @@ class BranchSnapshot(BaseModel):
     messages: list[Message] = []
     transcript: list[dict] = []
     artifact_ids: list[str] = []
+    creative: CreativePreferences = Field(default_factory=CreativePreferences)
 
 
 class SessionData(BaseModel):
@@ -115,3 +117,11 @@ class SessionData(BaseModel):
     transcript: list[dict] = []  # the provider-format message history the agent resumes from
     active_branch_id: str | None = None
     branches: dict[str, BranchSnapshot] = {}
+    creative: CreativePreferences = Field(default_factory=CreativePreferences)
+    recipes: list[dict] = Field(default_factory=list,max_length=50)
+
+    @field_validator('recipes')
+    @classmethod
+    def valid_recipes(cls, value):
+        from badshop.session.recipes import Recipe
+        return [Recipe.model_validate(row).model_dump(mode='json') for row in value]

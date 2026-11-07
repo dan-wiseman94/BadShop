@@ -12,6 +12,7 @@ from badshop.tools import REGISTRY
 from badshop.tools.registry import image_fields, llm_schema, ui_schema, user_only_fields
 from conftest import REFERENCE, load_reference
 from test_params import BASE
+RETRO_TOOLS = {'retro_layout', 'canvas', 'pattern', 'palette', 'bitmap_text', 'animate_sticker', 'export_profile', 'collection_items'}
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
@@ -59,7 +60,7 @@ def test_registry_is_complete_and_described():
     engine_tools = {"prep", "fetch", "wiki", "emoji", "template", "find", "cutout", "paste", "text", "draw",
                     "censor", "eyes", "warp", "flare", "sparkle", "watermark", "filter", "save", "deepfry",
                     "animate", "info"}
-    assert set(REGISTRY) == engine_tools | {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"}
+    assert set(REGISTRY) == engine_tools | {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"} | RETRO_TOOLS
     for spec in REGISTRY.values():
         assert len(spec.description) >= 40, spec.name
 
@@ -80,6 +81,8 @@ def test_every_schema_is_valid_json_schema(name):
 # (mutates, network, read_only, writes_files): the approval gate (spec 7), the recipe log and the
 # session's in-process export rely on these.
 FLAGS = {
+    **{n: (True, False, False, False) for n in RETRO_TOOLS - {'collection_items'}},
+    'collection_items': (False, True, False, False),
     "layout": (True, False, False, False),
     "pair_images": (True, False, False, False),
     "slice_sheet": (True, False, False, False),
@@ -99,6 +102,8 @@ def test_tool_flags_are_pinned():
 
 # The fields sessions resolve as images (and whether they hold a list); Plan 2 remaps them on replay.
 IMAGE_FIELDS = {
+    'retro_layout': {'images': True}, 'collection_items': {}, 'animate_sticker': {'image': False, 'sticker': False},
+    **{n: {'image': False} for n in ('canvas', 'pattern', 'palette', 'bitmap_text', 'export_profile')},
     "layout": {"images": True}, "pair_images": {"donors": True, "backgrounds": True},
     "slice_sheet": {"image": False},
     "discover": {"similar_to": False},
@@ -111,6 +116,13 @@ IMAGE_FIELDS = {
 IMAGE, POINT, BOX, SPOT, COLOR, SEED = "badshop-image", "badshop-point", "badshop-box", "badshop-spot", "color", "badshop-seed"
 # Every field's schema format: the UI picks its widget by it (spec 5.2), a model reads it as a type.
 FORMATS = {
+    'retro_layout': {'images': IMAGE, 'seed': SEED},
+    'canvas': {'image': IMAGE, 'background': COLOR},
+    'pattern': {'image': IMAGE, 'background': COLOR, 'foreground': COLOR, 'seed': SEED},
+    'palette': {'image': IMAGE, 'colors': COLOR},
+    'bitmap_text': {'image': IMAGE, 'color': COLOR},
+    'animate_sticker': {'image': IMAGE, 'sticker': IMAGE},
+    'export_profile': {'image': IMAGE}, 'collection_items': {},
     "layout": {"images": IMAGE, "slots": BOX, "background": COLOR, "accent": COLOR},
     "pair_images": {"donors": IMAGE, "backgrounds": IMAGE, "target_box": BOX},
     "slice_sheet": {"image": IMAGE},
@@ -261,6 +273,6 @@ def test_every_flag_skill_documents_is_exercised():
         argv = shlex.split(line)
         used.setdefault(argv[0], set()).update(a for a in argv[1:] if re.fullmatch(r"--?[a-z][a-z0-9-]*", a))
     rows = _skill_rows()
-    assert set(rows) == set(REGISTRY) - {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"}  # the reference's 21 tools, one row each
+    assert set(rows) == set(REGISTRY) - {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"} - RETRO_TOOLS  # the reference's 21 tools, one row each
     for command, flags in rows.items():
         assert flags <= used.get(command, set()), f"{command}: {flags - used.get(command, set())}"

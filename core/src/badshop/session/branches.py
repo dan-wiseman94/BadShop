@@ -16,6 +16,7 @@ def _snapshot(session, id: str, name: str, created_at: float) -> BranchSnapshot:
     return BranchSnapshot(id=id, name=name, created_at=created_at,
                           steps=copy.deepcopy(session.data.steps), messages=copy.deepcopy(session.data.messages),
                           transcript=copy.deepcopy(session.data.transcript),
+                          creative=session.data.creative.model_copy(deep=True),
                           artifact_ids=sorted(session.visible_artifact_ids()))
 
 
@@ -78,6 +79,7 @@ def _activate(session, branch: BranchSnapshot) -> None:
     session.data.active_branch_id = branch.id
     session.data.steps = copy.deepcopy(branch.steps)
     session.data.messages = copy.deepcopy(branch.messages)
+    session.data.creative = branch.creative.model_copy(deep=True)
     # CLI processes are retired by CoreApp, API conversations are rebuilt with the new timeline.
     session.data.transcript = copy.deepcopy(branch.transcript)
     session.changes = [f"the user switched to creative direction {branch.name!r}; use its current timeline"]

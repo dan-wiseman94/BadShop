@@ -17,8 +17,10 @@ import { useQuery } from "@tanstack/react-query";
 import { action, queries, run, useCoreQuery, useSession } from "../data";
 import type { DownloadActivities } from "../data";
 import { useUI } from "../store";
+import { themes, savePreference, type Density, type Motion } from "../appearance";
 import { pickFolder } from "../native";
 import { ErrorNotice } from "./ErrorNotice";
+import { SourceSettings } from "./SourceSettings";
 import { BIREFNET_MEMORY_NOTE } from "../constants";
 import type {
   Asset,
@@ -450,6 +452,7 @@ export function Settings() {
   const { data: settings } = useCoreQuery("settings.get");
   const { data: session } = useSession();
   const theme = useUI((s) => s.theme);
+  const appearance = useUI();
   const update = (values: Partial<SettingsType>) =>
     run(() => action("settings.set", { values }));
   const checkProvider = async (profile: Profile, probe = false) => {
@@ -794,15 +797,30 @@ export function Settings() {
                   <select
                     value={theme}
                     onChange={(e) => {
-                      localStorage.setItem("badshop.theme", e.target.value);
+                      savePreference("theme", e.target.value);
                       useUI.getState().set({ theme: e.target.value });
                     }}
                   >
-                    <option value="system">Follow system</option>
-                    <option value="dark">Dark</option>
-                    <option value="light">Light</option>
+                    {themes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
                 </label>
+                <div className="theme-grid" aria-label="Interface skins">
+                  {themes.filter(item => !["system", "dark", "light"].includes(item.id)).map(item => <button
+                    type="button" className="theme-card" key={item.id} aria-pressed={theme === item.id}
+                    onClick={() => { savePreference("theme", item.id); appearance.set({ theme: item.id }); }}>
+                    <span className="theme-colors" aria-hidden="true">{item.colors.map(color => <span key={color} style={{background:color}} />)}</span>
+                    <strong>{item.name}</strong><small>{item.description}</small>
+                  </button>)}
+                </div>
+                <label>Interface density<select value={appearance.density} onChange={e => { savePreference("density", e.target.value); appearance.set({density:e.target.value as Density}); }}>
+                  <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
+                </select></label>
+                <label>Text size<select value={appearance.textScale} onChange={e => { savePreference("textScale", e.target.value); appearance.set({textScale:Number(e.target.value)}); }}>
+                  {[100,115,130,150].map(value => <option key={value} value={value}>{value}%</option>)}
+                </select></label>
+                <label>Motion<select value={appearance.motion} onChange={e => { savePreference("motion", e.target.value); appearance.set({motion:e.target.value as Motion}); }}>
+                  <option value="system">Follow system</option><option value="reduced">Reduced motion</option><option value="full">Full motion</option>
+                </select></label>
                 <details>
                   <summary>Tool limits</summary>
                   <label>
@@ -832,6 +850,7 @@ export function Settings() {
                     />
                   </label>
                 </details>
+                <SourceSettings />
               </div>
             )}
             {tab === "assets" && <Assets />}

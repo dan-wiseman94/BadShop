@@ -161,4 +161,4 @@ def test_all_searches_both_key_free_collections(monkeypatch):
     image = Image.new("RGB", (50, 40))
     monkeypatch.setattr(discovery, "_preview", lambda hit: (hit | {"width": 50, "height": 40}, image, discovery.fingerprint(image)))
     discovery.discover(discovery.DiscoverParams(query="cat", n=1))
-    assert set(calls) == {"commons", "openverse", "loc", "met", "nasa", "cleveland", "wellcome"}
+    assert set(calls) == {"commons", "openverse", "loc", "met", "nasa", "cleveland", "wellcome", 'chicago', 'openmoji'}

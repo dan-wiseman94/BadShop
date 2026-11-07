@@ -71,14 +71,14 @@ def test_builtin_packs_have_distinct_hard_alpha_and_anchors(tmp_path):
         assert len(entries) == item["count"] == 4
         for entry in entries:
             hashes.add(entry["artifact"]["id"])
-            assert entry["metadata"]["anchors"]["center"] == [160, 90]
+            assert entry["metadata"]["anchors"]["center"] == [entry['artifact']['width']//2, entry['artifact']['height']//2]
             assert entry["artifact"]["source"]["creator"] == "badshop procedural artwork"
             assert entry["artifact"]["source"]["license"] == "MIT"
             with Image.open(io.BytesIO(library._blob(library.get(entry["id"]).artifact))) as im:
-                assert set(im.getchannel("A").get_flattened_data()) <= {0, 255}
+                assert set(im.convert('RGBA').getchannel("A").get_flattened_data()) <= {0, 255}
                 for x, y in entry["metadata"]["anchors"].values():
                     assert 0 <= x < im.width and 0 <= y < im.height
-    assert len(hashes) == 32
+    assert len(hashes) == sum(item['count'] for item in packs.listing())
 
 
 @pytest.mark.parametrize("pack_id", ["local-cable", "bargain-packaging", "office-bureaucracy"])

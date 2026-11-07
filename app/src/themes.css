@@ -1,0 +1,221 @@
+/* Application chrome only. No filter, blend mode or opacity touches artwork. */
+:root[data-theme="classic"] {
+  --bg: #c0c0c0;
+  --panel: #c0c0c0;
+  --raised: #d0d0d0;
+  --stage: #008080;
+  --text: #111;
+  --muted: #333;
+  --line: #666;
+  --accent: #000080;
+  --accent-text: #fff;
+  --hover: #e2e2e2;
+  --error: #a00000;
+  --green: #005c30;
+  --checker: #007575;
+  color-scheme: light;
+  font-family: Tahoma, "Segoe UI", sans-serif;
+}
+:root[data-theme="terminal"] {
+  --bg: #07130d;
+  --panel: #0b1b12;
+  --raised: #163622;
+  --stage: #030b06;
+  --text: #d0ffda;
+  --muted: #95c7a4;
+  --line: #406d4d;
+  --accent: #8fffa8;
+  --accent-text: #081a0e;
+  --hover: #234b31;
+  --error: #ffb8a2;
+  --green: #8fffa8;
+  --checker: #0a160e;
+  color-scheme: dark;
+  font-family: "Cascadia Code", "Noto Sans Mono", monospace;
+}
+:root[data-theme="geocities"] {
+  --bg: #080c38;
+  --panel: #121747;
+  --raised: #20245b;
+  --stage: #060725;
+  --text: #f5f1ff;
+  --muted: #bdc7f7;
+  --line: #6269ab;
+  --accent: #ffff66;
+  --accent-text: #11113a;
+  --hover: #303675;
+  --error: #ffb2d0;
+  --green: #9effc8;
+  --checker: #15143b;
+  color-scheme: dark;
+  font-family: Verdana, "Noto Sans", sans-serif;
+}
+:root[data-theme="y2k"] {
+  --bg: #dfe5f4;
+  --panel: #f1f4ff;
+  --raised: #cbd4ee;
+  --stage: #b6c4df;
+  --text: #202346;
+  --muted: #4d5374;
+  --line: #8b98bb;
+  --accent: #5132ac;
+  --accent-text: #fff;
+  --hover: #bcc7e9;
+  --error: #9a244b;
+  --green: #165d45;
+  --checker: #aab8d6;
+  color-scheme: light;
+  font-family: "Trebuchet MS", "Noto Sans", sans-serif;
+}
+:root[data-theme="paper"] {
+  --bg: #f3ebd8;
+  --panel: #fff9ea;
+  --raised: #e7dcc5;
+  --stage: #d5c9b0;
+  --text: #27231e;
+  --muted: #645a49;
+  --line: #a29680;
+  --accent: #724d27;
+  --accent-text: #fff9ea;
+  --hover: #ddcfb2;
+  --error: #a02c29;
+  --green: #365a2b;
+  --checker: #c7bba5;
+  color-scheme: light;
+  font-family: Georgia, "Noto Serif", serif;
+}
+:root[data-theme="arcade"] {
+  --bg: #160f2a;
+  --panel: #211638;
+  --raised: #342149;
+  --stage: #0c0916;
+  --text: #fff1fc;
+  --muted: #c4b2da;
+  --line: #755683;
+  --accent: #f5a4ef;
+  --accent-text: #291332;
+  --hover: #4a2d60;
+  --error: #ffb9ab;
+  --green: #70e7ee;
+  --checker: #19112b;
+  color-scheme: dark;
+  font-family: "Cascadia Code", "Noto Sans Mono", monospace;
+}
+:root:is(
+    [data-theme="classic"],
+    [data-theme="terminal"],
+    [data-theme="geocities"],
+    [data-theme="paper"]
+  )
+  :is(button, input, select, textarea, .modal, .approval-card) {
+  border-radius: 0;
+}
+:root[data-theme="classic"] button {
+  border: 2px solid;
+  border-color: #fff #444 #444 #fff;
+  box-shadow: 1px 1px 0 #111;
+}
+:root[data-theme="classic"] button:active:not(:disabled) {
+  border-color: #444 #fff #fff #444;
+  box-shadow: none;
+}
+:root[data-theme="classic"] :is(.pane-heading, .modal-heading) {
+  background: #000080;
+  color: #fff;
+}
+:root[data-theme="classic"] .modal-heading button {
+  background: #c0c0c0;
+  color: #111;
+}
+:root[data-theme="classic"] :is(input, textarea, select) {
+  background: #fff;
+  border: 2px inset #ddd;
+}
+:root[data-theme="terminal"] .pane-heading {
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--line);
+}
+:root[data-theme="geocities"] .app-header {
+  background-image: radial-gradient(#fff 1px, transparent 1px);
+  background-size: 29px 23px;
+}
+:root[data-theme="geocities"] :is(.pane-heading, .modal-heading) {
+  border-bottom: 3px double var(--accent);
+}
+:root[data-theme="geocities"] a {
+  text-decoration: underline;
+}
+:root[data-theme="y2k"] :is(.app-header, .modal-heading, .pane-heading) {
+  background: linear-gradient(180deg, #fff, #d5dff6);
+}
+:root[data-theme="y2k"] button {
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 #fff;
+}
+:root[data-theme="paper"] :is(.pane-heading, .modal-heading) {
+  border-bottom: 3px double var(--line);
+}
+:root[data-theme="paper"] .primary {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+:root[data-theme="arcade"] :is(.pane-heading, .modal-heading) {
+  border-bottom: 2px solid #70e7ee;
+}
+:root[data-theme="arcade"] button.primary {
+  box-shadow: 3px 3px 0 #70e7ee;
+  border-radius: 2px;
+}
+:root[data-density="compact"] button {
+  padding: 4px 7px;
+  gap: 4px;
+}
+:root[data-density="compact"] :is(input, textarea, select) {
+  padding: 5px 7px;
+}
+:root[data-density="compact"] .pane-heading {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 10px;
+  margin-block: 10px 20px;
+}
+.theme-card {
+  display: flex;
+  align-items: stretch;
+  text-align: left;
+  white-space: normal;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 110px;
+}
+.theme-card[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-colors {
+  display: flex;
+  height: 22px;
+  width: 100%;
+  border: 1px solid var(--line);
+}
+.theme-colors span {
+  flex: 1;
+}
+.theme-card small {
+  color: var(--muted);
+}
+:root[data-theme="classic"] .modal-heading button:focus-visible {
+  outline-color: #ffff00;
+}

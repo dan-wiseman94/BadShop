@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { imageUrl, useArtifact, useSession, run, action } from "../data";
 import { useUI } from "../store";
+import { useReducedMotion } from "../appearance";
 import { reveal, openLink } from "../native";
 import type { Params } from "../types";
 export function ArtifactThumb({
@@ -81,7 +82,13 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         )
     : undefined;
   const id = pick?.artifactId ?? (before && inputId ? inputId : afterId);
-  const { data, error } = useArtifact(id);
+  const motion = useUI(s => s.motion);
+  const reduced = useReducedMotion(motion);
+  const [playing, setPlaying] = useState<boolean | null>(null);
+  const [frame, setFrame] = useState(0);
+  useEffect(() => { setPlaying(null); setFrame(0); }, [id, reduced]);
+  const paused = playing === null ? reduced : !playing;
+  const { data, error } = useArtifact(id, false, paused, frame);
   const meta = data?.meta;
   const progress = session?.stream_text;
   useEffect(() => {
@@ -158,6 +165,10 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </button>
         </div>
         <div className="viewer-toggles">
+          {(meta?.frames ?? 1) > 1 && <>
+            <button onClick={() => setPlaying(paused)}>{paused ? 'Play preview' : 'Pause preview'}</button>
+            <button disabled={!paused} onClick={() => { setPlaying(false); setFrame((frame + 1) % Math.min(meta?.frames ?? 1, 1001)); }}>Next frame ({frame + 1})</button>
+          </>}
           <button
             title="Coordinate grid"
             aria-label="Coordinate grid"

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCoreQuery } from "../data";
+import { action, run, useCoreQuery, useSession } from "../data";
 import {
   emptyLocks,
   eraChoices,
@@ -18,8 +18,10 @@ export function IdeaMixer({
   onSearch: (query: string) => void;
 }) {
   const { data: formats = [], error } = useCoreQuery("layouts.list");
-  const [subject, setSubject] = useState("");
-  const [locks, setLocks] = useState<MixerLocks>({ ...emptyLocks });
+  const { data: session } = useSession();
+  const [subject, setSubject] = useState(session?.creative?.mixer.subject ?? "");
+  const [locks, setLocks] = useState<MixerLocks>({ ...emptyLocks, ...Object.fromEntries(Object.entries(session?.creative?.mixer ?? {}).filter(([key]) => key in emptyLocks)) });
+  const saveMixer = (choices: MixerLocks, value = subject) => run(() => action('creative.set', { values: { mixer: { ...choices, subject: value } } }));
   const [seed, setSeed] = useState(
     () => crypto.getRandomValues(new Uint32Array(1))[0],
   );
@@ -49,6 +51,7 @@ export function IdeaMixer({
         onSubmit={(event) => {
           event.preventDefault();
           const batch = mixIdeas(subject, locks, formats, seed, recent);
+          saveMixer(locks);
           setIdeas(batch.ideas);
           setTotal(batch.total);
           setRepeated(batch.repeated);
@@ -73,12 +76,10 @@ export function IdeaMixer({
             <select
               aria-label={`Lock ${group.label.toLowerCase()}`}
               value={locks[group.key]}
-              onChange={(event) =>
-                setLocks((previous) => ({
-                  ...previous,
-                  [group.key]: event.target.value,
-                }))
-              }
+              onChange={(event) => {
+                const next = { ...locks, [group.key]: event.target.value };
+                setLocks(next); saveMixer(next);
+              }}
             >
               <option value="">Any — mix this choice</option>
               {group.choices.map((choice) => (
@@ -92,7 +93,7 @@ export function IdeaMixer({
         <button disabled={!formats.length}>
           {ideas.length ? "Mix six more ideas" : "Mix six ideas"}
         </button>
-        <button type="button" onClick={() => setLocks({ ...emptyLocks })}>
+        <button type="button" onClick={() => { setLocks({ ...emptyLocks }); saveMixer({ ...emptyLocks }); }}>
           Unlock all choices
         </button>
       </form>
@@ -130,10 +131,12 @@ export function IdeaMixer({
               <button onClick={() => onSearch(idea.search)}>
                 Prepare a source search
               </button>
+              <button onClick={() => run(() => action('creative.set', { values: { favorite_briefs: [...new Set([...(session?.creative?.favorite_briefs ?? []), idea.prompt])].slice(-50) } }))}>Save brief</button>
             </div>
           </article>
         ))}
       </div>
+      {!!session?.creative?.favorite_briefs.length && <details><summary>Saved briefs</summary>{session.creative.favorite_briefs.map((brief,index) => <div key={index}><pre>{brief}</pre><button onClick={() => onDraft(brief)}>Add saved brief to chat</button></div>)}</details>}
     </div>
   );
 }

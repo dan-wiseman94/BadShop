@@ -24,7 +24,7 @@ test("the idea mixer uses available formats and adds an unsent brief without los
     page.getByRole("option", { name: "Wellcome Collection", exact: true }),
   ).toBeEnabled();
   await page.getByText("Collection availability", { exact: true }).click();
-  await expect(page.getByText("No key needed", { exact: true })).toHaveCount(7);
+  await expect(page.getByText("No key needed", { exact: true })).toHaveCount(9);
   await page.getByRole("button", { name: "Idea mixer", exact: true }).click();
   await page
     .getByLabel("Idea subject", { exact: true })
