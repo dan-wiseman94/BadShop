@@ -16,6 +16,7 @@ type Pending = {
 };
 export class RpcClient {
   private ws?: WebSocket;
+  private authenticated = false;
   private pending = new Map<number, Pending>();
   private next = 0;
   private generation = 0;
@@ -47,9 +48,21 @@ export class RpcClient {
       const ws = new WebSocket(`ws://127.0.0.1:${connection.port}`);
       this.ws = ws;
       let welcomed = false;
-      const timer = setTimeout(() => {
+      const current = () => generation === this.generation && this.ws === ws;
+      const end = (error: RpcError) => {
+        if (!current()) return;
+        clearTimeout(timer);
+        ++this.generation; // buffered callbacks from a closing socket are obsolete
+        this.ws = undefined;
+        this.authenticated = false;
+        this.cancelConnect = undefined;
+        this.rejectPending();
+        reject(error);
         ws.close();
-        reject(
+        this.status("disconnected");
+      };
+      const timer = setTimeout(() => {
+        end(
           new RpcError(
             "The core did not answer.",
             "Restart the core and try again.",
@@ -60,7 +73,8 @@ export class RpcClient {
         clearTimeout(timer);
         reject(new RpcError("Core connection was replaced."));
       };
-      ws.onopen = () =>
+      ws.onopen = () => {
+        if (!current()) return;
         ws.send(
           JSON.stringify({
             type: "hello",
@@ -68,22 +82,25 @@ export class RpcClient {
             actor: "user",
           }),
         );
+      };
       ws.onmessage = (event) => {
-        if (generation !== this.generation) return;
+        if (!current()) return;
         let msg;
         try {
           msg = JSON.parse(String(event.data));
         } catch {
           return;
         }
-        if (msg.type === "welcome") {
+        if (msg.type === "welcome" && !welcomed) {
           welcomed = true;
+          this.authenticated = true;
           clearTimeout(timer);
           this.cancelConnect = undefined;
           this.status("ready");
           resolve();
           return;
         }
+        if (!welcomed) return;
         if (typeof msg.id === "number") {
           const pending = this.pending.get(msg.id);
           if (!pending) return;
@@ -104,19 +121,10 @@ export class RpcClient {
           );
       };
       ws.onerror = () => {
-        if (!welcomed) {
-          clearTimeout(timer);
-          reject(new RpcError("Could not connect to the core."));
-        }
+        end(new RpcError("Could not connect to the core."));
       };
       ws.onclose = () => {
-        clearTimeout(timer);
-        if (generation !== this.generation) return;
-        this.cancelConnect = undefined;
-        this.rejectPending();
-        this.status("disconnected");
-        if (!welcomed)
-          reject(new RpcError("Core connection closed before authentication."));
+        end(new RpcError("Core connection closed before authentication."));
       };
     });
   }
@@ -130,7 +138,7 @@ export class RpcClient {
         reject(new DOMException("Request cancelled", "AbortError"));
         return;
       }
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      if (!this.authenticated || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
         reject(
           new RpcError(
             "The core is disconnected.",
@@ -175,6 +183,7 @@ export class RpcClient {
   }
   disconnect() {
     ++this.generation;
+    this.authenticated = false;
     this.cancelConnect?.();
     this.cancelConnect = undefined;
     this.ws?.close();
