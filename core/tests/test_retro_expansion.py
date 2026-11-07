@@ -1,4 +1,5 @@
 import io
+import asyncio
 import threading
 import json
 import pytest
@@ -12,6 +13,7 @@ from badshop.session.models import Source
 from badshop.session.session import Session
 from badshop.session.execution import execute_call, ToolCall
 from badshop.session.preferences import CreativePreferences
+from test_server_app import env as env
 
 
 def imported(session, color="red", source=None):
@@ -48,6 +50,80 @@ def test_palette_contains_only_selected_colors_and_export_limits():
     assert output.image.size == (88, 31)
     with pytest.raises(EngineError, match="byte limit"):
         retro.export_profile(retro.ExportProfileParams(image="x", max_bytes=100), image)
+
+
+def test_palette_replaces_transparent_gif_palette_without_losing_the_mask():
+    image = Image.new("P", (3, 1))
+    image.putpalette([255, 0, 0, 0, 255, 0] + [0] * 762)
+    image.putdata([0, 1, 0])
+    image.info["transparency"] = 0
+    out = retro.palette(retro.PaletteParams(image="gif", palette="cga"), image).outputs[0].image
+    assert list(out.getchannel("A").get_flattened_data()) == [0, 255, 0]
+    assert image.info["transparency"] == 0
+
+
+@pytest.mark.parametrize("trigger", ["disconnect", "cancel"])
+def test_recipe_request_ends_owned_work_and_releases_its_reservation(env, monkeypatch, trigger):
+    from badshop.server.app import CoreApp
+    from badshop.server.settings import Settings
+    from badshop.session.execution import InProcessExecutor
+    from test_server_app import Client
+
+    async def scenario():
+        app = CoreApp(Settings(), executor_factory=lambda **_: InProcessExecutor())
+        client = Client(app)
+        entered = threading.Event()
+        finished = threading.Event()
+        recipe = {"name": "canvas", "steps": [{"tool": "canvas", "params": {"width": 16, "height": 16}}]}
+        aid = imported(app.session)
+
+        def run(session, parsed, inputs, signal):
+            entered.set()
+            assert signal.wait(5), "owned recipe did not receive cancellation"
+            finished.set()
+            return {"completed": [], "errors": [], "cancelled": True}
+
+        monkeypatch.setattr(recipes, "run", run)
+        pending = asyncio.create_task(client.call("recipes.run", recipe=recipe, inputs=[aid]))
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            if trigger == "disconnect":
+                app.on_client_gone()
+                assert (await pending)["cancelled"]
+            else:
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await pending
+            assert finished.is_set() and app._recipe_cancel is None
+            app._check_idle()
+            assert not app.session.data.steps
+        finally:
+            if app._recipe_cancel is not None:
+                app._recipe_cancel.set()
+            await asyncio.gather(pending, return_exceptions=True)
+            client.unsubscribe()
+            await app.close()
+
+    asyncio.run(scenario())
+
+
+def test_new_projects_copy_style_defaults_without_dangling_image_pins(env):
+    from badshop.server.app import CoreApp
+    from badshop.server.settings import Settings
+    from badshop.session.execution import InProcessExecutor
+
+    async def scenario():
+        defaults = CreativePreferences(style="forum", source_roles={"subject": "a" * 64})
+        app = CoreApp(Settings(creative_defaults=defaults), executor_factory=lambda **_: InProcessExecutor())
+        try:
+            assert app.session.data.creative.style == "forum"
+            assert app.session.data.creative.source_roles == {}
+            await app._session_save_as("user", str(env / "new.badshop"))
+            assert project.open_project(env / "new.badshop").data.creative.source_roles == {}
+        finally:
+            await app.close()
+
+    asyncio.run(scenario())
 
 
 def test_animation_frames_do_not_leave_trails():

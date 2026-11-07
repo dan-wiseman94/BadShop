@@ -1,5 +1,6 @@
 """Retro catalog, portable preferences, bounded recipes and ancestry credits."""
 
+import asyncio
 import base64
 import io
 import json
@@ -7,6 +8,7 @@ import threading
 from typing import Annotated
 from pydantic import Field
 from badshop.engine import retro
+from badshop.agent.loop import _to_the_end
 from badshop.engine.errors import EngineError
 from badshop.session.preferences import CreativePreferences
 from badshop.session import recipes
@@ -137,8 +139,13 @@ def register(app):
         ids = [owned.artifacts.resolve(ref) for ref in inputs]
         signal = threading.Event()
         app._recipe_cancel = signal
+        work = asyncio.create_task(app._blocking(recipes.run, owned, parsed, ids, signal))
         try:
-            return await app._blocking(recipes.run, owned, parsed, ids, signal)
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:
+            signal.set()
+            await _to_the_end(work)
+            raise
         finally:
             app._recipe_cancel = None
 

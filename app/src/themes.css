@@ -122,6 +122,7 @@
 :root[data-theme="classic"] :is(.pane-heading, .modal-heading) {
   background: #000080;
   color: #fff;
+  --muted: #fff;
 }
 :root[data-theme="classic"] .modal-heading button {
   background: #c0c0c0;
@@ -218,4 +219,8 @@
 }
 :root[data-theme="classic"] .modal-heading button:focus-visible {
   outline-color: #ffff00;
+}
+:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
+  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"]) button {
+  transition: none;
 }

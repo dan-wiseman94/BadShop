@@ -6,7 +6,7 @@ Open **Images & directions → Retro workbench**. Choose an era or favorite a st
 
 ## Creative choices and tools
 
-Clutter, seed, image fit, exact captions, favorites, role pins, saved collection lookups, recipes and idea-mixer choices travel with the project. Branches snapshot their creative preferences. “Use these defaults for new projects” copies the creative defaults; existing tool parameters remain explicit. Project format 3 reads formats 1 and 2. Older BadShop releases cannot read newly saved format-3 projects.
+Clutter, seed, image fit, exact captions, favorites, role pins, saved collection lookups, recipes and idea-mixer choices travel with the project. Branches snapshot their creative preferences. “Use these defaults for new projects” copies the creative defaults; image role pins stay with their original project. Existing tool parameters remain explicit. Project format 3 reads formats 1 and 2. Older BadShop releases cannot read newly saved format-3 projects.
 
 New registered tools are available to the desktop, CLI and MCP:
 
@@ -37,10 +37,14 @@ Local only blocks tool downloads, asset downloads, cloud/custom/CLI model provid
 
 ## Recipes, comparison and export
 
-Capture a completed local tool step in Recipes. Change its name and exposed parameters, save it in the project, then select up to 12 input images. Recipes use declarative steps with `$input` and earlier `$step0`, `$step1` references. Network and file-writing tools are refused. A batch has at most 60 steps. Stop retains completed outputs; failed inputs report their errors. Closing the app cancels owned work. Multi-input captures bind each input to `$input`; edit the recipe when a composition needs a different arrangement.
+Capture a completed local tool step in Recipes. Change its name and exposed parameters, save it in the project, then select up to 12 input images. Recipes use declarative steps with `$input` and earlier `$step0`, `$step1` references. Network and file-writing tools are refused. A batch has at most 60 steps. Stop retains completed outputs; failed inputs report their errors. Closing the app, losing its last user connection or cancelling the request stops owned batch work. Multi-input captures bind each input to `$input`; edit the recipe when a composition needs a different arrangement.
 
 Compare displays up to four branch results. The Export panel prepares 88×31 buttons, 150×20 blinkies, 500×150 signatures, 100×100 avatars or 1024×768 wallpaper. The source image remains stored. JPEG size limits try bounded quality values; PNG/GIF limits fail explicitly when the encoded result is too large. Export selected image + credits writes a unique image filename and JSON ancestry sidecar. Unknown creators or rights remain unknown.
+
+Worse applies seeded deep-fry strength or repeated JPEG compression from the clean base you choose, so adjusting a setting does not accidentally compound the previous preview's damage.
 
 ## Verification scope
 
 Fixtures cover deterministic output, hard transparency, bitmap overflow, palette membership, animation trails/timing, exact-size limits, schema migration, branch preferences, batch cancellation, source metadata, keychain isolation, cache behavior and credential stripping on redirects. Browser tests exercise the real Python core, saved projects and theme persistence. Paid/keyed services require a configured account for live validation; fixture success does not establish live service availability. Native lifecycle smoke uses the isolated Arch WSL toolchain and private Xvfb; it is not installer coverage.
+
+On 2026-11-07, the merged version passed focused core, project, settings, connection and browser checks. Live public-source checks passed for Chicago, OpenMoji, a selected IIIF manifest and Lospec; acquired Chicago/OpenMoji images survived saved-project reopening and offline replay. The pre-merge native window and launcher checks passed. The new project journey exposed an existing cold model-import delay during shutdown; asset status now locates the pinned model files without importing the model runtime, and the fresh-process journey passes. Logs, failure history and screenshots are retained under `artifacts/verification/`.

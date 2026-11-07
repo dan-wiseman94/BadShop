@@ -25,4 +25,19 @@ Implement the recommended expansion in dependency order, including distinct appl
 5. Recipes, batches, comparison, export/credits and storage controls.
 6. Integration tests, visual review, fixes and user documentation.
 
-Progress is recorded here as work completes; an unchecked item is not a delivered feature.
+## Delivered and verified
+
+- [x] Isolated Windows and Arch Linux environments, with recorded source revisions and separate Python environments.
+- [x] Six additional interface skins, density/text-size/motion settings, persisted project preferences, and schema-1/2 migration to schema 3.
+- [x] Twenty-eight deterministic layout styles, eight registered tools, four original asset packs, and a visual style browser.
+- [x] Chicago/OpenMoji and optional Pexels/Pixabay/Brave adapters; selected IIIF/Archive/Lospec browsing; source profiles, filters, keychain controls, local-only mode and credits.
+- [x] Portable recipes, bounded cancellable batches, branch comparison, clean-base degradation, export presets and ancestry sidecars.
+- [x] Focused Linux checks, real browser/core workflows, six-skin screenshot review, live public-source checks and user documentation.
+
+At the user's request, merged `origin/main` through `5431062`, including PR #11's focused testing policy and PR #12's ownership/replay fixes. Removed tests stay removed. The autosave conflict preserves both retry-after-failure and creative-history controls.
+
+Verification retained in `artifacts/verification/linux-merged/`: 54 retro/state-machine cases, 8 new-tool golden/coverage cases, 126 project/CLI persistence cases, 4 settings/protocol cases, 6 asset-status/path cases, 1 new-project pin case, and 16 frontend connection/mixer cases passed. Five selected real browser/core workflows are covered by four initial passes plus the corrected fresh-process journey; the original failed run remains recorded. The final theme workflow also passes after screenshot review. Lint, test collection and production build passed. `linux-premerge/` retains the earlier broad run, including its failed cases and passing native/launcher checks; it is not relabeled as a fully passing suite.
+
+Verification found and fixed: transparent-GIF palette metadata, empty Lospec attribution, Windows-versus-Linux PNG encoding references (decoded pixels unchanged), batch cancellation ownership, cross-project image pins, theme-switch contrast, and a pre-existing model-runtime import in asset status that delayed shutdown. Existing pixel goldens are unchanged.
+
+Boundaries: Kenney/Game-icons/GifCities/Rijksmuseum are collection links/manual imports. Keyed services and actual OS keychain integration were fixture-tested, not tested with live accounts. No installer was built or validated. The research report remains a broader backlog; speculative adapters, full curated third-party packs and other deferred ideas are not represented as shipped features.

@@ -78,14 +78,14 @@ test("every interface skin persists and keeps artwork pixels unchanged", async (
     "paper",
     "arcade",
   ]) {
-    await page.getByLabel("Theme", { exact: true }).selectOption(theme);
+    await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption(theme);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await page.screenshot({
       path: test.info().outputPath(`theme-${theme}.png`),
     });
   }
-  await page.getByLabel("Motion", { exact: true }).selectOption("reduced");
-  await page.getByLabel("Text size", { exact: true }).selectOption("130");
+  await page.getByRole("combobox", { name: "Motion", exact: true }).selectOption("reduced");
+  await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("130");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "arcade");
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");

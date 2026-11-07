@@ -240,7 +240,8 @@ class CoreApp:
     def _new_session(self, name: str) -> Session:
         session = self._own(Session.new(name, **self._session_kw()))
         session.data.approval_mode = self.settings.approval_mode
-        session.data.creative = self.settings.creative_defaults.model_copy(deep=True)
+        # Pinned image ids belong to one project; new documents have no such artifacts.
+        session.data.creative = self.settings.creative_defaults.model_copy(update={"source_roles": {}}, deep=True)
         return session
 
     def _changed(self) -> None:  # Session.on_change: called from whichever thread changed it
@@ -513,6 +514,8 @@ class CoreApp:
         (a CLI agent's too), so nothing waits for a user who isn't there. The core keeps serving, and
         the next client sees the session as it was left."""
         self._cancel_approvals("the user closed the app")
+        if getattr(self, '_recipe_cancel', None) is not None:
+            self._recipe_cancel.set()
         for signal, _ in self._downloads.values():
             signal.set()
         self._start_generation += 1  # also invalidate sends still queued for _lock

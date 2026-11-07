@@ -189,6 +189,27 @@ def test_status_and_download(homes, monkeypatch):
     assert manifest.download(font.name).read_bytes() == b"a font"
 
 
+def test_status_never_imports_the_model_runtime_and_respects_model_home(homes, monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+    def without_models(name, *args, **kwargs):
+        assert name.split(".")[0] not in {"rembg", "numba", "onnxruntime"}
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_models)
+    monkeypatch.setenv("REMBG_HOME", str(homes / "new-home"))
+    monkeypatch.setenv("U2NET_HOME", str(homes / "legacy-choice"))
+    model = pin_local(monkeypatch, homes, "rembg/u2net.onnx", b"weights")
+    expected = homes / "legacy-choice" / "models" / "u2net" / "u2net.onnx"
+    expected.parent.mkdir(parents=True)
+    expected.write_bytes(b"weights")
+    assert manifest.asset_path(model) == expected
+    assert [r["name"] for r in manifest.status() if r["present"]] == [model.name]
+    monkeypatch.setenv("U2NET_HOME", "")
+    assert manifest.asset_path(model) == homes / "new-home" / "models" / "u2net" / "u2net.onnx"
+
+
 @pytest.mark.parametrize("model", list(REMBG_MD5))
 def test_rembg_models_land_where_rembg_looks(homes, monkeypatch, model):
     import pooch
