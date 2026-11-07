@@ -2,14 +2,28 @@
 
 ## Supported targets
 
-Windows x86-64 (NSIS setup.exe), Linux x86-64 (.deb, AppImage, Flatpak), and macOS 14+ arm64 (.dmg).
-The current ONNX Runtime/rembg dependency set does not ship Intel macOS wheels, so v1
-uses per-architecture Apple Silicon builds with macOS 14 or newer. Intel macOS is not silently advertised as
-supported. The retired macos-13 CI runner from the initial spec is replaced with macos-15.
+Windows x86-64 (NSIS setup.exe), Linux x86-64 (.deb, AppImage, Flatpak), and macOS 14+
+with separate Intel x86-64 and Apple Silicon arm64 disk images. The macOS jobs use
+`macos-15-intel` and `macos-15`, respectively. Each mounts and launches its built
+installer and verifies the shell and bundled core's architecture.
+
+Intel macOS resolves ONNX Runtime 1.23.2, numba 0.62.1, llvmlite 0.45.1 and NumPy 2.3
+through platform markers in the shared lockfile. CI also exercises the Intel image
+engine and a real U2-Net cutout in its frozen worker.
 
 ## Local development
 
 Install Python 3.12, uv, Node 22, pnpm 10, Rust stable and Tauri's native prerequisites.
+On Intel macOS, the locked cryptography dependency builds from source. Install
+OpenSSL with `brew install openssl@3`, then run the following in the terminal used
+for setup and packaging.
+
+```sh
+export OPENSSL_DIR="$(brew --prefix openssl@3)"
+export OPENSSL_STATIC=1
+export MACOSX_DEPLOYMENT_TARGET=14.0
+```
+
 On Linux the build needs GTK 3, WebKitGTK 4.1, OpenSSL, a C toolchain, the app indicator
 library, and the TBB runtime (`libtbb12` on Ubuntu). TBB satisfies the bundled numba
 plugin's ELF dependency; AppImage packaging checks even optional native plugins.

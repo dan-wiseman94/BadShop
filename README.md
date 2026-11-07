@@ -6,13 +6,13 @@ model what you want. Every edit appears in a timeline you can change and replay.
 
 ## Get badshop on Windows
 
-**[Download badshop 0.1.0 for Windows](https://github.com/dan-wiseman94/BadShop/releases/download/desktop-v0.1.0/badshop_0.1.0_x64-setup.exe)** (Intel or AMD 64-bit PC)
+**[Download badshop 0.1.1 for Windows](https://github.com/dan-wiseman94/BadShop/releases/download/desktop-v0.1.1/badshop_0.1.1_x64-setup.exe)** (Intel or AMD 64-bit PC)
 
 Open the downloaded setup file, follow the prompts, then launch **badshop** from
 Start. The installer includes the image tools. Choose **Edit a photo without AI**
 to get started.
 
-[Mac and Linux downloads](https://github.com/dan-wiseman94/BadShop/releases/latest) · [Windows installation help](docs/windows.md)
+[Mac installation help](docs/macos.md) · [All downloads](https://github.com/dan-wiseman94/BadShop/releases/latest) · [Windows installation help](docs/windows.md)
 
 ![badshop desktop with chat, image viewer, and editable timeline](docs/screenshots/badshop.png)
 
@@ -42,8 +42,8 @@ Both launchers prepare the locked dependencies and open the desktop app. Keep th
 open during use. The first run needs internet access and may take several minutes.
 
 On Linux and macOS, use `BADSHOP_DEV_PORT=1422 ./start.sh` to choose another port.
-Installer targets also include Linux x86-64 (deb, AppImage, Flatpak) and Apple Silicon
-macOS 14+ (dmg). See the [build and release guide](docs/releasing.md).
+Installer targets also include Linux x86-64 (deb, AppImage, Flatpak) and macOS 14+
+(separate Intel and Apple Silicon disk images). See the [build and release guide](docs/releasing.md).
 
 ### Optional AI setup
 
@@ -129,7 +129,7 @@ uv run --project core badshop-core serve
 127.0.0.1 only, on a free port (`--port N` picks one), and prints exactly one line to stdout,
 `{"port": 40123, "token": "<a random token>"}`; everything else goes to stderr. A client connects to
 `ws://127.0.0.1:<port>` and first sends `{"type": "hello", "token": "<token>", "actor": "user"}`.
-The core answers `{"type": "welcome", "actor": "user", "version": "0.1.0"}`; any other first
+The core answers `{"type": "welcome", "actor": "user", "version": "0.1.1"}`; any other first
 message (or none within 10 s) closes the connection with code 1008. After that it is JSON-RPC
 2.0 in text frames: requests such as
 `{"jsonrpc": "2.0", "id": 1, "method": "tools.list", "params": {}}`, and events

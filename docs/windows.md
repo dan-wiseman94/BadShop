@@ -5,8 +5,8 @@
 Use the Windows x64 installer for a PC with an Intel or AMD 64-bit processor.
 You can check yours in **Settings → System → About → System type**.
 
-1. [Download the Windows installer](https://github.com/dan-wiseman94/BadShop/releases/download/desktop-v0.1.0/badshop_0.1.0_x64-setup.exe).
-2. Open **Downloads** in File Explorer and double-click `badshop_0.1.0_x64-setup.exe`.
+1. [Download the Windows installer](https://github.com/dan-wiseman94/BadShop/releases/download/desktop-v0.1.1/badshop_0.1.1_x64-setup.exe).
+2. Open **Downloads** in File Explorer and double-click `badshop_0.1.1_x64-setup.exe`.
    Follow the setup prompts. This release is unsigned.
    If Windows shows **Windows protected your PC**, check that the download came from
    this repository. If you trust it and your PC allows it, choose **More info → Run anyway**.
