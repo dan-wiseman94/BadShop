@@ -1,3 +1,5 @@
+import { Button } from "./Button";
+import { InputField, SelectField } from "./Fields";
 import { useEffect, useState } from "react";
 import {
   X,
@@ -22,13 +24,7 @@ import { pickFolder } from "../native";
 import { ErrorNotice } from "./ErrorNotice";
 import { SourceSettings } from "./SourceSettings";
 import { BIREFNET_MEMORY_NOTE } from "../constants";
-import type {
-  Asset,
-  CLIDetection,
-  Params,
-  Profile,
-  Settings as SettingsType,
-} from "../types";
+import type { Asset, CLIDetection, Params, Profile, Settings as SettingsType } from "../types";
 const kindNames = {
   api: "Cloud API",
   local: "Local model",
@@ -65,13 +61,10 @@ export function ProfileEditor({
     },
   );
   const [key, setKey] = useState("");
-  const [keyMode, setKeyMode] = useState(
-    initial?.api_key_env ? "environment" : "keychain",
-  );
+  const [keyMode, setKeyMode] = useState(initial?.api_key_env ? "environment" : "keychain");
   const [busy, setBusy] = useState(false);
   const [cliStatus, setCLIStatus] = useState("");
-  const update = (patch: Partial<Profile>) =>
-    setProfile({ ...profile, ...patch });
+  const update = (patch: Partial<Profile>) => setProfile({ ...profile, ...patch });
   const isCLI = profile.kind === "cli";
   return (
     <form
@@ -83,12 +76,8 @@ export function ProfileEditor({
           try {
             const value = {
               ...profile,
-              ...(isCLI
-                ? { cli: profile.cli ?? "claude", model: profile.model ?? "" }
-                : {}),
-              ...(keyMode === "environment"
-                ? { api_key_env: profile.api_key_env }
-                : {}),
+              ...(isCLI ? { cli: profile.cli ?? "claude", model: profile.model ?? "" } : {}),
+              ...(keyMode === "environment" ? { api_key_env: profile.api_key_env } : {}),
             };
             if (isCLI) {
               delete value.api_base;
@@ -102,9 +91,7 @@ export function ProfileEditor({
             if (keyMode === "keychain") delete value.api_key_env;
             const saved = await action("providers.save", {
               profile: value,
-              ...(!isCLI && keyMode === "keychain" && key
-                ? { api_key: key }
-                : {}),
+              ...(!isCLI && keyMode === "keychain" && key ? { api_key: key } : {}),
             });
             setKey("");
             setProfile(saved);
@@ -115,135 +102,94 @@ export function ProfileEditor({
         });
       }}
     >
-      <label>
-        Provider type
-        <select
-          value={profile.kind}
-          onChange={(event) =>
-            update({ kind: event.target.value as Profile["kind"] })
-          }
-        >
-          {Object.entries(kindNames).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <SelectField
+        label="Provider type"
+        value={profile.kind}
+        onChange={(event) => update({ kind: event.target.value as Profile["kind"] })}
+        options={Object.entries(kindNames).map(([value, label]) => [value, label] as const)}
+      />
       <p className="muted">{kindHints[profile.kind ?? "api"]}</p>
-      <label>
-        Profile name
-        <input
-          required
-          value={profile.label ?? ""}
-          placeholder="My art director"
-          onChange={(e) => update({ label: e.target.value })}
-        />
-      </label>
+      <InputField
+        label="Profile name"
+        required
+        value={profile.label ?? ""}
+        placeholder="My art director"
+        onChange={(e) => update({ label: e.target.value })}
+      />
       {isCLI ? (
         <>
-          <label>
-            Command line tool
-            <select
-              value={profile.cli ?? "claude"}
-              onChange={(e) =>
-                update({ cli: e.target.value as Profile["cli"] })
-              }
-            >
-              <option value="claude">Claude Code</option>
-              <option value="codex">Codex</option>
-              <option value="gemini">Gemini CLI (experimental)</option>
-            </select>
-          </label>
-          <button
+          <SelectField
+            label="Command line tool"
+            value={profile.cli ?? "claude"}
+            onChange={(e) => update({ cli: e.target.value as Profile["cli"] })}
+            options={[
+              ["claude", "Claude Code"] as const,
+              ["codex", "Codex"] as const,
+              ["gemini", "Gemini CLI (experimental)"] as const,
+            ]}
+          />
+          <Button
             type="button"
             onClick={() =>
               run(async () => {
                 const detected = await action("providers.detect");
-                const cli = detected.find(
-                  (item) => item.cli === (profile.cli ?? "claude"),
-                );
+                const cli = detected.find((item) => item.cli === (profile.cli ?? "claude"));
                 if (cli?.available && cli.supported) {
                   update({ executable: cli.executable });
                   setCLIStatus(cli.version ?? "CLI detected");
-                } else
-                  setCLIStatus(
-                    cli?.error ??
-                      "CLI not found. Install it or enter its path below.",
-                  );
+                } else setCLIStatus(cli?.error ?? "CLI not found. Install it or enter its path below.");
               })
             }
-          >
-            <Terminal size={14} />
-            Detect installed CLI
-          </button>
+            label="Detect installed CLI"
+            icon={Terminal}
+            iconSize={14}
+          />
           {cliStatus && <p className="field-description">{cliStatus}</p>}
-          <label>
-            Executable path (optional)
-            <input
-              value={profile.executable ?? ""}
-              placeholder="Auto-detect from PATH"
-              onChange={(e) => update({ executable: e.target.value || null })}
-            />
-          </label>
-          <label>
-            Model (optional)
-            <input
-              value={profile.model ?? ""}
-              placeholder="Use the CLI’s default model"
-              onChange={(e) => update({ model: e.target.value })}
-            />
-          </label>
+          <InputField
+            label="Executable path (optional)"
+            value={profile.executable ?? ""}
+            placeholder="Auto-detect from PATH"
+            onChange={(e) => update({ executable: e.target.value || null })}
+          />
+          <InputField
+            label="Model (optional)"
+            value={profile.model ?? ""}
+            placeholder="Use the CLI’s default model"
+            onChange={(e) => update({ model: e.target.value })}
+          />
           <p className="field-description">
-            Sign in using the CLI in your terminal first. badshop supplies the
-            tools and asks for approvals here.
+            Sign in using the CLI in your terminal first. badshop supplies the tools and asks for approvals
+            here.
           </p>
         </>
       ) : (
         <>
-          <label>
-            Model
-            <input
-              required
-              value={profile.model ?? ""}
-              placeholder={
-                profile.kind === "local"
-                  ? "ollama_chat/llava"
-                  : "openai/gpt-4.1"
-              }
-              onChange={(e) => update({ model: e.target.value })}
-            />
-          </label>
+          <InputField
+            label="Model"
+            required
+            value={profile.model ?? ""}
+            placeholder={profile.kind === "local" ? "ollama_chat/llava" : "openai/gpt-4.1"}
+            onChange={(e) => update({ model: e.target.value })}
+          />
           <label>
             API base URL {profile.kind === "api" ? "(optional)" : ""}
             <input
               type="url"
               required={profile.kind === "openai_compatible"}
               value={profile.api_base ?? ""}
-              placeholder={
-                profile.kind === "local"
-                  ? "http://localhost:11434"
-                  : "https://api.example.com/v1"
-              }
+              placeholder={profile.kind === "local" ? "http://localhost:11434" : "https://api.example.com/v1"}
               onChange={(e) => update({ api_base: e.target.value || null })}
             />
           </label>
-          <label>
-            Credential storage
-            <select
-              value={keyMode}
-              onChange={(e) => setKeyMode(e.target.value)}
-            >
-              <option value="keychain">OS keychain</option>
-              <option value="environment">Environment variable</option>
-            </select>
-          </label>
+          <SelectField
+            label="Credential storage"
+            bind={[keyMode, setKeyMode]}
+            options={[["keychain", "OS keychain"] as const, ["environment", "Environment variable"] as const]}
+          />
           {keyMode === "keychain" ? (
             <label>
               API key{" "}
-              {initial?.api_key_ref
-                ? "(leave blank to keep saved key)"
-                : "(optional for local models)"}
+              {initial?.api_key_ref ? "(leave blank to keep saved key)" : "(optional for local models)"}
               <input
                 type="password"
                 autoComplete="new-password"
@@ -253,25 +199,22 @@ export function ProfileEditor({
               />
             </label>
           ) : (
-            <label>
-              Environment variable name
-              <input
-                required
-                pattern="[A-Za-z_][A-Za-z0-9_]*"
-                placeholder="OPENAI_API_KEY"
-                value={profile.api_key_env ?? ""}
-                onChange={(e) => update({ api_key_env: e.target.value })}
-              />
-            </label>
+            <InputField
+              label="Environment variable name"
+              required
+              pattern="[A-Za-z_][A-Za-z0-9_]*"
+              placeholder="OPENAI_API_KEY"
+              value={profile.api_key_env ?? ""}
+              onChange={(e) => update({ api_key_env: e.target.value })}
+            />
           )}
           <p className="field-description">
-            If your keychain is locked or unavailable, unlock it or use an
-            environment variable. Keys never enter saved sessions.
+            If your keychain is locked or unavailable, unlock it or use an environment variable. Keys never
+            enter saved sessions.
           </p>
           {profile.capability_overrides?.tool_calls === false && (
             <p className="field-description">
-              This model will use the weaker JSON fallback for tools. Results
-              may be poor.
+              This model will use the weaker JSON fallback for tools. Results may be poor.
             </p>
           )}
           <fieldset className="capabilities">
@@ -304,26 +247,17 @@ export function ProfileEditor({
           </fieldset>
         </>
       )}
-      <button className="primary" type="submit" disabled={busy}>
-        {busy ? "Saving…" : "Save provider"}
-      </button>
+      <Button className="primary" type="submit" disabled={busy} label={busy ? "Saving…" : "Save provider"} />
     </form>
   );
 }
-export function AssetRow({
-  asset,
-  active = false,
-}: {
-  asset: Asset;
-  active?: boolean;
-}) {
+export function AssetRow({ asset, active = false }: { asset: Asset; active?: boolean }) {
   const { data: downloads } = useQuery<DownloadActivities>({
     queryKey: ["downloads"],
     queryFn: () => ({}),
     enabled: false,
   });
-  const manuallyCancellable =
-    active || (downloads?.[asset.name]?.pending ?? 0) > 0;
+  const manuallyCancellable = active || (downloads?.[asset.name]?.pending ?? 0) > 0;
   const error = downloads?.[asset.name]?.error;
   const { data: progress } = useQuery<Params>({
     queryKey: ["progress", asset.name],
@@ -336,57 +270,41 @@ export function AssetRow({
     <div className="asset-row">
       <div>
         <strong>{asset.label}</strong>
-        <span>
-          {asset.present ? "Downloaded" : `About ${asset.approx_mb} MB`}
-        </span>
-        {asset.name.includes("birefnet") && (
-          <span className="model-memory-note">{BIREFNET_MEMORY_NOTE}</span>
-        )}
+        <span>{asset.present ? "Downloaded" : `About ${asset.approx_mb} MB`}</span>
+        {asset.name.includes("birefnet") && <span className="model-memory-note">{BIREFNET_MEMORY_NOTE}</span>}
         {busy && (
-          <progress
-            max={Number(progress?.total) || undefined}
-            value={Number(progress?.done) || undefined}
-          />
+          <progress max={Number(progress?.total) || undefined} value={Number(progress?.done) || undefined} />
         )}{" "}
         {error && <span className="error-text">{error}</span>}
       </div>
       {asset.present ? (
         <Check size={18} />
       ) : (
-        <button
+        <Button
           disabled={busy}
-          onClick={() =>
-            run(() => action("assets.download", { name: asset.name }))
+          onClick={() => run(() => action("assets.download", { name: asset.name }))}
+          label={
+            busy ? (
+              "Downloading…"
+            ) : error ? (
+              <>
+                <RefreshCw size={14} />
+                Retry
+              </>
+            ) : (
+              <>
+                <Download size={14} />
+                Download
+              </>
+            )
           }
-        >
-          {busy ? (
-            "Downloading…"
-          ) : error ? (
-            <>
-              <RefreshCw size={14} />
-              Retry
-            </>
-          ) : (
-            <>
-              <Download size={14} />
-              Download
-            </>
-          )}
-        </button>
+        />
       )}
       {manuallyCancellable && (
-        <button
-          onClick={() =>
-            run(() => action("assets.cancel", { name: asset.name }))
-          }
-        >
-          Cancel
-        </button>
+        <Button onClick={() => run(() => action("assets.cancel", { name: asset.name }))} label="Cancel" />
       )}
       {busy && !manuallyCancellable && session?.turn_running && (
-        <button onClick={() => run(() => action("chat.stop"))}>
-          Stop agent
-        </button>
+        <Button onClick={() => run(() => action("chat.stop"))} label="Stop agent" />
       )}
     </div>
   );
@@ -402,16 +320,12 @@ function Assets() {
   return (
     <div className="assets">
       <p className="muted">
-        Downloaded once, used on your computer. Missing assets download when
-        first needed.
+        Downloaded once, used on your computer. Missing assets download when first needed.
       </p>
       {error && <p className="error-text">{error.message}</p>}
-      <button
+      <Button
         disabled={
-          downloading !== null ||
-          Object.values(downloads ?? {}).some(
-            (transfer) => transfer.pending > 0,
-          )
+          downloading !== null || Object.values(downloads ?? {}).some((transfer) => transfer.pending > 0)
         }
         onClick={() =>
           run(async () => {
@@ -426,16 +340,12 @@ function Assets() {
             }
           })
         }
-      >
-        <Download size={15} />
-        Download all assets
-      </button>
+        label="Download all assets"
+        icon={Download}
+        iconSize={15}
+      />
       {assets?.map((asset) => (
-        <AssetRow
-          key={asset.name}
-          asset={asset}
-          active={downloading === asset.name}
-        />
+        <AssetRow key={asset.name} asset={asset} active={downloading === asset.name} />
       ))}
     </div>
   );
@@ -443,9 +353,7 @@ function Assets() {
 export function Settings() {
   const [tab, setTab] = useState("providers");
   const [edit, setEdit] = useState<Profile | null | undefined>(undefined);
-  const [test, setTest] = useState<
-    Record<string, { message: string; failed: boolean }>
-  >({});
+  const [test, setTest] = useState<Record<string, { message: string; failed: boolean }>>({});
   const [checking, setChecking] = useState(false);
   const [detected, setDetected] = useState<CLIDetection[] | null>(null);
   const { data: profiles } = useCoreQuery("providers.list");
@@ -453,8 +361,7 @@ export function Settings() {
   const { data: session } = useSession();
   const theme = useUI((s) => s.theme);
   const appearance = useUI();
-  const update = (values: Partial<SettingsType>) =>
-    run(() => action("settings.set", { values }));
+  const update = (values: Partial<SettingsType>) => run(() => action("settings.set", { values }));
   const checkProvider = async (profile: Profile, probe = false) => {
     setChecking(true);
     setTest((previous) => ({
@@ -502,25 +409,16 @@ export function Settings() {
     <div
       className="modal-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget)
-          useUI.getState().set({ settingsOpen: false });
+        if (event.target === event.currentTarget) useUI.getState().set({ settingsOpen: false });
       }}
     >
-      <section
-        className="modal settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Settings"
-      >
+      <section className="modal settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
         <div className="modal-heading">
           <div>
             <h2>Settings</h2>
             <p>Your art director. Your rules.</p>
           </div>
-          <button
-            aria-label="Close settings"
-            onClick={() => useUI.getState().set({ settingsOpen: false })}
-          >
+          <button aria-label="Close settings" onClick={() => useUI.getState().set({ settingsOpen: false })}>
             <X size={20} />
           </button>
         </div>
@@ -532,13 +430,12 @@ export function Settings() {
               ["preferences", "Preferences"],
               ["assets", "Assets"],
             ].map(([id, label]) => (
-              <button
+              <Button
                 key={id}
                 className={id === tab ? "active" : ""}
                 onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
+                label={label}
+              />
             ))}
           </nav>
           <div className="settings-content">
@@ -546,12 +443,11 @@ export function Settings() {
               <>
                 {edit !== undefined ? (
                   <>
-                    <button
+                    <Button
                       className="back-link"
                       onClick={() => setEdit(undefined)}
-                    >
-                      Back to providers
-                    </button>
+                      label="Back to providers"
+                    />
                     <ProfileEditor
                       key={edit?.id ?? "new"}
                       initial={edit ?? undefined}
@@ -562,37 +458,27 @@ export function Settings() {
                   <>
                     <div className="section-title">
                       <h3>Model providers</h3>
-                      <button onClick={() => setEdit(null)}>
-                        <Plus size={14} />
-                        Add provider
-                      </button>
+                      <Button onClick={() => setEdit(null)} label="Add provider" icon={Plus} iconSize={14} />
                     </div>
                     {profiles?.map((profile) => (
                       <div className="profile-row" key={profile.id}>
                         <div>
                           <strong>{profile.label}</strong>
                           <span>
-                            {kindNames[profile.kind]} /{" "}
-                            {profile.model || profile.cli}
+                            {kindNames[profile.kind]} / {profile.model || profile.cli}
                           </span>
                           {test[profile.id] && (
                             <small
-                              role={
-                                test[profile.id].failed ? "alert" : "status"
-                              }
-                              className={
-                                test[profile.id].failed ? "error-text" : ""
-                              }
+                              role={test[profile.id].failed ? "alert" : "status"}
+                              className={test[profile.id].failed ? "error-text" : ""}
                             >
                               {test[profile.id].message}
                             </small>
                           )}
                         </div>
                         <div>
-                          <button
-                            disabled={
-                              session?.provider_profile_id === profile.id
-                            }
+                          <Button
+                            disabled={session?.provider_profile_id === profile.id}
                             onClick={() =>
                               run(() =>
                                 action("providers.select", {
@@ -600,32 +486,29 @@ export function Settings() {
                                 }),
                               )
                             }
-                          >
-                            {session?.provider_profile_id === profile.id ? (
-                              <>
-                                <Check size={13} />
-                                Active
-                              </>
-                            ) : (
-                              "Use"
-                            )}
-                          </button>
-                          <button onClick={() => setEdit(profile)}>Edit</button>
-                          <button
+                            label={
+                              session?.provider_profile_id === profile.id ? (
+                                <>
+                                  <Check size={13} />
+                                  Active
+                                </>
+                              ) : (
+                                "Use"
+                              )
+                            }
+                          />
+                          <Button onClick={() => setEdit(profile)} label="Edit" />
+                          <Button
                             disabled={checking}
                             onClick={() => void checkProvider(profile)}
-                          >
-                            {profile.kind === "cli"
-                              ? "Check installation"
-                              : "Check setup"}
-                          </button>
+                            label={profile.kind === "cli" ? "Check installation" : "Check setup"}
+                          />
                           {profile.kind !== "cli" && (
-                            <button
+                            <Button
                               disabled={checking}
                               onClick={() => void checkProvider(profile, true)}
-                            >
-                              Test connection
-                            </button>
+                              label="Test connection"
+                            />
                           )}
                           <button
                             aria-label={`Delete ${profile.label}`}
@@ -642,34 +525,25 @@ export function Settings() {
                         </div>
                         {profile.kind !== "cli" && (
                           <small className="probe-notice">
-                            Test connection sends a short test request; your
-                            provider may charge.
+                            Test connection sends a short test request; your provider may charge.
                           </small>
                         )}
                       </div>
                     ))}
                     {!profiles?.length && (
                       <p className="muted">
-                        Add a provider to start chatting. You can run tools
-                        without one.
+                        Add a provider to start chatting. You can run tools without one.
                       </p>
                     )}
                     <div className="cli-detection">
                       <h3>Installed CLI tools</h3>
-                      <p className="muted">
-                        Uses your existing subscription login. Gemini is
-                        experimental.
-                      </p>
-                      <button
-                        onClick={() =>
-                          run(async () =>
-                            setDetected(await action("providers.detect")),
-                          )
-                        }
-                      >
-                        <Terminal size={14} />
-                        Detect CLI tools
-                      </button>
+                      <p className="muted">Uses your existing subscription login. Gemini is experimental.</p>
+                      <Button
+                        onClick={() => run(async () => setDetected(await action("providers.detect")))}
+                        label="Detect CLI tools"
+                        icon={Terminal}
+                        iconSize={14}
+                      />
                       {detected !== null && (
                         <div className="detected-clis">
                           {detected.map((cli) => (
@@ -691,7 +565,7 @@ export function Settings() {
                               </span>
                               {cli.executable && <code>{cli.executable}</code>}
                               {cli.error && <p>{cli.error}</p>}
-                              <button
+                              <Button
                                 disabled={!cli.available || !cli.supported}
                                 onClick={() =>
                                   setEdit({
@@ -709,9 +583,8 @@ export function Settings() {
                                     capability_overrides: {},
                                   })
                                 }
-                              >
-                                Add provider
-                              </button>
+                                label="Add provider"
+                              />
                             </div>
                           ))}
                         </div>
@@ -723,43 +596,34 @@ export function Settings() {
             )}
             {tab === "preferences" && settings && (
               <div className="preferences">
-                <label>
-                  Default approval mode
-                  <select
-                    value={settings.approval_mode}
-                    onChange={(e) =>
-                      update({
-                        approval_mode: e.target
-                          .value as SettingsType["approval_mode"],
-                      })
-                    }
-                  >
-                    <option value="auto">Auto</option>
-                    <option value="ask_changes">Ask for changes</option>
-                    <option value="ask_all">Ask for everything</option>
-                  </select>
-                </label>
-                <label className="switch-label">
-                  Replay after editing a step
-                  <input
-                    type="checkbox"
-                    checked={settings.auto_replay}
-                    onChange={(e) => update({ auto_replay: e.target.checked })}
-                  />
-                </label>
-                <label>
-                  Maximum steps per turn
-                  <input
-                    type="number"
-                    min="1"
-                    max="500"
-                    defaultValue={settings.step_budget}
-                    onBlur={(e) => {
-                      if (e.target.validity.valid && e.target.value)
-                        update({ step_budget: Number(e.target.value) });
-                    }}
-                  />
-                </label>
+                <SelectField
+                  label="Default approval mode"
+                  value={settings.approval_mode}
+                  onChange={(e) => update({ approval_mode: e.target.value as SettingsType["approval_mode"] })}
+                  options={[
+                    ["auto", "Auto"] as const,
+                    ["ask_changes", "Ask for changes"] as const,
+                    ["ask_all", "Ask for everything"] as const,
+                  ]}
+                />
+                <InputField
+                  label="Replay after editing a step"
+                  labelClassName="switch-label"
+                  type="checkbox"
+                  checked={settings.auto_replay}
+                  onChange={(e) => update({ auto_replay: e.target.checked })}
+                />
+                <InputField
+                  label="Maximum steps per turn"
+                  type="number"
+                  min="1"
+                  max="500"
+                  defaultValue={settings.step_budget}
+                  onBlur={(e) => {
+                    if (e.target.validity.valid && e.target.value)
+                      update({ step_budget: Number(e.target.value) });
+                  }}
+                />
                 <label>
                   Output folder
                   <div className="folder-field">
@@ -772,9 +636,7 @@ export function Settings() {
                           output_dir: e.target.value || null,
                         })
                       }
-                      onBlur={(e) =>
-                        update({ output_dir: e.target.value || null })
-                      }
+                      onBlur={(e) => update({ output_dir: e.target.value || null })}
                     />
                     <button
                       title="Choose output folder"
@@ -792,63 +654,97 @@ export function Settings() {
                     </button>
                   </div>
                 </label>
-                <label>
-                  Theme
-                  <select
-                    value={theme}
-                    onChange={(e) => {
-                      savePreference("theme", e.target.value);
-                      useUI.getState().set({ theme: e.target.value });
-                    }}
-                  >
-                    {themes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </label>
+                <SelectField
+                  label="Theme"
+                  value={theme}
+                  onChange={(e) => {
+                    savePreference("theme", e.target.value);
+                    useUI.getState().set({ theme: e.target.value });
+                  }}
+                  options={themes.map((item) => [item.id, item.name] as const)}
+                />
                 <div className="theme-grid" aria-label="Interface skins">
-                  {themes.filter(item => !["system", "dark", "light"].includes(item.id)).map(item => <button
-                    type="button" className="theme-card" key={item.id} aria-pressed={theme === item.id}
-                    onClick={() => { savePreference("theme", item.id); appearance.set({ theme: item.id }); }}>
-                    <span className="theme-colors" aria-hidden="true">{item.colors.map(color => <span key={color} style={{background:color}} />)}</span>
-                    <strong>{item.name}</strong><small>{item.description}</small>
-                  </button>)}
+                  {themes
+                    .filter((item) => !["system", "dark", "light"].includes(item.id))
+                    .map((item) => (
+                      <button
+                        type="button"
+                        className="theme-card"
+                        key={item.id}
+                        aria-pressed={theme === item.id}
+                        onClick={() => {
+                          savePreference("theme", item.id);
+                          appearance.set({ theme: item.id });
+                        }}
+                      >
+                        <span className="theme-colors" aria-hidden="true">
+                          {item.colors.map((color) => (
+                            <span key={color} style={{ background: color }} />
+                          ))}
+                        </span>
+                        <strong>{item.name}</strong>
+                        <small>{item.description}</small>
+                      </button>
+                    ))}
                 </div>
-                <label>Interface density<select value={appearance.density} onChange={e => { savePreference("density", e.target.value); appearance.set({density:e.target.value as Density}); }}>
-                  <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
-                </select></label>
-                <label>Text size<select value={appearance.textScale} onChange={e => { savePreference("textScale", e.target.value); appearance.set({textScale:Number(e.target.value)}); }}>
-                  {[100,115,130,150].map(value => <option key={value} value={value}>{value}%</option>)}
-                </select></label>
-                <label>Motion<select value={appearance.motion} onChange={e => { savePreference("motion", e.target.value); appearance.set({motion:e.target.value as Motion}); }}>
-                  <option value="system">Follow system</option><option value="reduced">Reduced motion</option><option value="full">Full motion</option>
-                </select></label>
+                <SelectField
+                  label="Interface density"
+                  value={appearance.density}
+                  onChange={(e) => {
+                    savePreference("density", e.target.value);
+                    appearance.set({ density: e.target.value as Density });
+                  }}
+                  options={[["comfortable", "Comfortable"] as const, ["compact", "Compact"] as const]}
+                />
+                <SelectField
+                  label="Text size"
+                  value={appearance.textScale}
+                  onChange={(e) => {
+                    savePreference("textScale", e.target.value);
+                    appearance.set({ textScale: Number(e.target.value) });
+                  }}
+                >
+                  {[100, 115, 130, 150].map((value) => (
+                    <option key={value} value={value}>
+                      {value}%
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField
+                  label="Motion"
+                  value={appearance.motion}
+                  onChange={(e) => {
+                    savePreference("motion", e.target.value);
+                    appearance.set({ motion: e.target.value as Motion });
+                  }}
+                  options={[
+                    ["system", "Follow system"] as const,
+                    ["reduced", "Reduced motion"] as const,
+                    ["full", "Full motion"] as const,
+                  ]}
+                />
                 <details>
                   <summary>Tool limits</summary>
-                  <label>
-                    Timeout in seconds
-                    <input
-                      type="number"
-                      min="1"
-                      max="3600"
-                      defaultValue={settings.tool_timeout_s}
-                      onBlur={(e) => {
-                        if (e.target.validity.valid)
-                          update({ tool_timeout_s: Number(e.target.value) });
-                      }}
-                    />
-                  </label>
-                  <label>
-                    Tool memory (MB)
-                    <input
-                      type="number"
-                      min="256"
-                      max="65536"
-                      defaultValue={settings.tool_memory_mb}
-                      onBlur={(e) => {
-                        if (e.target.validity.valid)
-                          update({ tool_memory_mb: Number(e.target.value) });
-                      }}
-                    />
-                  </label>
+                  <InputField
+                    label="Timeout in seconds"
+                    type="number"
+                    min="1"
+                    max="3600"
+                    defaultValue={settings.tool_timeout_s}
+                    onBlur={(e) => {
+                      if (e.target.validity.valid) update({ tool_timeout_s: Number(e.target.value) });
+                    }}
+                  />
+                  <InputField
+                    label="Tool memory (MB)"
+                    type="number"
+                    min="256"
+                    max="65536"
+                    defaultValue={settings.tool_memory_mb}
+                    onBlur={(e) => {
+                      if (e.target.validity.valid) update({ tool_memory_mb: Number(e.target.value) });
+                    }}
+                  />
                 </details>
                 <SourceSettings />
               </div>
@@ -964,11 +860,7 @@ export function Welcome({ onClose }: { onClose: () => void }) {
           <>
             <div className="welcome-assets">
               {assets
-                ?.filter(
-                  (asset) =>
-                    !asset.name.includes("rembg/") ||
-                    asset.name === "rembg/u2net.onnx",
-                )
+                ?.filter((asset) => !asset.name.includes("rembg/") || asset.name === "rembg/u2net.onnx")
                 .map((asset) => (
                   <AssetRow asset={asset} key={asset.name} />
                 ))}
@@ -979,11 +871,7 @@ export function Welcome({ onClose }: { onClose: () => void }) {
             </button>
           </>
         )}
-        {step === 2 && (
-          <button className="back-link" onClick={onClose}>
-            Edit a photo without AI
-          </button>
-        )}
+        {step === 2 && <Button className="back-link" onClick={onClose} label="Edit a photo without AI" />}
       </section>
     </div>
   );

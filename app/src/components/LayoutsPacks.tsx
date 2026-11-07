@@ -1,3 +1,6 @@
+import { Button } from "./Button";
+import { useOperation } from "../useOperation";
+import { InputField, SelectField } from "./Fields";
 import { useState } from "react";
 import { action, queries, useCoreQuery, useSession } from "../data";
 import { packPath } from "../native";
@@ -13,6 +16,7 @@ type Layout = {
   slots: { name: string; box: Box; caption_box: Box; mask: string }[];
 };
 export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
+  const { busy, error, notice, setNotice, perform } = useOperation();
   const { data: definitions = [] } = useCoreQuery("layouts.list");
   const { data: packs = [] } = useCoreQuery("packs.list");
   const { data: library = [] } = useCoreQuery("library.list");
@@ -24,26 +28,11 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
   const [boxes, setBoxes] = useState<Box[] | null>(null);
   const [fit, setFit] = useState("contain");
   const [selected, setSelected] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+
   const ready = useUI((s) => s.status === "ready");
   const disabled = !ready || busy || !!session?.turn_running;
-  const definition = (definitions as Layout[]).find(
-    (item) => item.id === template,
-  );
-  async function perform(work: () => Promise<void>) {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await work();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const definition = (definitions as Layout[]).find((item) => item.id === template);
+
   function replace<T>(previous: T[], index: number, value: T): T[] {
     const next = previous.slice();
     next[index] = value;
@@ -59,8 +48,8 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
       {notice && <p role="status">{notice}</p>}
       <h3>Build a layout</h3>
       <p>
-        Arrange real images into fixed slots. Every image, caption, and position
-        stays editable in the timeline.
+        Arrange real images into fixed slots. Every image, caption, and position stays editable in the
+        timeline.
       </p>
       {definition && (
         <svg
@@ -112,9 +101,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
         onSubmit={(e) => {
           e.preventDefault();
           void perform(async () => {
-            const assigned = images
-              .map((id, index) => ({ id, index }))
-              .filter((item) => item.id);
+            const assigned = images.map((id, index) => ({ id, index })).filter((item) => item.id);
             const step = await action("tools.run", {
               tool: "layout",
               params: {
@@ -122,17 +109,15 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
                 title,
                 images: assigned.map((item) => item.id),
                 image_slots: assigned.map((item) => item.index),
-                captions:
-                  definition?.slots.map((_, i) => captions[i] ?? "") ?? [],
+                captions: definition?.slots.map((_, i) => captions[i] ?? "") ?? [],
                 fit,
                 ...(boxes ? { slots: boxes } : {}),
               },
             });
             if (step.status !== "done" || !step.outputs[0])
               throw new Error(
-                [step.error?.message, step.error?.hint]
-                  .filter(Boolean)
-                  .join(" ") || "The layout could not be created.",
+                [step.error?.message, step.error?.hint].filter(Boolean).join(" ") ||
+                  "The layout could not be created.",
               );
             onAttach(step.outputs[0]);
             useUI.getState().set({ selectedArtifact: step.outputs[0] });
@@ -141,40 +126,32 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
         }}
       >
         <div className="studio-form">
-          <label>
-            Layout template
-            <select
-              value={template}
-              onChange={(e) => {
-                setTemplate(e.target.value);
-                setImages([]);
-                setCaptions([]);
-                setBoxes(null);
-              }}
-            >
-              {(definitions as Layout[]).map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} ({item.max_images} slots)
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Layout title
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={300}
-            />
-          </label>
-          <label>
-            Image fitting
-            <select value={fit} onChange={(e) => setFit(e.target.value)}>
-              <option value="contain">Keep whole image</option>
-              <option value="cover">Crop to fill slot</option>
-              <option value="stretch">Stretch to slot</option>
-            </select>
-          </label>
+          <SelectField
+            label="Layout template"
+            value={template}
+            onChange={(e) => {
+              setTemplate(e.target.value);
+              setImages([]);
+              setCaptions([]);
+              setBoxes(null);
+            }}
+          >
+            {(definitions as Layout[]).map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} ({item.max_images} slots)
+              </option>
+            ))}
+          </SelectField>
+          <InputField label="Layout title" maxLength={300} bind={[title, setTitle]} />
+          <SelectField
+            label="Image fitting"
+            bind={[fit, setFit]}
+            options={[
+              ["contain", "Keep whole image"] as const,
+              ["cover", "Crop to fill slot"] as const,
+              ["stretch", "Stretch to slot"] as const,
+            ]}
+          />
         </div>
         <div className="studio-grid">
           {definition?.slots.map((slot, index) => (
@@ -185,11 +162,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
                 <select
                   aria-label={`Image for ${slot.name}`}
                   value={images[index] ?? ""}
-                  onChange={(e) =>
-                    setImages((previous) =>
-                      replace(previous, index, e.target.value),
-                    )
-                  }
+                  onChange={(e) => setImages((previous) => replace(previous, index, e.target.value))}
                 >
                   <option value="">Leave empty</option>
                   {Object.values(session?.artifacts ?? {}).map((image) => (
@@ -204,59 +177,41 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
                 <textarea
                   maxLength={1000}
                   value={captions[index] ?? ""}
-                  onChange={(e) =>
-                    setCaptions((previous) =>
-                      replace(previous, index, e.target.value),
-                    )
-                  }
+                  onChange={(e) => setCaptions((previous) => replace(previous, index, e.target.value))}
                 />
               </label>
               <details>
                 <summary>Image slot coordinates</summary>
                 <div className="slot-coordinates">
-                  {["Left", "Top", "Right", "Bottom"].map(
-                    (axis, coordinate) => (
-                      <label key={axis}>
-                        {axis}
-                        <input
-                          type="number"
-                          min={0}
-                          max={
-                            coordinate % 2
-                              ? definition.height
-                              : definition.width
-                          }
-                          value={
-                            (boxes ?? definition.slots.map((s) => s.box))[
-                              index
-                            ][coordinate]
-                          }
-                          onChange={(e) =>
-                            setBoxes((previous) => {
-                              const next = (
-                                previous ?? definition.slots.map((s) => s.box)
-                              ).map((b) => [...b] as Box);
-                              next[index][coordinate] = Number(e.target.value);
-                              return next;
-                            })
-                          }
-                        />
-                      </label>
-                    ),
-                  )}
+                  {["Left", "Top", "Right", "Bottom"].map((axis, coordinate) => (
+                    <label key={axis}>
+                      {axis}
+                      <input
+                        type="number"
+                        min={0}
+                        max={coordinate % 2 ? definition.height : definition.width}
+                        value={(boxes ?? definition.slots.map((s) => s.box))[index][coordinate]}
+                        onChange={(e) =>
+                          setBoxes((previous) => {
+                            const next = (previous ?? definition.slots.map((s) => s.box)).map(
+                              (b) => [...b] as Box,
+                            );
+                            next[index][coordinate] = Number(e.target.value);
+                            return next;
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
                 </div>
               </details>
             </fieldset>
           ))}
         </div>
-        <button className="primary" disabled={disabled || !definition}>
-          Create layout
-        </button>
+        <Button className="primary" disabled={disabled || !definition} label="Create layout" />
       </form>
       <h3>Period asset packs</h3>
-      <p>
-        Original hard-edged decorations, ready to install into your junk drawer.
-      </p>
+      <p>Original hard-edged decorations, ready to install into your junk drawer.</p>
       <div className="studio-grid">
         {packs.map((pack) => (
           <article className="studio-card" key={pack.id}>
@@ -273,9 +228,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
                   await queries.invalidateQueries({
                     queryKey: ["library.list"],
                   });
-                  setNotice(
-                    `${entries.length} assets added to your junk drawer.`,
-                  );
+                  setNotice(`${entries.length} assets added to your junk drawer.`);
                 })
               }
             >
@@ -286,8 +239,8 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
       </div>
       <h3>Share a pack</h3>
       <p>
-        Choose saved assets to export. Packs include images, originals, tags,
-        source credits, and placement anchors.
+        Choose saved assets to export. Packs include images, originals, tags, source credits, and placement
+        anchors.
       </p>
       <div className="pack-selection">
         {library.map((entry) => (
@@ -297,9 +250,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
               checked={selected.includes(entry.id)}
               onChange={(e) =>
                 setSelected((previous) =>
-                  e.target.checked
-                    ? [...previous, entry.id]
-                    : previous.filter((id) => id !== entry.id),
+                  e.target.checked ? [...previous, entry.id] : previous.filter((id) => id !== entry.id),
                 )
               }
             />
@@ -308,7 +259,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
         ))}
       </div>
       <div className="studio-actions">
-        <button
+        <Button
           disabled={disabled || !selected.length}
           onClick={() =>
             void perform(async () => {
@@ -321,10 +272,9 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
               setNotice(`Exported ${result.count} assets to ${result.path}`);
             })
           }
-        >
-          Export selected assets
-        </button>
-        <button
+          label="Export selected assets"
+        />
+        <Button
           disabled={disabled}
           onClick={() =>
             void perform(async () => {
@@ -335,9 +285,8 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
               setNotice(`Imported ${result.count} assets from ${result.name}.`);
             })
           }
-        >
-          Import asset pack
-        </button>
+          label="Import asset pack"
+        />
       </div>
     </div>
   );

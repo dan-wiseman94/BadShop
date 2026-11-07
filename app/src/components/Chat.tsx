@@ -1,16 +1,9 @@
+import { Button } from "./Button";
+import { SelectField } from "./Fields";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
-import {
-  ArrowUp,
-  Square,
-  Paperclip,
-  Sparkles,
-  Check,
-  X,
-  SlidersHorizontal,
-  RotateCcw,
-} from "lucide-react";
+import { ArrowUp, Square, Paperclip, Sparkles, Check, X, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { action, run, useSession } from "../data";
 import { useUI } from "../store";
 import { ArtifactThumb } from "./Viewer";
@@ -43,7 +36,7 @@ export function Chat({
   useEffect(() => {
     if (!draft || draft.id === lastDraft.current || sending) return;
     lastDraft.current = draft.id;
-    setText(previous => previous.trim() ? `${previous}\n\n${draft.text}` : draft.text);
+    setText((previous) => (previous.trim() ? `${previous}\n\n${draft.text}` : draft.text));
     onDraftConsumed?.(draft.id);
   }, [draft, sending, onDraftConsumed]);
   const history = useRef<HTMLDivElement>(null);
@@ -65,33 +58,20 @@ export function Chat({
       following.current = true;
       node.scrollTop = 0;
     }
-    if (
-      !session?.messages.length &&
-      !stream &&
-      !session?.pending_approvals.length
-    )
-      return;
+    if (!session?.messages.length && !stream && !session?.pending_approvals.length) return;
     if (following.current) node.scrollTop = node.scrollHeight;
-  }, [
-    session?.id,
-    session?.messages.length,
-    stream,
-    session?.pending_approvals.length,
-  ]);
+  }, [session?.id, session?.messages.length, stream, session?.pending_approvals.length]);
   const send = (takes: 1 | 3 = 1) =>
     run(async () => {
-      if (
-        (!text.trim() && !attachments.length) ||
-        sending ||
-        session?.turn_running ||
-        !ready
-      )
-        return;
+      if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready) return;
       following.current = true;
       setSending(true);
       try {
-        await action("chat.send", { text: creativeRequest(text, style, takes), attachments,
-          ...(novelty ? { novelty } : {}) });
+        await action("chat.send", {
+          text: creativeRequest(text, style, takes),
+          attachments,
+          ...(novelty ? { novelty } : {}),
+        });
         setText("");
         onAttachments([]);
       } finally {
@@ -111,9 +91,7 @@ export function Chat({
         ref={history}
         onScroll={() => {
           const node = history.current;
-          if (node)
-            following.current =
-              node.scrollHeight - node.clientHeight - node.scrollTop < 40;
+          if (node) following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 40;
         }}
       >
         {!session?.messages.length && (
@@ -126,9 +104,7 @@ export function Chat({
               <br />
               Bad intentions.
             </h1>
-            <p>
-              Tell your agent what to cut, paste, caption, or absolutely ruin.
-            </p>
+            <p>Tell your agent what to cut, paste, caption, or absolutely ruin.</p>
             <div className="example-prompts">
               {[
                 "Put laser eyes on this.",
@@ -202,11 +178,7 @@ export function Chat({
                 <ArtifactThumb
                   key={i}
                   id={part.artifact_id}
-                  onClick={() =>
-                    useUI
-                      .getState()
-                      .set({ selectedArtifact: part.artifact_id! })
-                  }
+                  onClick={() => useUI.getState().set({ selectedArtifact: part.artifact_id! })}
                 />
               ) : null,
             )}
@@ -217,17 +189,9 @@ export function Chat({
                   return (
                     <button
                       key={id}
-                      onClick={() =>
-                        useUI
-                          .getState()
-                          .set({ selectedStep: id, selectedArtifact: null })
-                      }
+                      onClick={() => useUI.getState().set({ selectedStep: id, selectedArtifact: null })}
                     >
-                      {step?.status === "done" ? (
-                        <Check size={12} />
-                      ) : (
-                        <SlidersHorizontal size={12} />
-                      )}{" "}
+                      {step?.status === "done" ? <Check size={12} /> : <SlidersHorizontal size={12} />}{" "}
                       {step?.tool ?? id}
                     </button>
                   );
@@ -263,7 +227,7 @@ export function Chat({
                 onChange={(e) => setNotes({ ...notes, [id]: e.target.value })}
               />
               <div className="approval-actions">
-                <button
+                <Button
                   className="primary"
                   onClick={() =>
                     run(() =>
@@ -273,21 +237,17 @@ export function Chat({
                       }),
                     )
                   }
-                >
-                  <Check size={14} />
-                  Approve
-                </button>
-                <button
-                  onClick={() =>
-                    useUI
-                      .getState()
-                      .set({ selectedStep: id, selectedArtifact: null })
-                  }
-                >
-                  <SlidersHorizontal size={14} />
-                  Edit
-                </button>
-                <button
+                  label="Approve"
+                  icon={Check}
+                  iconSize={14}
+                />
+                <Button
+                  onClick={() => useUI.getState().set({ selectedStep: id, selectedArtifact: null })}
+                  label="Edit"
+                  icon={SlidersHorizontal}
+                  iconSize={14}
+                />
+                <Button
                   onClick={() =>
                     run(() =>
                       action("approval.respond", {
@@ -297,10 +257,10 @@ export function Chat({
                       }),
                     )
                   }
-                >
-                  <X size={14} />
-                  Reject
-                </button>
+                  label="Reject"
+                  icon={X}
+                  iconSize={14}
+                />
               </div>
             </div>
           );
@@ -326,41 +286,40 @@ export function Chat({
         <div aria-hidden="true" />
       </div>
       <div className="composer">
-        <label className="creative-direction">
-          Novelty
-          <select aria-label="Novelty direction" value={novelty} disabled={sending || session?.turn_running}
-            onChange={event => setNovelty(event.target.value as NoveltyMode | "")}>
-            <option value="">Follow my request</option>
-            <option value="different-format">Different visual format</option>
-            <option value="change-setting">Keep joke, change setting</option>
-            <option value="another-era">Another era</option>
-            <option value="avoid-recent">Avoid recent images / formats</option>
-          </select>
-        </label>
-        <label className="creative-direction">
-          Style
-          <select
-            aria-label="Creative style"
-            value={style}
-            onChange={(event) => setStyle(event.target.value)}
-            disabled={sending || session?.turn_running}
-            title={creativeStyles.find((item) => item.id === style)?.summary}
-          >
-            <option value="">Follow my prompt</option>
-            {creativeStyles.map((item) => (
-              <option key={item.id} value={item.id}>{item.name}</option>
-            ))}
-          </select>
-        </label>
+        <SelectField
+          label="Novelty"
+          labelClassName="creative-direction"
+          aria-label="Novelty direction"
+          value={novelty}
+          disabled={sending || session?.turn_running}
+          onChange={(event) => setNovelty(event.target.value as NoveltyMode | "")}
+          options={[
+            ["", "Follow my request"] as const,
+            ["different-format", "Different visual format"] as const,
+            ["change-setting", "Keep joke, change setting"] as const,
+            ["another-era", "Another era"] as const,
+            ["avoid-recent", "Avoid recent images / formats"] as const,
+          ]}
+        />
+        <SelectField
+          label="Style"
+          labelClassName="creative-direction"
+          aria-label="Creative style"
+          disabled={sending || session?.turn_running}
+          title={creativeStyles.find((item) => item.id === style)?.summary}
+          bind={[style, setStyle]}
+          options={[
+            ["", "Follow my prompt"] as const,
+            ...creativeStyles.map((item) => [item.id, item.name] as const),
+          ]}
+        />
         <div className="attachments">
           {attachments.map((id) => (
             <div key={id}>
               <ArtifactThumb id={id} />
               <button
                 title="Remove attachment"
-                onClick={() =>
-                  onAttachments(attachments.filter((a) => a !== id))
-                }
+                onClick={() => onAttachments(attachments.filter((a) => a !== id))}
               >
                 <X size={12} />
               </button>
@@ -374,38 +333,26 @@ export function Chat({
           onChange={(e) => setText(e.target.value)}
           onPaste={onPaste}
           onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing
-            ) {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               send();
             }
           }}
         />
         <div className="composer-actions">
-          <button
-            aria-label="Attach images"
-            title="Attach images"
-            onClick={onImport}
-          >
+          <button aria-label="Attach images" title="Attach images" onClick={onImport}>
             <Paperclip size={17} />
           </button>
           <span>Enter to send</span>
-          <button
+          <Button
             type="button"
             title="Make three different compositions; uses more steps"
             disabled={!ready || (!text.trim() && !attachments.length) || sending || session?.turn_running}
             onClick={() => send(3)}
-          >
-            Three takes
-          </button>
+            label="Three takes"
+          />
           {session?.turn_running || sending ? (
-            <button
-              className="stop"
-              onClick={() => run(() => action("chat.stop"))}
-            >
+            <button className="stop" onClick={() => run(() => action("chat.stop"))}>
               <Square size={13} fill="currentColor" />
               Stop
             </button>
@@ -413,9 +360,7 @@ export function Chat({
             <button
               className="send"
               aria-label="Send message"
-              disabled={
-                !ready || (!text.trim() && !attachments.length) || sending
-              }
+              disabled={!ready || (!text.trim() && !attachments.length) || sending}
               onClick={() => send()}
             >
               <ArrowUp size={19} />
@@ -426,14 +371,14 @@ export function Chat({
       <div className="chat-foot">
         <span>You can change every step.</span>
         {errorAction === "retry-turn" && (
-          <button
+          <Button
             disabled={session?.turn_running || sending}
             title="Retry failed provider turn"
             onClick={() => run(() => action("chat.retry"))}
-          >
-            <RotateCcw size={11} />
-            Retry turn
-          </button>
+            label="Retry turn"
+            icon={RotateCcw}
+            iconSize={11}
+          />
         )}
       </div>
     </section>

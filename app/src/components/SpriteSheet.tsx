@@ -1,3 +1,5 @@
+import { Button } from "./Button";
+import { InputField, SelectField } from "./Fields";
 import { useState } from "react";
 import { action, imageUrl, useArtifact, useSession } from "../data";
 import { useUI } from "../store";
@@ -26,22 +28,14 @@ export function sheetCells(
 ): SheetCell[] {
   if (![rows, columns].every((n) => Number.isInteger(n) && n >= 1 && n <= 16))
     throw new Error("Rows and columns must be whole numbers from 1 to 16.");
-  if (
-    ![...margins, ...gap].every(
-      (n) => Number.isInteger(n) && n >= 0 && n <= 100_000,
-    )
-  )
-    throw new Error(
-      "Margins and gaps must be nonnegative whole pixels (at most 100000).",
-    );
+  if (![...margins, ...gap].every((n) => Number.isInteger(n) && n >= 0 && n <= 100_000))
+    throw new Error("Margins and gaps must be nonnegative whole pixels (at most 100000).");
   const [left, top, right, bottom] = margins;
   const [gapX, gapY] = gap;
   const usableW = width - left - right - gapX * (columns - 1);
   const usableH = height - top - bottom - gapY * (rows - 1);
   if (usableW < columns || usableH < rows)
-    throw new Error(
-      "Margins and gaps must leave at least one pixel per row and column.",
-    );
+    throw new Error("Margins and gaps must leave at least one pixel per row and column.");
   const cellW = Math.floor(usableW / columns),
     extraW = usableW % columns;
   const cellH = Math.floor(usableH / rows),
@@ -82,27 +76,16 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const artifacts = Object.values(session?.artifacts ?? {});
-  const originals = new Set(
-    artifacts.map((a) => a.original_id).filter(Boolean),
-  );
+  const originals = new Set(artifacts.map((a) => a.original_id).filter(Boolean));
   const images = artifacts.filter((a) => !originals.has(a.id));
   const source = images.find((a) => a.id === sourceId) ?? images[0];
-  const { data: preview, error: previewError } = useArtifact(
-    source?.id ?? null,
-  );
+  const { data: preview, error: previewError } = useArtifact(source?.id ?? null);
   const disabled = !ready || busy || !!session?.turn_running;
   let cells: SheetCell[] = [],
     gridError = "";
   if (source) {
     try {
-      cells = sheetCells(
-        source.width,
-        source.height,
-        rows,
-        columns,
-        margins,
-        gap,
-      );
+      cells = sheetCells(source.width, source.height, rows, columns, margins, gap);
     } catch (e) {
       gridError = e instanceof Error ? e.message : String(e);
     }
@@ -116,8 +99,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
     setError("");
   }
   function toggle(index: number) {
-    if (disabled || (!selected.includes(index) && selected.length >= 64))
-      return;
+    if (disabled || (!selected.includes(index) && selected.length >= 64)) return;
     setSelection({
       key,
       indices: selected.includes(index)
@@ -126,14 +108,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
     });
   }
   async function extract(indices: number[]) {
-    if (
-      disabled ||
-      !source ||
-      gridError ||
-      !indices.length ||
-      indices.length > 64
-    )
-      return;
+    if (disabled || !source || gridError || !indices.length || indices.length > 64) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -154,8 +129,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
           [step.error?.message, step.error?.hint].filter(Boolean).join(" ") ||
             "The cells could not be extracted.",
         );
-      const extracted = (step.data?.cells ??
-        indices.map((i) => cells[i])) as SheetCell[];
+      const extracted = (step.data?.cells ?? indices.map((i) => cells[i])) as SheetCell[];
       setResults(step.outputs.map((id, i) => ({ id, cell: extracted[i] })));
       step.outputs.forEach(onAttach);
       useUI.getState().set({ selectedArtifact: step.outputs[0] });
@@ -169,8 +143,8 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
   return (
     <div>
       <p>
-        Slice a sprite sheet or image grid into separate images. Choose cells on
-        the preview; each tile keeps its exact pixels and transparent padding.
+        Slice a sprite sheet or image grid into separate images. Choose cells on the preview; each tile keeps
+        its exact pixels and transparent padding.
       </p>
       {error && (
         <p role="alert" className="error-banner">
@@ -179,47 +153,40 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
       )}
       {notice && <p role="status">{notice}</p>}
       <div className="studio-form">
-        <label className="wide">
-          Sprite sheet image
-          <select
-            value={source?.id ?? ""}
-            disabled={disabled}
-            onChange={(e) => changeGrid(() => setSourceId(e.target.value))}
-          >
-            {!images.length && <option value="">Import an image first</option>}
-            {images.map((image) => (
-              <option key={image.id} value={image.id}>
-                {image.label} ({image.width}×{image.height})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Rows
-          <input
-            type="number"
-            min={1}
-            max={16}
-            step={1}
-            value={rows}
-            disabled={disabled}
-            onChange={(e) => changeGrid(() => setRows(Number(e.target.value)))}
-          />
-        </label>
-        <label>
-          Columns
-          <input
-            type="number"
-            min={1}
-            max={16}
-            step={1}
-            value={columns}
-            disabled={disabled}
-            onChange={(e) =>
-              changeGrid(() => setColumns(Number(e.target.value)))
-            }
-          />
-        </label>
+        <SelectField
+          label="Sprite sheet image"
+          labelClassName="wide"
+          value={source?.id ?? ""}
+          disabled={disabled}
+          onChange={(e) => changeGrid(() => setSourceId(e.target.value))}
+        >
+          {!images.length && <option value="">Import an image first</option>}
+          {images.map((image) => (
+            <option key={image.id} value={image.id}>
+              {image.label} ({image.width}×{image.height})
+            </option>
+          ))}
+        </SelectField>
+        <InputField
+          label="Rows"
+          type="number"
+          min={1}
+          max={16}
+          step={1}
+          value={rows}
+          disabled={disabled}
+          onChange={(e) => changeGrid(() => setRows(Number(e.target.value)))}
+        />
+        <InputField
+          label="Columns"
+          type="number"
+          min={1}
+          max={16}
+          step={1}
+          value={columns}
+          disabled={disabled}
+          onChange={(e) => changeGrid(() => setColumns(Number(e.target.value)))}
+        />
         {(["Left", "Top", "Right", "Bottom"] as const).map((name, i) => (
           <label key={name}>
             {name} margin
@@ -233,10 +200,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
               onChange={(e) =>
                 changeGrid(() =>
                   setMargins(
-                    (previous) =>
-                      previous.map((v, n) =>
-                        n === i ? Number(e.target.value) : v,
-                      ) as Margins,
+                    (previous) => previous.map((v, n) => (n === i ? Number(e.target.value) : v)) as Margins,
                   ),
                 )
               }
@@ -255,12 +219,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
               disabled={disabled}
               onChange={(e) =>
                 changeGrid(() =>
-                  setGap(
-                    (previous) =>
-                      previous.map((v, n) =>
-                        n === i ? Number(e.target.value) : v,
-                      ) as Gap,
-                  ),
+                  setGap((previous) => previous.map((v, n) => (n === i ? Number(e.target.value) : v)) as Gap),
                 )
               }
             />
@@ -269,9 +228,8 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
       </div>
       {source && (
         <p>
-          Coordinates use the selected {source.width}×{source.height} image.
-          Indices start at 0, left to right, then top to bottom. Extra pixels go
-          to the first rows and columns.
+          Coordinates use the selected {source.width}×{source.height} image. Indices start at 0, left to
+          right, then top to bottom. Extra pixels go to the first rows and columns.
         </p>
       )}
       {gridError && (
@@ -298,11 +256,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
             imageRendering: "pixelated",
           }}
         >
-          <image
-            href={imageUrl(preview)}
-            width={source.width}
-            height={source.height}
-          />
+          <image href={imageUrl(preview)} width={source.width} height={source.height} />
           {cells.map((cell) => {
             const [x, y] = cell.box;
             const checked = selected.includes(cell.index);
@@ -343,10 +297,7 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
                   dominantBaseline="central"
                   fill="white"
                   stroke="black"
-                  strokeWidth={Math.max(
-                    0.5,
-                    Math.min(cell.width, cell.height) / 45,
-                  )}
+                  strokeWidth={Math.max(0.5, Math.min(cell.width, cell.height) / 45)}
                   paintOrder="stroke"
                   fontSize={Math.max(1, Math.min(cell.width, cell.height) / 3)}
                   pointerEvents="none"
@@ -363,35 +314,24 @@ export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
         {selected.length ? `: ${selected.join(", ")}` : ""}
       </p>
       <div className="studio-actions">
-        <button
+        <Button
           disabled={disabled || !selected.length}
           onClick={() => setSelection({ key, indices: [] })}
-        >
-          Clear selection
-        </button>
-        <button
+          label="Clear selection"
+        />
+        <Button
           className="primary"
           disabled={disabled || !preview || !!gridError || !selected.length}
           onClick={() => void extract(selected)}
-        >
-          {busy ? "Extracting…" : "Extract selected and attach"}
-        </button>
-        <button
-          disabled={
-            disabled ||
-            !preview ||
-            !!gridError ||
-            !cells.length ||
-            cells.length > 64
-          }
+          label={busy ? "Extracting…" : "Extract selected and attach"}
+        />
+        <Button
+          disabled={disabled || !preview || !!gridError || !cells.length || cells.length > 64}
           onClick={() => void extract(cells.map((cell) => cell.index))}
-        >
-          Extract all and attach
-        </button>
+          label="Extract all and attach"
+        />
       </div>
-      {cells.length > 64 && (
-        <p>This grid has {cells.length} cells. Select up to 64 at a time.</p>
-      )}
+      {cells.length > 64 && <p>This grid has {cells.length} cells. Select up to 64 at a time.</p>}
       <div className="studio-grid">
         {results
           .filter((result) => !!session?.artifacts[result.id])
