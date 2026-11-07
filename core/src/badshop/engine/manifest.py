@@ -4,7 +4,6 @@ events back to them by name."""
 
 import os
 from dataclasses import dataclass
-import os
 from pathlib import Path
 
 from badshop.engine import assets, faces, text

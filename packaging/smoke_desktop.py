@@ -12,7 +12,6 @@ import ctypes
 import json
 import os
 import secrets
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -150,7 +149,8 @@ def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
     return command
 
 
-def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90, *,
+def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90,
+          restart_core: bool = False, *,
           webview_profile: Path | None = None,
           exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
@@ -175,7 +175,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
             env['WEBVIEW2_USER_DATA_FOLDER'] = str((webview_profile or root / 'webview').resolve())
             if webview_profile is not None:
                 env['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=0'
-        ready_file = root / 'renderer-ready.json'
+        ready_path = root / 'renderer-ready.json'
         nonce = secrets.token_hex(16)
         env['BADSHOP_SMOKE_READY_FILE'] = str(ready_path)
         env['BADSHOP_SMOKE_NONCE'] = nonce
@@ -266,6 +266,15 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
 
                 if exercise is None:
                     close()
+                    if exercise_close:
+                        wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
+                        capture_window(window, shot.with_name(shot.stem + '-close.png').resolve())
+                        native_keys(window, 'Escape')
+                        wait_renderer(proc, ready_path, ports, nonce, close_pending=False, unsaved=True)
+                        assert proc.poll() is None, 'Cancel closed the native app'
+                        close()
+                        wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
+                        native_keys(window, 'Tab', 'Return')  # Cancel -> Discard
                 else:
                     exercise(window_pid, window, close)
                 assert proc.wait(timeout=15) == 0, 'Native close returned a failure exit code'
@@ -304,8 +313,8 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if screenshot:
                     screenshot.parent.mkdir(parents=True, exist_ok=True)
                     screenshot.with_suffix('.log').write_bytes(log_path.read_bytes())
-                    if ready_file.exists():
-                        screenshot.with_suffix('.ready.json').write_bytes(ready_file.read_bytes())
+                    if ready_path.exists():
+                        screenshot.with_suffix('.ready.json').write_bytes(ready_path.read_bytes())
                 print(log_path.read_text(encoding='utf-8', errors='replace')[-5000:])
 
 

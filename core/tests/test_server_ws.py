@@ -23,6 +23,7 @@ from badshop import __version__
 from badshop.server import app as server_app
 from badshop.server import main as core_main
 from badshop.server import ws as transport
+from badshop.server.auth import actor_token
 from badshop.server.settings import Settings
 from badshop.server.ws import bound_port, serve
 from badshop.session.artifacts import ArtifactStore
