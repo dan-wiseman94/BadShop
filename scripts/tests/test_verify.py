@@ -1,6 +1,7 @@
 """Contract checks for reporting failures and cleaning up verification processes."""
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,38 @@ class VerificationTests(unittest.TestCase):
                                         capture_output=True, text=True, check=False)
                 self.assertEqual(result.returncode, 2)
                 self.assertNotIn('Evidence:', result.stdout)
+
+    def test_no_mode_shows_help_without_starting_verification(self):
+        result = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn('Evidence:', result.stdout)
+
+    def test_focused_python_retains_evidence_and_rejects_zero_selection(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root/'scripts').mkdir()
+            shutil.copy2(SCRIPT, root/'scripts/verify.py')
+            shutil.copy2(SCRIPT.with_name('dev_context.py'), root/'scripts/dev_context.py')
+            subprocess.run(['git', 'init', '-b', 'main', str(root)], check=True, capture_output=True)
+            subprocess.run(['git', '-C', str(root), 'add', 'scripts'], check=True)
+            subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture',
+                            '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'baseline'],
+                           check=True, capture_output=True)
+            fixture = root / 'test_selected.py'
+            fixture.write_text('def test_real_output(tmp_path):\n    p = tmp_path / "result"\n    p.write_bytes(b"output")\n    assert p.read_bytes() == b"output"\n')
+            output = root / 'evidence'
+            command = [sys.executable, str(root/'scripts/verify.py'), 'python', '--python-test',
+                       str(fixture) + '::test_real_output', '--output', str(output)]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((output/'summary.json').read_text())
+            self.assertEqual(summary['checks'][-1]['executed'], 1)
+            self.assertTrue(summary['source']['fingerprint'])
+            command[4] = str(fixture) + '::missing_test'
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            summary = json.loads((output/'summary.json').read_text())
+            self.assertTrue(any(x['status'] == 'failed' for x in summary['checks']))
 
 
 if __name__ == '__main__':

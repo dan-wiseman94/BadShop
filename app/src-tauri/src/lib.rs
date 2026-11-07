@@ -9,6 +9,12 @@ use tauri::{Emitter, Manager, State};
 struct Core(Arc<Supervisor>);
 
 #[tauri::command]
+fn smoke_probe_enabled() -> bool {
+    std::env::var_os("BADSHOP_SMOKE_READY_FILE").is_some()
+        && std::env::var_os("BADSHOP_SMOKE_NONCE").is_some()
+}
+
+#[tauri::command]
 fn renderer_ready(
     core: State<'_, Core>,
     ready: bool,
@@ -17,27 +23,33 @@ fn renderer_ready(
     unsaved: bool,
     welcome: bool,
     close_pending: bool,
+    tool_count: usize,
 ) -> Result<(), String> {
     // Only the isolated native harness supplies this path. No connection token
     // or project contents are exported; ordinary startup performs no probe I/O.
-    if let Some(path) = std::env::var_os("BADSHOP_SMOKE_READY") {
+    if smoke_probe_enabled() {
+        let path = PathBuf::from(std::env::var_os("BADSHOP_SMOKE_READY_FILE").unwrap());
         if !ready {
             let _ = std::fs::remove_file(path);
             return Ok(());
         }
-        if session_id.is_empty() {
-            return Err("Renderer has no session".into());
+        if session_id.is_empty() || tool_count == 0 {
+            return Err("Renderer readiness requires a session and tool catalog".into());
         }
         let Some(connection) = core.0.current_connection() else {
             let _ = std::fs::remove_file(path);
             return Ok(());
         };
         let state = serde_json::json!({
+            "nonce": std::env::var("BADSHOP_SMOKE_NONCE").map_err(|e| e.to_string())?,
+            "tool_count": tool_count,
             "shell_pid": std::process::id(), "port": connection.port,
             "session_id": session_id, "revision": revision,
             "unsaved": unsaved, "welcome": welcome, "close_pending": close_pending,
         });
-        std::fs::write(path, state.to_string()).map_err(|e| e.to_string())?;
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, state.to_string()).map_err(|e| e.to_string())?;
+        std::fs::rename(temporary, path).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -129,6 +141,7 @@ pub fn run() {
             core_connection,
             core_restart,
             renderer_ready,
+            smoke_probe_enabled,
             diagnostics
         ])
         .setup(|app| {

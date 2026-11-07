@@ -11,6 +11,7 @@ import argparse
 import ctypes
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -97,13 +98,15 @@ def is_core(process: psutil.Process) -> bool:
         return False
 
 
-def renderer_ready(path: Path, ports: list[int]) -> bool:
+def renderer_is_ready(path: Path, nonce: str, ports: list[int] | None = None) -> bool:
     """TCP establishment/first paint can still be an unauthenticated loading UI."""
     try:
         state = json.loads(path.read_text())
-        return (isinstance(state, dict) and state.get('port') in ports
+        return (isinstance(state, dict) and state.get('nonce') == nonce
                 and isinstance(state.get('session_id'), str) and bool(state['session_id'])
-                and type(state.get('revision')) is int and state['revision'] >= 0)
+                and type(state.get('tool_count')) is int and state['tool_count'] > 0
+                and (ports is None or (state.get('port') in ports
+                     and type(state.get('revision')) is int and state['revision'] >= 0)))
     except (OSError, ValueError):  # a probe write can overlap this read
         return False
 
@@ -117,12 +120,12 @@ def check_native_log(text: str) -> None:
             raise AssertionError(f'Native process reported {marker!r}; see retained native log')
 
 
-def wait_renderer(proc, path: Path, ports: list[int], **expected) -> dict:
+def wait_renderer(proc, path: Path, ports: list[int], nonce: str, **expected) -> dict:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         assert proc.poll() is None, 'Native shell exited during an interaction'
         try:
-            if renderer_ready(path, ports):
+            if renderer_is_ready(path, nonce, ports):
                 state = json.loads(path.read_text())
                 if all(state.get(key) == value for key, value in expected.items()):
                     return state
@@ -135,6 +138,15 @@ def wait_renderer(proc, path: Path, ports: list[int], **expected) -> dict:
 def native_keys(window: int, *keys: str) -> None:
     subprocess.run(['xdotool', 'windowfocus', '--sync', str(window), 'key', '--clearmodifiers', *keys],
                    check=True, timeout=5)
+
+
+def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
+    if Path(command[0]).name == 'flatpak' and len(command) > 1 and command[1] == 'run':
+        # Flatpak has private /tmp. Expose only this harness-owned directory.
+        return [*command[:2], f'--filesystem={root}',
+                f'--env=BADSHOP_SMOKE_READY_FILE={env["BADSHOP_SMOKE_READY_FILE"]}',
+                f'--env=BADSHOP_SMOKE_NONCE={env["BADSHOP_SMOKE_NONCE"]}', *command[2:]]
+    return command
 
 
 def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90,
@@ -158,13 +170,12 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
         env.pop('WAYLAND_DISPLAY', None)
         env.pop('BADSHOP_FAKE_PROVIDER', None)
         ready_path = root / 'renderer-ready.json'
-        env['BADSHOP_SMOKE_READY'] = str(ready_path)
-        if sys.platform == 'linux' and Path(command[0]).name == 'flatpak':
-            command = [*command[:2], f'--env=BADSHOP_SMOKE_READY={ready_path}',
-                       f'--filesystem={root}', *command[2:]]
+        nonce = secrets.token_hex(16)
+        env['BADSHOP_SMOKE_READY_FILE'] = str(ready_path)
+        env['BADSHOP_SMOKE_NONCE'] = nonce
         log_path = root / 'desktop.log'
         with log_path.open('w') as log:
-            proc = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(isolated_command(command, root, env), env=env, stdout=log, stderr=subprocess.STDOUT)
             children = []
             try:
                 deadline = time.monotonic() + startup_timeout
@@ -185,26 +196,26 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                                 break
                         if not window and sys.platform == 'linux' and Path(command[0]).name == 'flatpak':
                             window = visible_window(0)
-                        if ports and connected and window and renderer_ready(ready_path, ports):
+                        if ports and connected and window and renderer_is_ready(ready_path, nonce, ports):
                             break
                     time.sleep(.2)
                 else:
                     raise RuntimeError(f'No rendered, authenticated session after {startup_timeout}s')
                 print(json.dumps({'shell_pid': proc.pid, 'core_pid': core.pid,
                                   'core_executable': core.exe(), 'listen_ports': ports,
-                                  'established_connections': connected}), flush=True)
+                                  'established_connections': connected, 'renderer_ready': True}), flush=True)
                 exercise_close = restart_core and sys.platform == 'linux'
                 session_id = None
                 if exercise_close:
-                    state = wait_renderer(proc, ready_path, ports)
+                    state = wait_renderer(proc, ready_path, ports, nonce)
                     if state['welcome']:
                         native_keys(window, 'Return')  # Welcome: Edit a photo without AI
-                        wait_renderer(proc, ready_path, ports, welcome=False)
+                        wait_renderer(proc, ready_path, ports, nonce, welcome=False)
                     # Fixed default native geometry (1440x940); assert the resulting
                     # state, so a moved control cannot silently turn this into a pass.
                     subprocess.run(['xdotool', 'mousemove', '--window', str(window), '1000', '35',
                                     'click', '1', 'key', 'Home', 'Return'], check=True, timeout=5)
-                    state = wait_renderer(proc, ready_path, ports, unsaved=True)
+                    state = wait_renderer(proc, ready_path, ports, nonce, unsaved=True)
                     session_id = state['session_id']
                 if restart_core:
                     old_pid = core.pid
@@ -219,14 +230,14 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                         if candidates:
                             core = candidates[0]
                             ports, connected = core_connections(core)
-                            if connected and renderer_ready(ready_path, ports):
+                            if connected and renderer_is_ready(ready_path, nonce, ports):
                                 break
                         time.sleep(.2)
                     else:
                         raise RuntimeError('Renderer did not recover to a loaded session after core crash')
                     print(f'Native renderer recovered after core crash: {old_pid} -> {core.pid}', flush=True)
                     if session_id:
-                        wait_renderer(proc, ready_path, ports, session_id=session_id, unsaved=True)
+                        wait_renderer(proc, ready_path, ports, nonce, session_id=session_id, unsaved=True)
                 shot = screenshot or root / 'window.png'
                 shot.parent.mkdir(parents=True, exist_ok=True)
                 paint_deadline = time.monotonic() + 30
@@ -245,13 +256,13 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 children = psutil.Process(proc.pid).children(recursive=True)
                 normal_close(window_pid, window)
                 if exercise_close:
-                    wait_renderer(proc, ready_path, ports, close_pending=True)
+                    wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
                     capture_window(window, shot.with_name(shot.stem + '-close.png').resolve())
                     native_keys(window, 'Escape')
-                    wait_renderer(proc, ready_path, ports, close_pending=False, unsaved=True)
+                    wait_renderer(proc, ready_path, ports, nonce, close_pending=False, unsaved=True)
                     assert proc.poll() is None, 'Cancel closed the native app'
                     normal_close(window_pid, window)
-                    wait_renderer(proc, ready_path, ports, close_pending=True)
+                    wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
                     native_keys(window, 'Tab', 'Return')  # Cancel -> Discard
                 assert proc.wait(timeout=15) == 0, 'Native close returned a failure exit code'
                 _, alive = psutil.wait_procs(children, timeout=5)
@@ -267,7 +278,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if sys.platform == 'darwin':
                     assert 'native Quit routed through project close guard' in log_path.read_text(), \
                         'Native Quit bypassed the unsaved-project close guard'
-                print('Native desktop smoke passed: rendered window, connected core, clean close', flush=True)
+                print('Native desktop smoke passed: rendered window, authenticated session/catalog, clean close', flush=True)
             finally:
                 if proc.poll() is None:
                     children = psutil.Process(proc.pid).children(recursive=True)
@@ -289,6 +300,8 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if screenshot:
                     screenshot.parent.mkdir(parents=True, exist_ok=True)
                     screenshot.with_suffix('.log').write_text(log_path.read_text())
+                    if ready_path.exists():
+                        screenshot.with_suffix('.ready.json').write_bytes(ready_path.read_bytes())
                     retained = screenshot.with_name(screenshot.stem + '-logs')
                     for source in root.rglob('*.log'):
                         destination = retained / source.relative_to(root)

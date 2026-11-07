@@ -115,7 +115,10 @@ jobs:
         if: always()
         with:
           name: desktop-evidence-${{ matrix.label }}
-          path: packaging/*smoke.png
+          path: |
+            packaging/*smoke.png
+            packaging/*smoke.ready.json
+            packaging/*smoke.log
           if-no-files-found: warn
       - uses: actions/upload-artifact@v6
         if: failure()

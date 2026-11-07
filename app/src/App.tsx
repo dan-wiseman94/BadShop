@@ -40,8 +40,8 @@ import {
   pickImages,
   projectPath,
   restart,
-  reportRendererReady,
 } from "./native";
+import { reportNativeReadiness } from "./nativeReadiness";
 import type { ApprovalMode } from "./types";
 function Resizer({
   side,
@@ -116,16 +116,16 @@ export default function App() {
   const sessionMenu = useRef<HTMLDivElement>(null);
   useEffect(() => startCore(), []);
   useEffect(() => {
-    let frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => {
-        void reportRendererReady(ui.status === "ready" && Boolean(session?.id) && !sessionError,
-          session?.id ?? "", session?.document_revision ?? 0, session?.unsaved_changes ?? false,
-          welcome, Boolean(documents.pending)).catch(console.error);
-      });
-    });
-    return () => cancelAnimationFrame(frame);
+    if (!native) return;
+    let current = true;
+    void reportNativeReadiness({
+      ready: ui.status === "ready" && Boolean(session?.id) && Boolean(profiles) && !sessionError,
+      sessionId: session?.id ?? "", revision: session?.document_revision ?? 0,
+      unsaved: session?.unsaved_changes ?? false, welcome, closePending: Boolean(documents.pending),
+    }, () => current).catch(error => console.error("Native readiness probe failed", error));
+    return () => { current = false; };
   }, [ui.status, session?.id, session?.document_revision, session?.unsaved_changes,
-    sessionError, welcome, documents.pending]);
+    sessionError, !!profiles, welcome, documents.pending]);
   useEffect(() => {
     if (previousSession.current && previousSession.current !== session?.id) {
       setAttachments([]);
