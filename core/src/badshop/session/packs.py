@@ -4,15 +4,11 @@ Archive members are read by exact hash names, never extracted to arbitrary files
 All content is validated before any library entry is installed.
 """
 
-import hashlib
 import io
 import json
 import math
-import os
 import stat
 import struct
-import time
-import uuid
 import zipfile
 import zlib
 from pathlib import Path
@@ -24,7 +20,6 @@ from badshop.archives import check_directory
 
 from badshop.engine.common import font
 from badshop.engine.errors import EngineError
-from badshop.session.artifacts import ArtifactStore
 from badshop.session.library import AssetDetails, AssetLibrary, LibraryEntry
 from badshop.session.models import Source
 from badshop.session.session import Session
@@ -327,48 +322,18 @@ def import_pack(library: AssetLibrary, path: str):
             expected = {"pack.json"}
             blobs = {}
             for entry in entries:
-                if entry.artifact.original_id and (entry.original is None or entry.original.id != entry.artifact.original_id):
-                    raise EngineError("pack original reference does not match the supplied original")
-                library._tags(entry.tags)
                 for meta in (entry.original, entry.artifact):
                     if meta is None:
                         continue
                     filename = f"images/{meta.id}{meta.ext}"
                     expected.add(filename)
-                    if filename in blobs:
+                    if meta.id in blobs:
                         continue
-                    data = _read_member(archive, filename, MAX_ENTRY)
-                    if hashlib.sha256(data).hexdigest() != meta.id:
-                        raise EngineError("pack image hash does not match")
-                    checked = ArtifactStore()
-                    actual = checked.add(data, meta.label)
-                    if (actual.width, actual.height, actual.format) != (meta.width, meta.height, meta.format):
-                        raise EngineError("pack image metadata does not match its pixels")
-                    blobs[filename] = data
+                    blobs[meta.id] = _read_member(archive, filename, MAX_ENTRY)
             if set(names) != expected:
                 raise EngineError("pack contains unexpected files")
     except (OSError, zipfile.BadZipFile, KeyError, ValueError, TypeError, AttributeError,
             ValidationError, RuntimeError, NotImplementedError, EOFError, struct.error, zlib.error) as e:
         raise EngineError(f"could not import asset pack: {e}") from None
-    # Commit only after every record and image has passed validation; existing entries never overwrite.
-    library.root.mkdir(parents=True, exist_ok=True)
-    installed = []
-    try:
-        for filename, data in blobs.items():
-            dest = library.root / Path(filename).name
-            if not dest.exists():
-                tmp = dest.with_suffix(f".{uuid.uuid4().hex}.tmp")
-                try:
-                    tmp.write_bytes(data)
-                    os.replace(tmp, dest)
-                finally:
-                    tmp.unlink(missing_ok=True)
-        now = time.time()
-        for entry in entries:
-            new = entry.model_copy(update={"id": uuid.uuid4().hex, "created_at": now, "updated_at": now})
-            installed.append(library._write(new))
-    except (OSError, EngineError):
-        for entry in installed:
-            library._path(entry["id"]).unlink(missing_ok=True)
-        raise EngineError("could not install the pack; no new library entries were kept") from None
+    installed = library.install(entries, blobs)
     return {"entries": installed, "name": str(manifest.get("name") or "Imported pack")[:200], "count": len(installed)}

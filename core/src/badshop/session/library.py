@@ -163,6 +163,50 @@ class AssetLibrary:
         data["updated_at"] = time.time()
         return self._write(LibraryEntry.model_validate(data))
 
+    def install(self, entries: list[LibraryEntry], images: dict[str, bytes]) -> list[dict]:
+        """Install portable entries with fresh identities, preserving their pixels and metadata.
+
+        Validate the entire batch before writing. If persistence fails, remove this batch's entries;
+        shared image bytes remain available to existing entries. Callers need no library paths or
+        knowledge of temporary files, record identities, or rollback.
+        """
+        checked = ArtifactStore()
+        for entry in entries:
+            self._tags(entry.tags)
+            if entry.artifact.original_id and (entry.original is None or
+                                               entry.original.id != entry.artifact.original_id):
+                raise EngineError("asset original reference does not match the supplied original")
+            for meta in (entry.original, entry.artifact):
+                if meta is None:
+                    continue
+                data = images.get(meta.id)
+                if data is None or hashlib.sha256(data).hexdigest() != meta.id:
+                    raise EngineError("asset image hash does not match")
+                actual = checked.add(data, meta.label)
+                if (actual.width, actual.height, actual.format) != (meta.width, meta.height, meta.format):
+                    raise EngineError("asset image metadata does not match its pixels")
+        installed = []
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            for aid, meta in checked.meta.items():
+                dest = self.root / f"{aid}{meta.ext}"
+                if not dest.exists():
+                    tmp = dest.with_suffix(f".{uuid.uuid4().hex}.tmp")
+                    try:
+                        tmp.write_bytes(checked.data(aid))
+                        os.replace(tmp, dest)
+                    finally:
+                        tmp.unlink(missing_ok=True)
+            now = time.time()
+            for entry in entries:
+                new = entry.model_copy(update={"id": uuid.uuid4().hex, "created_at": now, "updated_at": now})
+                installed.append(self._write(new))
+        except (OSError, EngineError):
+            for entry in installed:
+                self._path(entry["id"]).unlink(missing_ok=True)
+            raise EngineError("could not install assets; no new library entries were kept") from None
+        return installed
+
     def remove(self, id: str) -> dict:
         self.get(id)
         self._path(id).unlink()

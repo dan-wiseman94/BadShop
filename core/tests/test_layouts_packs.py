@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import struct
 import zipfile
 
@@ -144,6 +145,34 @@ def test_pack_keeps_full_resolution_original(tmp_path):
     packs.export_pack(library, [entry["id"]], str(path))
     result = packs.import_pack(AssetLibrary(tmp_path / "b"), str(path))
     assert result["entries"][0]["original"]["width"] == 1300
+
+
+def test_pack_failed_install_preserves_existing_entries_and_cleans_temporary_files(tmp_path, monkeypatch):
+    library = AssetLibrary(tmp_path / "library")
+    existing = packs.install_builtin(library, "school-lab")
+    before = library.list()
+    path = tmp_path / "shared.badpack"
+    packs.export_pack(library, [entry["id"] for entry in existing], str(path))
+    replace = os.replace
+    written = 0
+
+    def fail_second_entry(source, destination):
+        nonlocal written
+        if destination.suffix == ".json":
+            written += 1
+            if written == 2:
+                raise OSError("disk full")
+        return replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_second_entry)
+    with pytest.raises(EngineError, match="no new library entries"):
+        packs.import_pack(library, str(path))
+    assert written == 2  # exercise rollback after the first new record reached disk
+    assert library.list() == before
+    assert not list(library.root.glob("*.tmp"))
+    session = Session.new()
+    restored = library.restore(session, existing[0]["id"])
+    assert session.artifacts.data(restored["working"]["id"]) == library._blob(library.get(existing[0]["id"]).artifact)
 
 
 def test_pack_rejects_unsupported_manifest(tmp_path):
