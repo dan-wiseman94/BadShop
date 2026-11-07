@@ -1,5 +1,11 @@
 name: installed desktop
 on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Existing release tag to rebuild (refs/tags/vX.Y.Z)
+        required: true
+        type: string
   workflow_call:
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
@@ -23,17 +29,19 @@ jobs:
             executable: badshop-core.exe
             label: windows-x64
           - os: macos-15
-            bundles: dmg
+            bundles: app,dmg
             executable: badshop-core
             label: macos-arm64
           - os: macos-15-intel
-            bundles: dmg
+            bundles: app,dmg
             executable: badshop-core
             label: macos-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: astral-sh/setup-uv@v10.2.0
       - uses: actions/setup-node@v5
         with:
@@ -79,11 +87,12 @@ jobs:
         run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/badshop-core --background-removal
       - run: pnpm --dir app install --frozen-lockfile
       - name: Configure signed release updates
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(inputs.source_ref || github.ref, 'refs/tags/v')
         shell: python
         env:
           BADSHOP_UPDATER_PUBLIC_KEY: ${{ vars.BADSHOP_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SOURCE_REF: ${{ inputs.source_ref || github.ref }}
         run: |
           import json, os
           from pathlib import Path
@@ -92,6 +101,8 @@ jobs:
                   raise SystemExit(f'Release updates require {key}')
           config = Path('app/src-tauri/tauri.conf.json')
           value = json.loads(config.read_text())
+          if os.environ['SOURCE_REF'] != f"refs/tags/v{value['version']}":
+              raise SystemExit('Release tag must match the application version')
           value['bundle']['createUpdaterArtifacts'] = True
           value['plugins']['updater']['pubkey'] = os.environ['BADSHOP_UPDATER_PUBLIC_KEY'].strip()
           config.write_text(json.dumps(value, indent=2))
@@ -103,14 +114,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Give Mac updater archives distinct architecture names
-        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        if: runner.os == 'macOS' && startsWith(inputs.source_ref || github.ref, 'refs/tags/v')
         shell: python
         env:
           UPDATE_LABEL: ${{ matrix.label }}
         run: |
           import os
           from pathlib import Path
-          for path in Path('app/src-tauri/target/release/bundle').rglob('*.app.tar.gz'):
+          archives = list(Path('app/src-tauri/target/release/bundle').rglob('*.app.tar.gz'))
+          if len(archives) != 1:
+              raise SystemExit(f'Expected one Mac updater archive, found {len(archives)}')
+          for path in archives:
               name = f"badshop-{os.environ['UPDATE_LABEL']}.app.tar.gz"
               Path(str(path) + '.sig').rename(path.with_name(name + '.sig'))
               path.rename(path.with_name(name))
