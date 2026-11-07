@@ -96,8 +96,11 @@ class VerificationTests(unittest.TestCase):
             (root/'scripts').mkdir()
             shutil.copy2(SCRIPT, root/'scripts/verify.py')
             shutil.copy2(SCRIPT.with_name('dev_context.py'), root/'scripts/dev_context.py')
+            # Match the real checkout: generated evidence/locks are not source.
+            # Windows byte-range locking prevents hashing the held .lock file.
+            (root/'.gitignore').write_text('artifacts/\nevidence/\n')
             subprocess.run(['git', 'init', '-b', 'main', str(root)], check=True, capture_output=True)
-            subprocess.run(['git', '-C', str(root), 'add', 'scripts'], check=True)
+            subprocess.run(['git', '-C', str(root), 'add', 'scripts', '.gitignore'], check=True)
             subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture',
                             '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'baseline'],
                            check=True, capture_output=True)

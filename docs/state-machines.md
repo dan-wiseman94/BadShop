@@ -596,7 +596,11 @@ source and unrelated processes were preserved. Linux verification used the autho
 Baseline: main `05de166` (PR #12 merged). Isolated branch:
 `fix/reliability-audit`. No unrelated working changes were inherited. Main advanced
 to `69c675b` during the task (PR #14 verification selection/parallelism); it was merged
-as `e3a662b`, and the overlapping verification driver was reviewed. The Linux worktree
+as `e3a662b`, and the overlapping verification driver was reviewed. Main then advanced
+to `d1bcb9f` (PR #15 development workflow). Merge `7f580ed` resolves overlapping
+App/Rust/harness readiness changes by retaining main's nonce/catalog validation and
+adding revision/recovery/close state and obsolete-completion guards. Main's focused
+verification, private ports and provenance features are retained. The Linux worktree
 reuses its own virtualenv and build outputs, with the Windows task's tracked diff
 transferred on top of `05de166`. Source manifests accompany the retained evidence.
 
@@ -685,7 +689,9 @@ since Windows SIGTERM is TerminateProcess. CRLF tests supply explicit bytes. Pat
 normalized only after comparing port and reference results; actual path behavior is
 still asserted. POSIX mode-bit contracts skip only on Windows. Symlink tests probe
 capability and skip only privilege error 1314; independent collision/race/content-change
-checks still run.
+checks still run. The newly merged workflow fixture also excludes its generated
+evidence/lock files, matching the real checkout: Windows correctly refuses attempts
+to hash a held byte-range lock. Its focused regression passes after this correction.
 
 The Windows PNG codec baseline stores encoded hashes separately. Its generator first
 asserts every shared decoded pixel/frame, dimension, format, metadata and text result.
@@ -720,4 +726,32 @@ Evidence root: `artifacts/verification/reliability/`. Both worktrees have indepe
 Python environments. Native automation owns private Xvfb and temporary config/data;
 no real user settings, credentials or desktop input are used.
 
-Final verification results are recorded here before the PR is opened.
+| Layer / selection | Actual outcome | Retained evidence |
+| --- | --- | --- |
+| Linux quick, four core workers | 1,219 core tests passed, 39 skipped; 46 frontend tests, 9 workflow tests, lint, frontend build, Rust format and 4 Rust tests passed. Run before PR #15 integration; core behavior is unchanged by that merge. | `linux/linux-quick-final/summary.json` and per-layer logs |
+| Merged workflow/readiness | 19 Linux workflow tests and 3 focused readiness component tests passed, including a delayed obsolete catalog reply. | `linux/merged-workflow-tests.log`, `linux/merged-readiness-tests.log` |
+| Focused Linux browser, two workers | 9 passed: actual saved/exported bytes after replay and fresh-process reopen; damaged-project preservation; temporary disconnect; restored/damaged/older/missing recovery; invalid approval edit remains actionable. | `linux/browser-final/summary.json`, JSON report and traces |
+| Exact-source Linux desktop | Debug build, direct native launch and source launcher passed. Each changes approval mode, kills its own core, verifies same session+unsaved recovery, then Cancel and Discard with no surviving owned core. Close-dialog screenshots visually inspected. | `linux/native-exact/summary.json`, `native.png`, `native-close.png`, `launcher-close.png`, retained logs and readiness receipts |
+| Windows focused final boundaries | 71 passed, 1 model-dependent case deselected; includes pack/project refusal and round-trip contracts, rembg directory compatibility, lightweight status and asset progress. | `final-boundaries-windows.log` |
+| Windows final quick, four core workers | 1,202 core tests passed, 56 skipped; all 49 frontend tests, lint/build/format and 2 Rust tests passed. Workflow: 18 passed, 1 newly merged fixture failed on hashing its held Windows lock; corrected fixture's focused regression then passed on Windows and Linux. The retained aggregate remains failed, not relabeled green. | `windows-quick-final/summary.json`, `windows-workflow-recheck.log`, `linux/linux-workflow-recheck.log` |
+
+The native/browser source tree was compared to Windows commit `7f580ed`: Git tree
+`3409581314b39aaac75277ac2dbbb1b5b5d9aea6` matches exactly, including normalized file
+modes. `linux/tested-tree.txt` and `windows-index.txt` retain the comparison. A copied,
+unused helper missed by an incremental transfer was removed before the exact-source
+native rerun. Subsequent edits are the Windows workflow-test fixture and this document;
+application code is unchanged.
+
+Failures are retained rather than overwritten: `linux/native-first/` exposed orphaned
+cores; `linux/native-guard/` refused the allocator diagnostic even with clean process
+cleanup; `linux/abort-probe-2-run.log` contains the WebKit/Mesa abort trace. The first
+Windows quick run had 1,193 passes, 56 skips and the asset-status timeout; its serial
+recheck passed, and the subsequent lightweight status fix has dedicated fresh-process
+and rembg compatibility regressions. An earlier loaded Windows batch timed out in
+three CLI/MCP tests; their serial recheck passed all three, and the later full runs
+exercise the real bridge again. These earlier failed attempts are not described as
+passing full runs.
+
+Final remote check: `origin/main` remains `d1bcb9f`; both intervening main updates
+are incorporated, and the readiness merge conflicts are resolved. The reference
+engine and procedural pixel algorithms have no diff.
