@@ -7,7 +7,9 @@ import json
 import logging
 import re
 import socket
+import sys
 from dataclasses import dataclass
+from collections.abc import Callable
 
 from websockets.asyncio.server import Server, ServerConnection
 from websockets.asyncio.server import serve as ws_serve
@@ -16,10 +18,14 @@ from websockets.frames import CloseCode
 
 from badshop import __version__
 from badshop.server.app import CoreApp
+from badshop.server.auth import actor_token
+from badshop.server.queues import MessageQueue
 from badshop.server.rpc import INTERNAL_ERROR
 
 HELLO_TIMEOUT_S = 10.0
 MAX_MESSAGE = 64 * 2**20  # a big photo sent to artifacts.import as base64
+MAX_REQUESTS = 64  # never retain an unbounded number of long-running calls per socket
+MAX_REQUEST_BYTES = 64 * 2**20
 ACTOR = re.compile(r"user|cli:(claude|codex|gemini)")  # agent:* actors live in the core, never on a socket
 
 log = logging.getLogger("badshop.server")
@@ -45,11 +51,11 @@ async def _hello(ws: ServerConnection, token: str) -> str | None:
     actor = msg.get("actor") if isinstance(msg, dict) else None
     if not isinstance(msg, dict) or msg.get("type") != "hello":
         reason = "the first message must be a hello"
-    elif not isinstance(given, str) or not hmac.compare_digest(
-            given.encode("utf-8", "surrogatepass"), token.encode("utf-8")):
-        reason = "bad token"
     elif not isinstance(actor, str) or not ACTOR.fullmatch(actor):
         reason = "unknown actor"
+    elif not isinstance(given, str) or not hmac.compare_digest(
+            given.encode("utf-8", "surrogatepass"), actor_token(token, actor).encode("utf-8")):
+        reason = "bad token"
     else:
         return actor
     await ws.close(CloseCode.POLICY_VIOLATION, reason)
@@ -63,7 +69,7 @@ async def _write(ws: ServerConnection, outbox: asyncio.Queue) -> None:
             await ws.send(await outbox.get())
 
 
-async def _answer(app: CoreApp, raw: str, actor: str, outbox: asyncio.Queue) -> None:
+async def _answer(app: CoreApp, raw: str, actor: str, enqueue: Callable[[str], None]) -> None:
     try:
         reply = await app.dispatcher.handle(raw, actor)
     except Exception:  # the dispatcher answers every frame itself, so this is a bug; still answer
@@ -72,7 +78,7 @@ async def _answer(app: CoreApp, raw: str, actor: str, outbox: asyncio.Queue) -> 
             "code": INTERNAL_ERROR, "message": "internal error",
             "data": {"hint": "this is a bug in badshop; the session is unaffected"}}})
     if reply is not None:
-        outbox.put_nowait(reply)
+        enqueue(reply)
 
 
 async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerConnection) -> None:
@@ -83,14 +89,29 @@ async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerCon
         await ws.send(json.dumps({"type": "welcome", "actor": actor, "version": __version__}))
     except ConnectionClosed:  # gone before the handshake finished
         return
-    outbox: asyncio.Queue[str] = asyncio.Queue()
+    outbox = MessageQueue()
+    closing: asyncio.Task | None = None
+
+    def overload() -> None:
+        nonlocal closing
+        if closing is None:
+            closing = asyncio.create_task(ws.close(CloseCode.TRY_AGAIN_LATER, "client is too far behind"))
+
+    def enqueue(message: str) -> None:
+        if closing is not None:
+            return
+        try:
+            outbox.put_nowait(message)
+        except asyncio.QueueFull:
+            overload()
 
     async def send(message: str) -> None:
-        outbox.put_nowait(message)
+        enqueue(message)
 
     writer = asyncio.create_task(_write(ws, outbox))
     requests: set[asyncio.Task] = set()  # in flight; the strong refs keep them alive
-    unsubscribe = app.subscribe(send)
+    request_bytes = 0
+    unsubscribe = app.subscribe(send, on_overflow=overload)
     if actor == "user":
         clients.users += 1
     try:
@@ -99,9 +120,18 @@ async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerCon
                 await ws.close(CloseCode.UNSUPPORTED_DATA, "JSON-RPC goes in text frames")
                 break
             # Each request runs as its own task, so a long tools.run never holds up an approval.respond.
-            task = asyncio.create_task(_answer(app, raw, actor, outbox))
+            size = sys.getsizeof(raw)
+            if len(requests) >= MAX_REQUESTS or request_bytes + size > MAX_REQUEST_BYTES:
+                overload()
+                break
+            request_bytes += size
+            task = asyncio.create_task(_answer(app, raw, actor, enqueue))
             requests.add(task)
-            task.add_done_callback(requests.discard)
+            def finished(task, size=size):
+                nonlocal request_bytes
+                requests.discard(task)
+                request_bytes -= size
+            task.add_done_callback(finished)
     except ConnectionClosed:  # an error code, or no close frame at all: the UI process died
         pass
     finally:
@@ -116,7 +146,7 @@ async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerCon
                 app.on_client_gone()  # the UI is gone: stop the turn, reject what waits for approval
         # Wait for them: a call already in a session thread finishes first, and the server's
         # wait_closed() (so main's app.close()) only returns once every request has ended.
-        await asyncio.gather(writer, *pending, return_exceptions=True)
+        await asyncio.gather(writer, *pending, *([closing] if closing else []), return_exceptions=True)
 
 
 async def serve(app: CoreApp, token: str, host: str = "127.0.0.1", port: int = 0, *,

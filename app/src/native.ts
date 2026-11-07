@@ -7,6 +7,12 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Connection } from "./types";
 export const native = isTauri();
+// The isolated native harness opts in with a private readiness-file path.
+export async function reportRendererReady(
+  ready: boolean, sessionId: string, revision: number, unsaved: boolean, welcome: boolean, closePending: boolean,
+) {
+  if (native) await invoke("renderer_ready", { ready, sessionId, revision, unsaved, welcome, closePending });
+}
 export const onCloseRequested = (confirm: () => Promise<boolean>) =>
   native
     ? getCurrentWindow().onCloseRequested(async (event) => {

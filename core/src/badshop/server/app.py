@@ -317,8 +317,14 @@ class CoreApp:
             pass
 
     def _deliver(self, msg: str) -> None:
-        for queue in self._subscribers:
-            queue.put_nowait(msg)
+        for queue, pump in list(self._subscribers.items()):
+            try:
+                queue.put_nowait(msg)
+            except asyncio.QueueFull:
+                self._subscribers.pop(queue, None)
+                pump.cancel()
+                if queue.on_overflow:
+                    queue.on_overflow()
 
     async def _pump(self, queue: asyncio.Queue, send: Send) -> None:
         """Send one subscriber its events in order; a failed send drops the subscriber."""
@@ -331,10 +337,11 @@ class CoreApp:
                 self._subscribers.pop(queue, None)
                 return
 
-    def subscribe(self, send: Send) -> Callable[[], None]:
+    def subscribe(self, send: Send, *, on_overflow: Callable[[], None] | None = None) -> Callable[[], None]:
         """Receive every event (a JSON-RPC notification string) through `send`, in order. Returns the
         function that unsubscribes."""
-        queue: asyncio.Queue[str] = asyncio.Queue()
+        from badshop.server.queues import MessageQueue
+        queue = MessageQueue(on_overflow=on_overflow)
         pump = self._loop.create_task(self._pump(queue, send))
         self._subscribers[queue] = pump
 
@@ -420,7 +427,12 @@ class CoreApp:
             cached = self._cli_providers.get(key)
             if cached and cached.profile == profile:
                 return cached
-            provider = CLIProvider(profile, *self._connection)
+            from badshop.server.auth import actor_token
+            from badshop.diagnostics import register_secret
+            url, user_token = self._connection
+            scoped_token = actor_token(user_token, f"cli:{profile.cli}")
+            register_secret(scoped_token)
+            provider = CLIProvider(profile, url, scoped_token)
             if cached:
                 self._retired_clis.append(cached)
             self._cli_providers[key] = provider

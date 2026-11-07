@@ -20,6 +20,7 @@ from websockets.exceptions import ConnectionClosed
 from badshop import __version__
 from badshop.server import main as core_main
 from badshop.server import ws as transport
+from badshop.server.auth import actor_token
 from badshop.server.ws import bound_port, serve
 from badshop.session.artifacts import ArtifactStore
 from badshop.session.execution import InProcessExecutor
@@ -84,7 +85,7 @@ class Client:
 @asynccontextmanager
 async def client(port: int, token: str, actor: str = "user"):
     async with connect(f"ws://127.0.0.1:{port}", max_size=None) as ws:
-        await ws.send(json.dumps({"type": "hello", "token": token, "actor": actor}))
+        await ws.send(json.dumps({"type": "hello", "token": actor_token(token, actor), "actor": actor}))
         welcome = json.loads(await asyncio.wait_for(ws.recv(), WAIT_S))
         assert welcome == {"type": "welcome", "actor": actor, "version": __version__}
         yield Client(ws)
@@ -133,7 +134,7 @@ class FakeApp:
         return json.dumps({"jsonrpc": "2.0", "id": msg["id"],
                            "result": {"method": msg["method"], "actor": actor}})
 
-    def subscribe(self, send):
+    def subscribe(self, send, **kwargs):
         self.subscribers.append(send)
         return lambda: self.subscribers.remove(send)
 
@@ -175,6 +176,9 @@ def test_listens_on_loopback_and_answers_with_the_connection_actor():
 
 
 BAD_HELLOS = [json.dumps(h) for h in (
+    {"type": "hello", "token": actor_token(TOKEN, "cli:claude"), "actor": "user"},
+    {"type": "hello", "token": actor_token(TOKEN, "cli:claude"), "actor": "cli:codex"},
+    {"type": "hello", "token": TOKEN, "actor": "cli:claude"},
     {"type": "hello", "token": "wrong", "actor": "user"},
     {"type": "hello", "actor": "user"},
     {"type": "hello", "token": 12345, "actor": "user"},
@@ -315,6 +319,23 @@ def test_port_argument_is_checked(capsys):
         assert "is not a port number" in capsys.readouterr().err
 
 
+def test_request_flood_closes_and_drains_before_accepting_a_fresh_client(monkeypatch):
+    monkeypatch.setattr(transport, "MAX_REQUESTS", 4)
+    async def scenario():
+        async with fake_server() as (app, server):
+            async with client(bound_port(server), TOKEN) as ui:
+                for rid in range(4):
+                    await ui.ws.send(json.dumps({"id": rid, "method": "slow"}))
+                await until(lambda: len(app.slow) == 4)
+                await ui.ws.send(json.dumps({"id": 5, "method": "slow"}))
+                assert await closed_with(ui.ws) == 1013
+            await until(lambda: len(app.cancelled) == 4)
+            assert app.gone == 1 and not app.subscribers
+            async with client(bound_port(server), TOKEN) as fresh:
+                assert (await fresh.call("who"))["actor"] == "user"
+    asyncio.run(scenario())
+
+
 def test_a_busy_port_is_a_clean_error_and_changes_nothing(tmp_path):
     env = cli_env(tmp_path)
     env["BADSHOP_CONFIG_DIR"] = str(tmp_path / "config")
@@ -350,6 +371,9 @@ class Core:
     def stop(self) -> None:
         """SIGTERM, as the desktop shell sends when it quits (sent once, and not after hang_up)."""
         if not self.stopped:
+            if sys.platform == "win32":
+                self.hang_up()  # SIGTERM on Windows is TerminateProcess, not a catchable signal.
+                return
             self.stopped = True
             self.proc.send_signal(signal.SIGTERM)
 
@@ -404,6 +428,34 @@ async def core(root: Path, script: list | None = None, data: Path | None = None)
 def working_id(name: str) -> str:
     """The artifact id the core gives a fixture's working copy (imports are deterministic)."""
     return ArtifactStore().import_image((FIXTURES / f"{name}.png").read_bytes(), name)[0].id
+
+
+def test_second_core_cannot_claim_live_recovery(tmp_path):
+    async def scenario():
+        data = tmp_path / "data"
+        async with core(tmp_path, data=data) as running:
+            async with client(running.port, running.token) as ui:
+                await ui.call("session.set_approval_mode", {"mode": "auto"})
+                recovery = data / "autosave/session.badshop"
+                before = recovery.read_bytes()
+                env = cli_env(tmp_path)
+                env.update(BADSHOP_CONFIG_DIR=str(tmp_path / "config"), BADSHOP_DATA_DIR=str(data))
+                contender = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", "badshop.server", "serve", env=env,
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                try:
+                    out, err = await asyncio.wait_for(contender.communicate(), WAIT_S)
+                    assert contender.returncode == 1 and not out
+                    assert b"runtime lock" in err
+                    assert recovery.read_bytes() == before
+                    assert not (recovery.parent / "previous.badshop").exists()
+                    assert (await ui.call("session.get"))["approval_mode"] == "auto"
+                finally:
+                    if contender.returncode is None:
+                        contender.kill()
+                        await contender.wait()
+            running.hang_up()  # graceful, portable parent-death shutdown
+    asyncio.run(scenario())
 
 
 def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_serving(tmp_path):

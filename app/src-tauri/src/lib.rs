@@ -9,6 +9,40 @@ use tauri::{Emitter, Manager, State};
 struct Core(Arc<Supervisor>);
 
 #[tauri::command]
+fn renderer_ready(
+    core: State<'_, Core>,
+    ready: bool,
+    session_id: String,
+    revision: u64,
+    unsaved: bool,
+    welcome: bool,
+    close_pending: bool,
+) -> Result<(), String> {
+    // Only the isolated native harness supplies this path. No connection token
+    // or project contents are exported; ordinary startup performs no probe I/O.
+    if let Some(path) = std::env::var_os("BADSHOP_SMOKE_READY") {
+        if !ready {
+            let _ = std::fs::remove_file(path);
+            return Ok(());
+        }
+        if session_id.is_empty() {
+            return Err("Renderer has no session".into());
+        }
+        let Some(connection) = core.0.current_connection() else {
+            let _ = std::fs::remove_file(path);
+            return Ok(());
+        };
+        let state = serde_json::json!({
+            "shell_pid": std::process::id(), "port": connection.port,
+            "session_id": session_id, "revision": revision,
+            "unsaved": unsaved, "welcome": welcome, "close_pending": close_pending,
+        });
+        std::fs::write(path, state.to_string()).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn core_connection(core: State<'_, Core>) -> Result<Connection, String> {
     let supervisor = core.0.clone();
     tauri::async_runtime::spawn_blocking(move || supervisor.connection())
@@ -94,6 +128,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core_connection,
             core_restart,
+            renderer_ready,
             diagnostics
         ])
         .setup(|app| {

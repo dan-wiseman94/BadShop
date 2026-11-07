@@ -1,6 +1,7 @@
 """assets.http_get and assets.cached against a real (local) web server: schemes, redirects, caps."""
 
 import hashlib
+import os
 import http.client
 import re
 import socket
@@ -181,6 +182,7 @@ def test_cached_heals_a_short_file(data, tmp_path):
     assert assets.cached("fonts/A.ttf", src.as_uri(), size=10).read_bytes() == b"x" * 10
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode contract; Windows uses inherited ACLs")
 def test_cached_files_are_readable_by_everyone(data, tmp_path):
     src = tmp_path / "src.bin"
     src.write_bytes(b"x")

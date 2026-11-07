@@ -40,6 +40,7 @@ import {
   pickImages,
   projectPath,
   restart,
+  reportRendererReady,
 } from "./native";
 import type { ApprovalMode } from "./types";
 function Resizer({
@@ -114,6 +115,17 @@ export default function App() {
   const previousSession = useRef<string | undefined>(undefined);
   const sessionMenu = useRef<HTMLDivElement>(null);
   useEffect(() => startCore(), []);
+  useEffect(() => {
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        void reportRendererReady(ui.status === "ready" && Boolean(session?.id) && !sessionError,
+          session?.id ?? "", session?.document_revision ?? 0, session?.unsaved_changes ?? false,
+          welcome, Boolean(documents.pending)).catch(console.error);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [ui.status, session?.id, session?.document_revision, session?.unsaved_changes,
+    sessionError, welcome, documents.pending]);
   useEffect(() => {
     if (previousSession.current && previousSession.current !== session?.id) {
       setAttachments([]);

@@ -60,7 +60,7 @@ def test_bad_value_is_a_clean_error(pair):
 def test_out_parent_is_a_file_is_a_clean_error(pair):
     p = pair.new("prep", "lincoln.png", "-o", "lincoln.png/x.png", check=False)
     assert p.returncode == 1
-    assert "can't write lincoln.png/x.png" in p.stderr and "hint:" in p.stderr
+    assert f"can't write {Path('lincoln.png') / 'x.png'}" in p.stderr and "hint:" in p.stderr
     assert "Traceback" not in p.stderr
 
 

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import subprocess
 import signal
 import sys
 import tomllib
@@ -34,6 +35,16 @@ def fake(tmp_path, monkeypatch):
         path.write_text(f"#!{sys.executable}\n" + script)
         path.chmod(0o700)
         paths[name] = str(path)
+    if os.name == "nt":
+        # Windows cannot execute a POSIX shebang. Only adapt the fixture launch;
+        # real pipes, process jobs, CLI streams and MCP subprocesses remain in use.
+        run, spawn = subprocess.run, asyncio.create_subprocess_exec
+        def fixture_command(command):
+            return [sys.executable, *command] if command[0] in paths.values() else command
+        monkeypatch.setattr(subprocess, "run", lambda command, *a, **kw: run(fixture_command(command), *a, **kw))
+        async def launch(*command, **kwargs):
+            return await spawn(*fixture_command(command), **kwargs)
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", launch)
     return paths
 
 
@@ -69,7 +80,8 @@ def test_detection_and_streamed_multiturn_subprocess(fake, cli):
             else:
                 assert provider.process is not first
                 assert "resume" in provider.command("again") or "--resume" in provider.command("again")
-            assert provider.cwd.stat().st_mode & 0o077 == 0
+            if os.name != "nt":  # Windows privacy is inherited ACLs, not POSIX mode bits.
+                assert provider.cwd.stat().st_mode & 0o077 == 0
         finally:
             folder = provider.cwd
             await provider.close()
@@ -98,8 +110,8 @@ def test_cli_scoped_configs_preserve_auth(fake, tmp_path, monkeypatch):
                     assert provider.env["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] == "0"
                 elif cli == "codex":
                     private = Path(provider.env["CODEX_HOME"])
-                    assert (private / "auth.json").is_symlink()
-                    assert (private / "auth.json").resolve() == auth
+                    assert (private / "auth.json").samefile(auth)  # symlink or Windows hard-link fallback
+                    assert (private / "auth.json").read_bytes() == auth.read_bytes()
                     config = tomllib.loads((private / "config.toml").read_text())
                     assert set(config["mcp_servers"]) == {"badshop"}
                     assert config["sandbox_mode"] == "read-only" and config["web_search"] == "disabled"
@@ -246,6 +258,7 @@ def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, mode):
             await app._chat_send("user", "make meme", [imported.id])
             async with asyncio.timeout(10):
                 while not app._cli_gate.pending():
+                    assert app._turn is not None, app.session.data.messages
                     await asyncio.sleep(.01)
                 step_id = app._cli_gate.pending()[0]
                 assert app.session.step(step_id).actor == "cli:claude"
@@ -282,6 +295,7 @@ def test_app_stop_rejects_managed_cli_approval_and_keeps_core_serving(fake, monk
             await app._chat_send("user", "make meme", [imported.id])
             async with asyncio.timeout(10):
                 while not app._cli_gate.pending():
+                    assert app._turn is not None, app.session.data.messages
                     await asyncio.sleep(.01)
                 step_id = app._cli_gate.pending()[0]
                 assert await app._chat_stop("user") == {"stopped": True}
