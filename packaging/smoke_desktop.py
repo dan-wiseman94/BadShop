@@ -266,6 +266,15 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
 
                 if exercise is None:
                     close()
+                    if exercise_close:
+                        wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
+                        capture_window(window, shot.with_name(shot.stem + '-close.png').resolve())
+                        native_keys(window, 'Escape')
+                        wait_renderer(proc, ready_path, ports, nonce, close_pending=False, unsaved=True)
+                        assert proc.poll() is None, 'Cancel closed the native app'
+                        close()
+                        wait_renderer(proc, ready_path, ports, nonce, close_pending=True)
+                        native_keys(window, 'Tab', 'Return')  # Cancel -> Discard
                 else:
                     exercise(window_pid, window, close)
                 assert proc.wait(timeout=15) == 0, 'Native close returned a failure exit code'
