@@ -54,6 +54,7 @@ DiscardUnsaved = Annotated[bool, Field(strict=True)]
 MaxPx = Annotated[int, Field(ge=16, le=4096)]
 Verdict = Literal["approve", "reject", "edit"]
 MAX_IMPORT_BYTES = 200 * 2**20  # a picked file bigger than this is refused before it is read
+MAX_PASTE_BYTES = 47 * 2**20  # base64 plus JSON must fit ws.MAX_MESSAGE; see app/src/data.ts
 NO_PROVIDER_HINT = "add a profile with providers.save and select it with providers.select, or use badshop chat --model"
 
 
@@ -78,15 +79,15 @@ def _in_autosave_folder(p: Path) -> bool:
         return False
 
 
-def _too_big(name: str) -> EngineError:
+def _too_big(name: str, limit: int, hint: str = "use a smaller copy") -> EngineError:
     return EngineError(f"{name} is too big to import",
-                       hint=f"the limit is {MAX_IMPORT_BYTES // 2**20} MB; use a smaller copy")
+                       hint=f"the limit is {limit // 2**20} MiB. {hint}")
 
 
 def _read_import(path: Path) -> bytes:
     try:
         if path.stat().st_size > MAX_IMPORT_BYTES:
-            raise _too_big(path.name)
+            raise _too_big(path.name, MAX_IMPORT_BYTES)
         return path.read_bytes()
     except OSError as e:
         raise EngineError(f"can't read {path} ({e.strerror or e})",
@@ -1041,8 +1042,9 @@ class CoreApp:
             p = _user_path(path)
             blob = await asyncio.to_thread(_read_import, p)
             label = name or p.name
-        elif _pasted_size(data) > MAX_IMPORT_BYTES:  # the path's limit, refused before anything is decoded
-            raise _too_big(name or "the pasted image")
+        elif _pasted_size(data) > MAX_PASTE_BYTES:
+            raise _too_big(name or "the pasted image", MAX_PASTE_BYTES,
+                           "Import it from a file or paste a smaller copy.")
         else:
             label = name or ""
 

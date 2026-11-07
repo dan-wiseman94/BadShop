@@ -84,9 +84,10 @@ profile if a host CLI is unavailable there.
 
 ## Release workflow
 
-`native-desktop.yml` is shared by PR CI and `release.yml`: it builds and tests each
-supported installer before uploading it. On a `v*` tag, `release.yml` creates a draft GitHub release. A manual dispatch builds artifacts without publishing.
-The PyPI job runs only on version tags after all bundle jobs pass, through the protected
+Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to build
+and test each supported installer before attaching it to a draft GitHub release.
+Both publishing jobs require the core and frontend checks and the native bundle matrix
+to pass on the tagged revision. The PyPI job uses the protected
 `pypi` GitHub environment and trusted publishing. Configure the repository/environment as
 a trusted PyPI publisher before its first release. Match the tag to Python, frontend and
 Tauri package versions before tagging. Release tags and external publication are explicit
@@ -177,10 +178,19 @@ actual logged-in graphical session; CI installs these harness dependencies separ
 Linux runs on Xvfb; AppImage's extraction runner and the installed Flatpak receive the
 same lifecycle check. AppImage FUSE mounting is not covered.
 
-The required screenshot catches an empty WebView; the established loopback connection
-confirms the renderer opened a socket to its bundled core. Authentication and editing
-behavior are verified separately by protocol and browser end-to-end tests. Screenshots are
-uploaded as `desktop-evidence-*`. These checks do **not** claim native file-dialog,
-clipboard image, or every editing-flow coverage: browser end-to-end tests cover editing,
-while native dialogs and clipboard should also receive an interactive release check.
-No test driver or automation endpoint is added to the shipped application.
+The required screenshot catches an empty WebView. The established loopback connection
+confirms the renderer opened a socket to its bundled core. The Windows installer check also
+imports an image using the native picker, applies Deepfry, cancels a dirty-window close, then
+saves and closes through the native dialog. It relaunches the app, opens the project through
+the native picker, and compares the rendered output with the saved artifact hash.
+The Windows test uses a private WebView2 profile and a temporary debugger endpoint. On elevated
+GitHub Actions runners, it restores the two app-specific machine policy values after each launch.
+Run it locally on an isolated Windows runner with an interactive desktop and a non-elevated shell.
+Its screenshots, app logs, WebView traces, and
+`summary.json` are uploaded as `desktop-evidence-*` alongside the other platforms' screenshots.
+
+```powershell
+uv run --project core --with playwright==1.58.0 --with pywinauto==0.6.9 python packaging/smoke_installer.py --screenshot artifacts/verification/installed-windows/native-smoke.png
+```
+
+Clipboard input and the macOS/Linux native file dialogs still need interactive release checks.

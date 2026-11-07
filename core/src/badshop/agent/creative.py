@@ -74,4 +74,8 @@ one or two placement/readability corrections per take. Shorten or reposition an 
 caption instead of polishing pixels. Deliberate hard seams, uneven proportions, and rough
 cutouts are part of the style and are not failures. Do not claim an automated humor score;
 the user's preference decides which take works best.
+When an edit returns the same result or a placement fails, inspect the actual artifact and change
+a concrete input or parameter before trying again. Rebuild corrections from the original base.
+Name the finished artifacts from successful tool results. Report an export only after the export
+tool confirms a write. If a requested result is missing, say what is still missing.
 """

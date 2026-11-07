@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import hashlib
+import io
 import itertools
 import json
 import signal
@@ -14,18 +15,23 @@ from pathlib import Path
 
 import psutil
 import pytest
+from PIL import Image
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 from badshop import __version__
+from badshop.server import app as server_app
 from badshop.server import main as core_main
 from badshop.server import ws as transport
+from badshop.server.settings import Settings
 from badshop.server.ws import bound_port, serve
 from badshop.session.artifacts import ArtifactStore
 from badshop.session.execution import InProcessExecutor
 from badshop.session.project import open_project
 from badshop.session.session import Session
 from conftest import FIXTURES, cli_env
+from test_server_app import env as env
+from test_server_app import run
 
 TOKEN = "t0ken-for-tests"
 WAIT_S = 120  # generous: the first tool call also starts the worker process
@@ -404,6 +410,45 @@ async def core(root: Path, script: list | None = None, data: Path | None = None)
 def working_id(name: str) -> str:
     """The artifact id the core gives a fixture's working copy (imports are deterministic)."""
     return ArtifactStore().import_image((FIXTURES / f"{name}.png").read_bytes(), name)[0].id
+
+
+def test_paste_size_error_preserves_the_approval_and_connection(env, monkeypatch):
+    # The full-size paste cap leaves room for base64 expansion and a typical RPC envelope.
+    assert 4 * ((server_app.MAX_PASTE_BYTES + 2) // 3) + 1024 < transport.MAX_MESSAGE
+    monkeypatch.setattr(transport, "MAX_MESSAGE", 4096)
+    monkeypatch.setattr(server_app, "MAX_PASTE_BYTES", 1024)
+    image = FIXTURES / "trump.png"  # far above the paste cap, but sent as a path
+    script = env / "script.json"
+    script.write_text(json.dumps([{"tool_calls": [{"name": "cutout", "arguments": {
+        "image": working_id("trump"), "box": [147, 159, 329, 330], "no_ai": True,
+    }}]}]), encoding="utf-8")
+
+    async def scenario(app):
+        server = await serve(app, TOKEN)
+        try:
+            async with client(bound_port(server), TOKEN) as ui:
+                await ui.call("artifacts.import", {"path": str(image)})
+                await ui.call("chat.send", {"text": "Cut out the face"})
+                step = (await ui.event("approval.needed"))["step"]
+                before = await ui.call("session.get")
+                error = await ui.fails("artifacts.import", {
+                    "data": base64.b64encode(bytes(1025)).decode(), "name": "large.png",
+                })
+                assert error["message"] == "large.png is too big to import"
+                assert "Import it from a file" in error["data"]["hint"]
+                assert await ui.call("session.get") == before
+
+                small = io.BytesIO()
+                Image.new("RGB", (4, 4), "red").save(small, "PNG")
+                pasted = await ui.call("artifacts.import", {"data": base64.b64encode(small.getvalue()).decode()})
+                assert pasted["working"]["width"] == 4
+                await ui.call("approval.respond", {"step_id": step["id"], "decision": "reject"})
+                assert (await ui.event("approval.resolved"))["step_id"] == step["id"]
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    run(scenario, Settings(fake_provider_script=str(script)))
 
 
 def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_serving(tmp_path):

@@ -291,8 +291,7 @@ belongs in that destination, not in repository history.
 
 change-scope.yml uses scripts/ci_scope.py: Markdown docs and skill text skip app jobs,
 test-only changes select the affected layer, and unknown/shared inputs select broad
-coverage. Renderer changes retain installer coverage because browser tests cannot
-establish WebKit behavior. Packaging and dependencies retain installer coverage.
-Manual dispatch requests all jobs; releases always use the complete installer
-workflow. core-result and desktop-result provide aggregate outcomes including
-intentional skips. Branch protection settings are not changed by this update.
+coverage. Manual dispatch requests all core and desktop checks. Pushing a `v*`
+tag starts the installer build and smoke-test matrix, which covers the packaged
+WebKit renderer. `core-result` and `desktop-result` report the selected checks
+and intentional skips.

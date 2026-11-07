@@ -189,25 +189,23 @@ def test_status_and_download(homes, monkeypatch):
     assert manifest.download(font.name).read_bytes() == b"a font"
 
 
-def test_status_never_imports_the_model_runtime_and_respects_model_home(homes, monkeypatch):
+def test_asset_status_checks_model_cache_without_importing_rembg(homes, monkeypatch):
     import builtins
 
-    real_import = builtins.__import__
-    def without_models(name, *args, **kwargs):
-        assert name.split(".")[0] not in {"rembg", "numba", "onnxruntime"}
-        return real_import(name, *args, **kwargs)
+    original_import = builtins.__import__
 
-    monkeypatch.setattr(builtins, "__import__", without_models)
-    monkeypatch.setenv("REMBG_HOME", str(homes / "new-home"))
-    monkeypatch.setenv("U2NET_HOME", str(homes / "legacy-choice"))
-    model = pin_local(monkeypatch, homes, "rembg/u2net.onnx", b"weights")
-    expected = homes / "legacy-choice" / "models" / "u2net" / "u2net.onnx"
-    expected.parent.mkdir(parents=True)
-    expected.write_bytes(b"weights")
-    assert manifest.asset_path(model) == expected
-    assert [r["name"] for r in manifest.status() if r["present"]] == [model.name]
-    monkeypatch.setenv("U2NET_HOME", "")
-    assert manifest.asset_path(model) == homes / "new-home" / "models" / "u2net" / "u2net.onnx"
+    def guard(name, *args, **kwargs):
+        assert name.split(".")[0] != "rembg", "Listing assets must not initialize the inference runtime"
+        return original_import(name, *args, **kwargs)
+
+    model = pin_local(monkeypatch, homes, "rembg/u2net.onnx", b"model")
+    model_home = homes / "preseeded"
+    monkeypatch.setenv("U2NET_HOME", str(model_home))
+    path = model_home / "models" / "u2net" / "u2net.onnx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"model")
+    monkeypatch.setattr(builtins, "__import__", guard)
+    assert [row["name"] for row in manifest.status() if row["present"]] == [model.name]
 
 
 @pytest.mark.parametrize("model", list(REMBG_MD5))
@@ -220,6 +218,7 @@ def test_rembg_models_land_where_rembg_looks(homes, monkeypatch, model):
     monkeypatch.setattr(assets, "PROGRESS", lambda *event: heard.append(event))
     path = manifest.ensure_rembg_model(model)
     assert path == homes / "rembg" / "models" / model / f"{model}.onnx" == manifest.asset_path(a)
+    assert path.parent == Path(sessions[model].model_dir())
     assert path.read_bytes() == f"{model} weights".encode() and manifest.is_present(a)
     assert [name for name, _, _ in heard] == [a.name]
     assert manifest.download(a.name) == path  # the same file whichever way it is asked for

@@ -2,6 +2,7 @@
 The app lists them (assets.status), pre-downloads them (assets.download) and maps assets.PROGRESS
 events back to them by name."""
 
+import os
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -57,18 +58,14 @@ def get_asset(name: str) -> Asset:
 
 
 def asset_path(a: Asset) -> Path:
-    """Where the asset lives once downloaded. A rembg model goes where its session class looks first
-    (<home>/models/<model>/<model>.onnx), so rembg finds it and never downloads it itself.
-
-    Keep status checks free of rembg/Numba imports: their cold initialization can outlive a closing
-    app's thread pool. The pinned dependency's directory and environment precedence are checked by
-    test_rembg_models_land_where_rembg_looks; only actual cutouts need its model runtime.
-    """
+    """Find the pinned cache file without importing the background-removal runtime."""
     if a.rembg_model is None:
         return assets.data_dir() / a.name
-    assets.configure_rembg()
-    home = os.environ.get("U2NET_HOME") or os.environ["REMBG_HOME"]
-    return Path(home).expanduser() / "models" / a.rembg_model / f"{a.rembg_model}.onnx"
+    # Match configure_rembg's defaults and BaseSession.model_dir's per-model layout.
+    # Settings calls this for every model on first run. Importing rembg here
+    # starts ONNX and can compile Numba kernels even when no model is requested.
+    home = os.environ.get("U2NET_HOME") or os.environ.get("REMBG_HOME", str(assets.data_dir() / "rembg"))
+    return Path(os.path.expanduser(home)) / "models" / a.rembg_model / f"{a.rembg_model}.onnx"
 
 
 def is_present(a: Asset) -> bool:

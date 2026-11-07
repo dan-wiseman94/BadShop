@@ -13,7 +13,7 @@ and system prompt. Pixel work still goes through the existing deterministic tool
 take a visual check for recognizable subjects, a readable joke, caption fit, and accidental
 occlusion, within the existing one-or-two-corrections budget. Rough seams are intentional.
 
-## Fixed prompts
+## Six fixed briefs
 
 Print the representative prompt set:
 
@@ -21,12 +21,20 @@ Print the representative prompt set:
 uv run --project core python -m badshop.evaluation --cases
 ```
 
-Each case lists the input photos to supply and what a reviewer should inspect. Keep the actual
-input files, provider/model, seed, step budget, and other settings fixed between comparison runs.
-For source-discovery changes, record queries and candidates separately: changing live catalogs
-makes repeated retrieval different even when the engine is deterministic. Save each run as a
-`.badshop` project. Use the final artifact ID from its step details or session data; do not select
-a contact sheet or a grid view as the finished result.
+The six cases cover distinct takes, correct attachment selection, restraint, caption fit, a
+headline-only revision, and a light deep fry. Generate the fixed input cards and a complete
+offline example in a new directory:
+
+```sh
+uv run --project core python -m badshop.evaluation --demo artifacts/verification/creative-demo
+```
+
+Open `comparison.html` there to see intentionally faulty and corrected examples. The demo uses
+scripted tool calls, synthetic input cards and ordinary saved projects. It also writes `runs.json`
+and `scorecard.json`. For real model comparisons, reuse the demo's input cards and
+`inputs/preserve-concept-seed.badshop` for the headline revision. Keep the provider/model, seed, step budget,
+and other settings fixed between runs. Record source queries and candidates separately when
+testing live discovery, because results can change independently of the model.
 
 ## Portable comparison report
 
@@ -34,8 +42,8 @@ Create a JSON manifest, with project paths relative to the manifest:
 
 ```json
 [
-  {"case_id": "dog-boss", "label": "Before", "project": "before.badshop", "artifact_id": "YOUR_ARTIFACT_ID"},
-  {"case_id": "dog-boss", "label": "After — take 1", "project": "after.badshop", "artifact_id": "ANOTHER_ARTIFACT_ID"}
+  {"case_id": "museum", "phase": "before", "label": "Baseline", "project": "before.badshop", "artifact_id": "BASELINE_OUTPUT", "inputs": {"painting": "PAINTING_ID", "duck": "DUCK_ID"}},
+  {"case_id": "museum", "phase": "after", "label": "Candidate", "project": "after.badshop", "artifact_id": "CANDIDATE_OUTPUT", "inputs": {"painting": "PAINTING_ID", "duck": "DUCK_ID"}}
 ]
 ```
 
@@ -43,11 +51,25 @@ Then build the report:
 
 ```sh
 uv run --project core python -m badshop.evaluation runs.json --out comparison.html
+uv run --project core python -m badshop.evaluation runs.json --scorecard --out scorecard.json
 ```
 
-Open the HTML file in a browser. It embeds the selected original artifact bytes, needs no server
-or network access, groups results by prompt, and shows their dimensions and recorded step counts.
+Use final artifact IDs from the step details or session data. `phase` puts the baseline and
+candidate side by side. For a three-take run, add all three selected outputs to the same phase
+with distinct labels. Older manifests without phases or inputs still work. Use `start_after`
+for the last step before a revision request on the active timeline. Set `expect_export` only
+when the brief or the assistant's claim calls for an export.
+
+The HTML embeds the selected bytes and the same deterministic checks as the JSON. Checks
+trace the selected output through completed steps and check supplied attachment roles. They
+look for identical bytes within a phase, fully off-canvas single pastes, determinable caption
+clipping, and fixed-brief violations. A recorded export confirms a successful step for that
+artifact. Its current file presence remains unverified, and the report never opens recorded
+export paths. Missing role IDs and unavailable geometry appear as unknown. Repeated calls,
+repeated output hashes, and paste retries are advisory counts of recorded agent and CLI steps.
+Use `start_after` to isolate those counts from earlier work.
+
 Rate subject recognition, joke readability, distinctness of concept, and deliberate badness from
 1 (fails) to 5 (strong). Record specific failures and select a preferred result. Download ratings
-as JSON to keep them; browser storage alone is not a durable archive. Use `--force` only to replace
-an existing report. The command itself makes no paid provider calls and assigns no humor scores.
+as JSON to keep them. The browser can also remember ratings when local storage is available.
+Use `--force` to replace an existing report. The report generator makes no provider calls.
