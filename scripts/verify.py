@@ -9,35 +9,17 @@ import signal
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
 import psutil
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dev_context import snapshot, private_ports, checkout_lock
+
 ROOT = Path(__file__).resolve().parents[1]
-MODES = ('quick', 'browser', 'desktop', 'all', 'doctor')
-
-
-@contextmanager
-def checkout_lock(path: Path):
-    """Do not let two runs rebuild the same frontend or native binary concurrently."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('a+') as lock:
-        try:
-            if os.name == 'nt':
-                import msvcrt
-                if path.stat().st_size == 0:
-                    lock.write('0')
-                    lock.flush()
-                lock.seek(0)
-                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise RuntimeError('Another verification run owns this checkout; wait for it or use another worktree.') from exc
-        yield
+MODES = ('python', 'component', 'quick', 'browser', 'desktop', 'all', 'doctor')
 
 
 def package_manager() -> list[str]:
@@ -91,6 +73,10 @@ class Checks:
         self.output.mkdir(parents=True, exist_ok=True)
         self.results: list[dict] = []
         self.source = {}
+        try:
+            self.source.update(snapshot(ROOT))
+        except (OSError, subprocess.SubprocessError):
+            self.source['fingerprint'] = None
         for key, command in [('revision', ['git', 'rev-parse', 'HEAD']),
                              ('working_tree', ['git', 'status', '--short'])]:
             try:
@@ -157,18 +143,104 @@ def doctor(checks: Checks) -> bool:
     return good
 
 
+def positive_int(value: str) -> int:
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError('expected a positive integer') from exc
+    if result < 1:
+        raise argparse.ArgumentTypeError('expected a positive integer')
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=MODES, nargs='?', default='quick',
-                        help='quick (default), browser, desktop (Linux Xvfb), all, or doctor')
+    parser.add_argument('mode', choices=MODES, nargs='?', default=None,
+                        help='Select focused python/component/browser or an explicit broad mode')
     parser.add_argument('--output', type=Path, help='Evidence directory (default: artifacts/verification/<run>)')
+    parser.add_argument('--core-workers', type=positive_int,
+                        help='Python test workers for quick or all (default: 1)')
+    parser.add_argument('--browser-workers', type=positive_int,
+                        help='Override the Playwright worker count for browser or all')
+    parser.add_argument('--browser-test', action='append', default=[],
+                        help='Playwright file pattern for a focused browser run (repeatable)')
+    parser.add_argument('--python-test', action='append', default=[], help='Exact pytest file or node ID')
+    parser.add_argument('--component-test', action='append', default=[], help='Vitest file filter')
+    parser.add_argument('--test-name', help='Vitest title or Playwright grep expression')
     args = parser.parse_args()
+    if args.mode is None:
+        parser.print_help()
+        return 0
+    for field, mode in [('python_test', 'python'), ('component_test', 'component')]:
+        values = getattr(args, field)
+        if values and args.mode != mode:
+            parser.error(f'--{field.replace("_", "-")} requires {mode}')
+        if args.mode == mode and not values:
+            parser.error(f'{mode} requires an explicit test selection')
+        if any(not value.strip() or value.startswith('-') for value in values):
+            parser.error('Test selectors must be nonempty and cannot be options')
+    if args.test_name is not None and (not args.test_name.strip() or args.mode not in ('component', 'browser')):
+        parser.error('--test-name requires component or browser and a nonempty pattern')
+    if args.test_name and args.mode == 'browser' and not args.browser_test:
+        parser.error('--test-name requires --browser-test')
+    if args.core_workers is not None and args.mode not in ('quick', 'all'):
+        parser.error('--core-workers requires quick or all')
+    if args.browser_workers is not None and args.mode not in ('browser', 'all'):
+        parser.error('--browser-workers requires browser or all')
+    if args.browser_test and args.mode != 'browser':
+        parser.error('--browser-test requires browser')
+    if any(not pattern.strip() or pattern.startswith('-') for pattern in args.browser_test):
+        parser.error('--browser-test takes a file pattern, not a Playwright option')
     try:
         with checkout_lock(ROOT / 'artifacts/verification/.lock'):
             return verify(args)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+
+
+def focused(args: argparse.Namespace, checks: Checks, manager: list[str], env: dict) -> int:
+    report = checks.output / ('tests.xml' if args.mode == 'python' else 'tests.json')
+    # Reusing an explicit output directory must not accept a stale test report.
+    report.unlink(missing_ok=True)
+    if args.mode == 'python':
+        command = [sys.executable, '-m', 'pytest', *args.python_test, '-q', '-ra',
+                   '-m', 'not models and not network and not live', f'--junitxml={report}']
+    elif args.mode == 'component':
+        command = [*manager, '--dir', 'app', 'exec', 'vitest', 'run', *args.component_test,
+                   '--reporter=default', '--reporter=json', f'--outputFile={report}']
+        if args.test_name:
+            command += ['-t', args.test_name]
+    else:
+        env = env | {'CI': '1', 'PLAYWRIGHT_JSON_OUTPUT_NAME': str(report)}
+        command = [*manager, '--dir', 'app', 'exec', 'playwright', 'test', *args.browser_test,
+                   '--reporter=list,json', '--output', str(checks.output / 'browser')]
+        if args.test_name:
+            command += ['--grep', args.test_name]
+        if args.browser_workers:
+            command += ['--workers', str(args.browser_workers)]
+    passed = checks.run(f'{args.mode}-focused', command, env=env, timeout=1800)
+    try:
+        if args.mode == 'python':
+            suites = ET.parse(report).getroot().iter('testsuite')
+            counts = list(suites)
+            skipped = sum(int(x.get('skipped', 0)) for x in counts)
+            executed = sum(int(x.get('tests', 0)) for x in counts) - skipped
+        else:
+            data = json.loads(report.read_text())
+            if args.mode == 'component':
+                executed = data.get('numPassedTests', 0) + data.get('numFailedTests', 0)
+                skipped = data.get('numPendingTests', 0) + data.get('numTodoTests', 0)
+            else:
+                stats = data.get('stats', {})
+                executed = sum(stats.get(x, 0) for x in ('expected', 'unexpected', 'flaky'))
+                skipped = stats.get('skipped', 0)
+        selected = checks.record('test-selection', 'passed' if executed else 'failed',
+                                 executed=executed, skipped=skipped,
+                                 reason=None if executed else 'No tests executed; check the selector')
+    except (OSError, ValueError, ET.ParseError) as exc:
+        selected = checks.record('test-selection', 'failed', reason=f'Missing/invalid test report: {exc}')
+    return 0 if passed and selected else 1
 
 
 def verify(args: argparse.Namespace) -> int:
@@ -179,7 +251,7 @@ def verify(args: argparse.Namespace) -> int:
     try:
         if args.mode == 'doctor':
             return 0 if doctor(checks) else 1
-        manager = package_manager()
+        manager = package_manager() if args.mode != 'python' else []
         python = [sys.executable]
         env = dict(os.environ)
         # Let the test fixtures select their own app folders rather than inherit user overrides.
@@ -189,18 +261,26 @@ def verify(args: argparse.Namespace) -> int:
         # Each checkout builds its own binary; ambient Cargo overrides must not select another app.
         env['CARGO_TARGET_DIR'] = str(ROOT / 'app/src-tauri/target')
         env.pop('CARGO_BUILD_TARGET', None)
+        browser_port, dev_port = private_ports()
+        env.setdefault('BADSHOP_E2E_PORT', str(browser_port))
+        env.setdefault('BADSHOP_DEV_PORT', str(dev_port))
         env['BADSHOP_UV'] = shutil.which('uv') or 'uv'
         # No PyInstaller bundle is needed: debug shell startup uses this checkout's uv project.
         env['TAURI_CONFIG'] = json.dumps({'bundle': {'resources': []}})
-        if not checks.run('frontend-dependencies', [*manager, '--dir', 'app', 'install', '--frozen-lockfile'], env=env):
+        if args.mode != 'python' and not checks.run('frontend-dependencies', [*manager, '--dir', 'app', 'install', '--frozen-lockfile'], env=env):
             return 1
+        if args.mode in ('python', 'component') or (args.mode == 'browser' and args.browser_test):
+            return focused(args, checks, manager, env)
         built = False
         if args.mode in ('quick', 'all'):
             checks.run('core-lint', [*python, '-m', 'ruff', 'check', '--config', 'core/pyproject.toml',
                                    'core', 'scripts', 'packaging/smoke_desktop.py'], env=env)
             checks.run('workflow-tests', [*python, '-m', 'unittest', 'discover', '-s', 'scripts/tests'], env=env)
-            checks.run('core-tests', [*python, '-m', 'pytest', 'core/tests', '-q', '-ra', '-m',
-                                     'not models and not network and not live'], env=env)
+            core_command = [*python, '-m', 'pytest', 'core/tests', '-q', '-ra', '-m',
+                            'not models and not network and not live']
+            if args.core_workers and args.core_workers > 1:
+                core_command.extend(['-n', str(args.core_workers), '--dist', 'loadfile'])
+            checks.run('core-tests', core_command, env=env)
             checks.run('frontend-tests', [*manager, '--dir', 'app', 'test'], env=env)
             built = checks.run('frontend-build', [*manager, '--dir', 'app', 'build'], env=env)
             checks.run('rust-format', ['cargo', 'fmt', '--manifest-path', 'app/src-tauri/Cargo.toml', '--', '--check'], env=env)
@@ -213,12 +293,17 @@ def verify(args: argparse.Namespace) -> int:
             if args.mode == 'browser':
                 built = checks.run('frontend-build', [*manager, '--dir', 'app', 'build'], env=env)
             # CI disables reuse of an unrelated dev server. A dedicated port permits the normal app to stay open.
-            browser_env = env | {'CI': '1', 'BADSHOP_E2E_PORT': os.environ.get('BADSHOP_E2E_PORT', '1421')}
+            browser_env = env | {'CI': '1', 'BADSHOP_E2E_PORT': env['BADSHOP_E2E_PORT']}
+            name = 'browser-focused' if args.browser_test else 'browser-tests'
             if built:
-                checks.run('browser-tests', [*manager, '--dir', 'app', 'exec', 'playwright', 'test',
-                                            '--output', str(checks.output / 'browser')], env=browser_env, timeout=1800)
+                browser_command = [*manager, '--dir', 'app', 'exec', 'playwright', 'test',
+                                   '--output', str(checks.output / 'browser')]
+                if args.browser_workers is not None:
+                    browser_command.extend(['--workers', str(args.browser_workers)])
+                browser_command.extend(args.browser_test)
+                checks.run(name, browser_command, env=browser_env, timeout=1800)
             else:
-                checks.record('browser-tests', 'blocked', reason='Frontend build failed')
+                checks.record(name, 'blocked', reason='Frontend build failed')
         if args.mode in ('desktop', 'all'):
             if sys.platform != 'linux':
                 checks.record('native-desktop', 'blocked', reason='Local private-display runner supports Linux; see native CI for macOS/Windows')
@@ -238,7 +323,7 @@ def verify(args: argparse.Namespace) -> int:
                                '--server-args=-screen 0 1600x1100x24', *python, 'packaging/smoke_desktop.py',
                                '--screenshot', str(checks.output / 'native.png'), '--',
                                str(ROOT / 'app/src-tauri/target/debug/badshop-desktop')], env=env, timeout=180)
-                    launcher_env = env | {'BADSHOP_DEV_PORT': os.environ.get('BADSHOP_DEV_PORT', '1422')}
+                    launcher_env = env | {'BADSHOP_DEV_PORT': env['BADSHOP_DEV_PORT']}
                     checks.run('launcher-desktop', ['dbus-run-session', '--', 'xvfb-run', '-a',
                                '--server-args=-screen 0 1600x1100x24', *python, 'packaging/smoke_desktop.py',
                                '--startup-timeout', '900', '--screenshot', str(checks.output / 'launcher.png'),

@@ -3,15 +3,22 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 concurrency:
   group: desktop-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  scope:
+    uses: ./.github/workflows/change-scope.yml
   installed-desktop:
+    needs: scope
+    if: needs.scope.outputs.installers == 'true'
     uses: ./.github/workflows/native-desktop.yml
   frontend:
+    needs: scope
+    if: needs.scope.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -33,6 +40,8 @@ jobs:
           name: browser-test-results
           path: artifacts/verification
   native:
+    needs: scope
+    if: needs.scope.outputs.native == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -44,3 +53,23 @@ jobs:
       - run: mkdir -p app/dist packaging/core-dist && echo '<html></html>' > app/dist/index.html
       - run: cargo test --manifest-path app/src-tauri/Cargo.toml --locked
       - run: cargo fmt --manifest-path app/src-tauri/Cargo.toml -- --check
+  desktop-result:
+    if: always()
+    needs: [scope, installed-desktop, frontend, native]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful selected checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          results = json.loads(os.environ["RESULTS"])
+          assert results["scope"]["result"] == "success", "Change classification failed"
+          failed = {name: job["result"] for name, job in results.items() if job["result"] not in ("success", "skipped")}
+          assert not failed, failed
+          for flag, job in {'installers': 'installed-desktop', 'frontend': 'frontend', 'native': 'native'}.items():
+              if results["scope"]["outputs"][flag] == "true":
+                  assert results[job]["result"] == "success", f"Selected job {job} did not pass"
+          print("All selected checks passed; unselected jobs were intentionally skipped.")
+          PY

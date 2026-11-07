@@ -41,6 +41,7 @@ import {
   projectPath,
   restart,
 } from "./native";
+import { reportNativeReadiness } from "./nativeReadiness";
 import type { ApprovalMode } from "./types";
 function Resizer({
   side,
@@ -114,6 +115,11 @@ export default function App() {
   const previousSession = useRef<string | undefined>(undefined);
   const sessionMenu = useRef<HTMLDivElement>(null);
   useEffect(() => startCore(), []);
+  useEffect(() => {
+    if (native && ui.status === "ready" && session?.id && profiles) {
+      void reportNativeReadiness(session.id).catch(error => console.error("Native readiness probe failed", error));
+    }
+  }, [ui.status, session?.id, !!profiles]);
   useEffect(() => {
     if (previousSession.current && previousSession.current !== session?.id) {
       setAttachments([]);
