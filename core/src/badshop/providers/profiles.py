@@ -2,7 +2,6 @@
 
 import json
 import os
-import tempfile
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -11,6 +10,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator, model_validator
 
 from badshop.engine.errors import EngineError
+from badshop.atomic import write_text
 from badshop.server.settings import config_dir
 
 SERVICE = "badshop.providers"
@@ -82,17 +82,9 @@ def load_profiles() -> dict[str, Profile]:
 
 def save_profiles(profiles: dict[str, Profile]) -> None:
     path = profiles_path()
-    tmp = None
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="providers.", suffix=".part")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump([p.model_dump(mode="json") for p in profiles.values()], fh, indent=2)
-            fh.write("\n")
-        os.replace(tmp, path)
+        write_text(path, json.dumps([p.model_dump(mode="json") for p in profiles.values()], indent=2) + "\n")
     except OSError:
-        if tmp:
-            Path(tmp).unlink(missing_ok=True)
         raise EngineError("can't save provider profiles", hint=f"check that {path.parent} is writable") from None
 
 

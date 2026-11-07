@@ -2,7 +2,6 @@
 
 import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -10,6 +9,7 @@ import platformdirs
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from badshop.files import expand_user_path
+from badshop.atomic import write_text
 from badshop.engine.errors import EngineError
 from badshop.session.preferences import CreativePreferences
 
@@ -85,15 +85,8 @@ def load_settings() -> Settings:
 def save_settings(s: Settings) -> None:
     """Write the settings atomically: a temp file in the same folder, then os.replace."""
     path = settings_path()
-    tmp = None
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=FILE + ".", suffix=".part")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(s.model_dump_json(indent=2) + "\n")
-        os.replace(tmp, path)
+        write_text(path, s.model_dump_json(indent=2) + "\n")
     except OSError as e:
-        if tmp:
-            Path(tmp).unlink(missing_ok=True)
         raise EngineError(f"can't save the settings ({e})",
                           hint=f"check that {path.parent} is writable") from None
