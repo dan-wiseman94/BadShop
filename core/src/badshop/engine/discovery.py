@@ -19,15 +19,21 @@ from PIL import Image, ImageFilter, ImageOps
 from pydantic import Field, field_validator
 
 from badshop.engine import sources
+from badshop.engine import source_keys
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import ImageRef, Params
 
-SourceName = Literal["all", "commons", "openverse", "loc", "met", "flickr", "nasa", "web", "smithsonian", "bhl", "europeana", "cleveland", "wellcome"]
+SourceName = Literal["all", "commons", "openverse", "loc", "met", "flickr", "nasa", "web", "smithsonian", "bhl", "europeana", "cleveland", "wellcome", "chicago", "openmoji", "pexels", "pixabay", "brave"]
 URL = Annotated[str, Field(max_length=4096)]
 
 # Configuration presence is useful to the picker without exposing credentials or doing a network check.
 SOURCE_CONFIG = {
+    'pexels': ('Pexels', 'BADSHOP_PEXELS_API_KEY', True),
+    'pixabay': ('Pixabay', 'BADSHOP_PIXABAY_API_KEY', True),
+    'brave': ('Brave image search', 'BADSHOP_BRAVE_API_KEY', True),
+    "chicago": ("Art Institute of Chicago", None, False),
+    "openmoji": ("OpenMoji", None, False),
     "commons": ("Wikimedia Commons", None, False),
     "openverse": ("Openverse", None, False),
     "loc": ("Library of Congress", None, False),
@@ -45,7 +51,7 @@ SOURCE_CONFIG = {
 
 def source_status() -> list[dict]:
     """Public configuration capabilities, not service health or validation of supplied API keys."""
-    return [{"id": id, "name": name, "configured": env is None or bool(os.environ.get(env, "").strip()),
+    return [{"id": id, "name": name, "configured": env is None or source_keys.configured(env),
              "requires_key": requires_key, "env_var": env}
             for id, (name, env, requires_key) in SOURCE_CONFIG.items()]
 
@@ -63,6 +69,9 @@ class DiscoverParams(Params):
     reference_url: URL | None = Field(None, description="A discovery candidate's thumbnail URL to compare without importing it")
     variation: Literal["balanced", "similar", "different"] = "balanced"
     exclude_urls: list[URL] = Field(default_factory=list, max_length=50)
+    allow_sources: list[SourceName] = Field(default_factory=list, max_length=40)
+    rights: Literal['any','known','public-domain'] = 'any'
+    orientation: Literal['any','landscape','portrait','square'] = 'any'
 
     @field_validator("query")
     @classmethod
@@ -292,7 +301,7 @@ def wellcome(query, n):
 
 
 def flickr(query, n):
-    key = os.environ.get("BADSHOP_FLICKR_API_KEY")
+    key = source_keys.resolve("BADSHOP_FLICKR_API_KEY")
     if not key:
         raise EngineError("Flickr Commons needs BADSHOP_FLICKR_API_KEY in the core's environment")
     try:
@@ -348,7 +357,7 @@ def web(query, n):
 
 
 def _key_request(kind, endpoint, params, key_env, key_param):
-    key = os.environ.get(key_env)
+    key = source_keys.resolve(key_env)
     if not key:
         raise EngineError(f"{kind} needs {key_env} in the core's environment")
     try:
@@ -445,7 +454,23 @@ def bhl(query, n):
     return [group[i] for i in range(n) for group in groups if len(group) > i][:n]
 
 
-SEARCHERS = {"commons": commons, "openverse": openverse, "loc": loc, "met": met,
+def chicago(query, n):
+    from badshop.engine.collections import chicago as search
+    return search(query, n)
+
+
+def openmoji(query, n):
+    from badshop.engine.collections import openmoji as search
+    return search(query, n)
+
+
+def stock(source, query, n):
+    from badshop.engine.stock_sources import search
+    return search(source, query, n)
+
+
+SEARCHERS = {'pexels': lambda q,n: stock('pexels',q,n), 'pixabay': lambda q,n: stock('pixabay',q,n), 'brave': lambda q,n: stock('brave',q,n),
+             "chicago": chicago, "openmoji": openmoji, "commons": commons, "openverse": openverse, "loc": loc, "met": met,
              "flickr": flickr, "nasa": nasa, "web": web,
              "smithsonian": smithsonian, "bhl": bhl, "europeana": europeana,
              "cleveland": cleveland, "wellcome": wellcome}
@@ -520,6 +545,10 @@ def _rank(hit, image, p):
 def discover(p: DiscoverParams, reference=None) -> EngineResult:
     query = " ".join(filter(None, [p.query, p.pose, p.expression]))
     names = [item["id"] for item in source_status() if item["configured"]] if p.source == "all" else [p.source]
+    if p.allow_sources:
+        names = [name for name in names if name in p.allow_sources]
+    if not names:
+        raise EngineError('no enabled sources match this search')
     per_source = min(12, max(4, (p.n * 3 + len(names) - 1) // len(names)))
     notes = []
     def search(name):
@@ -542,8 +571,20 @@ def discover(p: DiscoverParams, reference=None) -> EngineResult:
             if i < len(group) and group[i]["url"] not in seen:
                 hits.append(group[i])
                 seen.add(group[i]["url"])
+    def allowed(hit):
+        license = (hit['source'].get('license') or '').lower()
+        if p.rights == 'known':
+            return bool(license)
+        if p.rights == 'public-domain':
+            return 'cc0' in license or 'public domain' in license or 'publicdomain' in license
+        return True
+    hits = [hit for hit in hits if allowed(hit)]
+    # Chicago asks clients to fetch images serially. Keep its previews out of the concurrent pool.
+    serial = [_preview(hit) for hit in hits[:36] if hit['source']['kind']=='chicago']
     with ThreadPoolExecutor(max_workers=6) as pool:
-        previews = [item for item in pool.map(_preview, hits[:36]) if item]
+        previews = [item for item in [*serial,*pool.map(_preview,[hit for hit in hits[:36] if hit['source']['kind']!='chicago'])] if item]
+    if p.orientation != 'any':
+        previews = [item for item in previews if (item[1].width>item[1].height*1.1 if p.orientation=='landscape' else item[1].height>item[1].width*1.1 if p.orientation=='portrait' else .9<=item[1].width/item[1].height<=1.1)]
     if not previews:
         raise EngineError("no usable image previews found", hint="; ".join(notes + ["try fewer words or another source"]))
     ranked = []

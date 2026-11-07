@@ -29,6 +29,10 @@ MAX_PACK = 80 * 2**20
 MAX_ENTRY = 20 * 2**20
 MAX_ITEMS = 100
 BUILTINS = {
+    'pixel-buttons': ('Pixel web buttons', 'Exact 88 x 31 pixel buttons', ['HOME', 'EMAIL', 'LINKS', 'ENTER']),
+    'blinkie-labels': ('Blinkie labels', 'Tiny 150 x 20 sticker strips', ['ONLINE', 'AWAY', 'NO SIGNAL', 'HELLO WORLD']),
+    'terminal-tiles': ('Terminal tiles', 'Seeded green grid and scanline tiles', ['GRID', 'SCANLINES', 'STARS', 'CONFETTI']),
+    'homepage-tiles': ('Homepage wallpaper tiles', 'Seamless repeating star and checker tiles', ['STARS', 'CHECKER', 'GRID', 'CONFETTI']),
     "school-lab": ("School computer lab", "Gold stars, certificates, pointing arrows and A+ badges",
                    ["GOLD STAR", "A+", "GOOD JOB", "LOOK HERE"]),
     "homepage-1998": ("1998 personal homepage", "Under-construction sign, visitor counter, web ring and email badge",
@@ -211,14 +215,22 @@ def install_builtin(library: AssetLibrary, id: str):
     name, _, labels = BUILTINS[id]
     entries = []
     for index, label in enumerate(labels):
-        im = _sticker(id, index, label)
+        if id in ('pixel-buttons', 'blinkie-labels', 'terminal-tiles', 'homepage-tiles'):
+            from badshop.engine import retro
+            if id in ('pixel-buttons', 'blinkie-labels'):
+                im = retro.render(retro.RetroParams(style='badge' if id == 'pixel-buttons' else 'blinkie', title=label), []).outputs[0].image
+            else:
+                im = retro.pattern(retro.PatternParams(width=64, height=64, pattern=label.lower(), seed=index,
+                    background='#061408' if id == 'terminal-tiles' else '#000033', foreground='#77ff88' if id == 'terminal-tiles' else '#ffff00')).outputs[0].image
+        else:
+            im = _sticker(id, index, label)
         buf = io.BytesIO()
         im.save(buf, "PNG")
         source = Source(kind="builtin-pack", title=f"{name}: {label}", creator="badshop procedural artwork",
                         license="MIT", page=None)
         meta = session.artifacts.add(buf.getvalue(), label, source=source)
-        entries.append(library.save(session, meta.id, label, [id, "prop", "transparent"],
-                                   AssetDetails(anchors={"center": (160, 90), "bottom": (160, 179)},
+        entries.append(library.save(session, meta.id, label, [id, "prop", "transparent" if im.mode == 'RGBA' else 'opaque'],
+                                   AssetDetails(anchors={"center": (im.width // 2, im.height // 2), "bottom": (im.width // 2, im.height - 1)},
                                                 notes=f"Original geometric artwork drawn by badshop; pack: {name}.")))
     return entries
 
@@ -242,7 +254,7 @@ def export_pack(library: AssetLibrary, ids: list[str], path: str, name: str = "M
                 if len(blob) > MAX_ENTRY:
                     raise EngineError("an image is too large for a pack (20 MB limit)")
                 blobs[f"images/{meta.id}{meta.ext}"] = blob
-    manifest = json.dumps({"schema": 1, "name": name, "entries": [e.model_dump(mode="json") for e in entries]}).encode()
+    manifest = json.dumps({"schema": 1, "pack_version": 1, "requires": {"image_pack": 1}, "name": name, "entries": [e.model_dump(mode="json") for e in entries]}).encode()
     if len(manifest) > 2**20 or sum(map(len, blobs.values())) > MAX_PACK:
         raise EngineError("the pack exceeds its 80 MB image or 1 MB metadata limit")
     destination = _absolute(path)
@@ -282,6 +294,8 @@ def import_pack(library: AssetLibrary, path: str):
             manifest = json.loads(archive.read("pack.json"))
             if manifest.get("schema") != 1 or not isinstance(manifest.get("entries"), list):
                 raise EngineError("unsupported asset pack format")
+            if manifest.get('pack_version', 1) != 1 or manifest.get('requires', {'image_pack': 1}) != {'image_pack': 1}:
+                raise EngineError('this pack requires an unsupported version or dependency', hint='use a pack containing frozen images for image_pack version 1')
             raw_entries = manifest["entries"]
             if not 1 <= len(raw_entries) <= MAX_ITEMS:
                 raise EngineError("pack must contain 1 to 100 assets")

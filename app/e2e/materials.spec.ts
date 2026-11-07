@@ -25,7 +25,7 @@ test("real layouts, installed asset packs, and image pair composition stay edita
   expect(built.steps.at(-1)?.tool).toBe("layout");
   const card = built.steps.at(-1)!.outputs[0];
   const packButtons = page.getByRole("button", { name: /^Install / });
-  await expect(packButtons).toHaveCount(8);
+  await expect(packButtons).toHaveCount(12);
   await packButtons.first().click();
   await expect(page.getByText(/assets added to your junk drawer/)).toBeVisible();
   const entries = await core.call("library.list") as LibraryEntry[];

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from badshop.files import expand_user_path
 from badshop.engine.errors import EngineError
+from badshop.session.preferences import CreativePreferences
 
 ApprovalMode = Literal["auto", "ask_changes", "ask_all"]
 FILE = "settings.json"
@@ -26,6 +27,20 @@ class Settings(BaseModel):
     tool_timeout_s: float = Field(120.0, ge=1, le=3600)  # wall clock per tool call
     tool_memory_mb: int = Field(3072, ge=256, le=65536)  # memory per tool call
     fake_provider_script: str | None = None  # a ScriptedProvider JSON file (tests and demos, until Plan 3)
+    creative_defaults: CreativePreferences = Field(default_factory=CreativePreferences)
+    no_remote: bool = False
+    remember_history: bool = True
+    source_allowlist: list[str] = Field(default_factory=list, max_length=40)
+    rights_filter: Literal['any','known','public-domain'] = 'any'
+    source_orientation: Literal['any','landscape','portrait','square'] = 'any'
+
+    @field_validator('source_allowlist')
+    @classmethod
+    def source_ids(cls, value):
+        from badshop.engine.discovery import SOURCE_CONFIG
+        if any(s not in SOURCE_CONFIG for s in value):
+            raise ValueError('unknown image source')
+        return list(dict.fromkeys(value))
 
     @field_validator("output_dir")
     @classmethod

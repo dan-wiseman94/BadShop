@@ -35,6 +35,13 @@ ALL_FILTERS = ["emboss", "edges", "contour", "solarize", "posterize", "invert", 
 
 # id -> (tool, params, needs a downloaded asset). Image parameters name fixture files.
 CASES = {
+    'retro-forum': ('retro_layout', {'style':'forum','images':[L,J],'title':'MY POST','caption':'HELLO','seed':7}, False),
+    'retro-canvas': ('canvas', {'image':J,'width':64,'height':64,'tile':True}, False),
+    'retro-pattern': ('pattern', {'width':128,'height':128,'seed':7}, False),
+    'retro-palette': ('palette', {'image':L,'palette':'cga'}, False),
+    'retro-bitmap': ('bitmap_text', {'image':L,'text':'HELLO','scale':2}, False),
+    'retro-sticker': ('animate_sticker', {'image':L,'sticker':J,'frames':4,'width':44}, False),
+    'retro-export': ('export_profile', {'image':L,'profile':'web-button'}, False),
     "info": ("info", {"image": L}, False),
     "prep": ("prep", {"image": T, "max": 300}, False),
     "view-grid": ("view", {"image": L, "grid": True, "max": 300}, False),

@@ -84,12 +84,14 @@ def policy_for(trusted: frozenset[str] = frozenset()) -> Callable[[str], None]:
 
 
 @contextmanager
-def guarded(trusted: frozenset[str] = frozenset()) -> Iterator[None]:
+def guarded(trusted: frozenset[str] = frozenset(), no_remote: bool = False) -> Iterator[None]:
     """Install the policy as assets.URL_POLICY for the block, so every download, redirect hop and asset
     fetch is checked, then put back whatever was there. URL_POLICY is process-wide: one tool call runs
     at a time in a process (the session's lock, or the worker's single child)."""
     previous = assets.URL_POLICY
-    assets.URL_POLICY = policy_for(trusted)
+    def offline(url):
+        raise EngineError('remote downloads are disabled', hint='import a local file or turn off Local only in Settings')
+    assets.URL_POLICY = offline if no_remote else policy_for(trusted)
     try:
         yield
     finally:

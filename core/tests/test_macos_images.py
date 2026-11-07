@@ -18,6 +18,12 @@ def test_macos_image_pixels(tmp_path, case_id):
     # pixels with the reference engine running on the same Mac.
     got = run_case(case_id, tmp_path)
     expected = _golden()["cases"][case_id]
+    if CASES[case_id][0] == "export_profile":
+        # The reported encoded length must match this platform's actual output,
+        # whose PNG compression may differ from the Linux golden's encoding.
+        output, = got["files"]
+        assert got["data"].pop("bytes") == (tmp_path / output).stat().st_size
+        expected["data"].pop("bytes")
     assert got["lines"] == expected["lines"]
     assert got["data"] == expected["data"]
     assert list(got["files"]) == list(expected["files"])

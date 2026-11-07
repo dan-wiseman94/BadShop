@@ -10,6 +10,7 @@ from badshop.tools import REGISTRY
 from badshop.tools.registry import llm_schema, ui_schema, user_only_fields
 from conftest import load_reference
 from test_params import BASE
+RETRO_TOOLS = {'retro_layout', 'canvas', 'pattern', 'palette', 'bitmap_text', 'animate_sticker', 'export_profile', 'collection_items'}
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
@@ -57,7 +58,7 @@ def test_registry_is_complete_and_described():
     engine_tools = {"prep", "fetch", "wiki", "emoji", "template", "find", "cutout", "paste", "text", "draw",
                     "censor", "eyes", "warp", "flare", "sparkle", "watermark", "filter", "save", "deepfry",
                     "animate", "info"}
-    assert set(REGISTRY) == engine_tools | {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"}
+    assert set(REGISTRY) == engine_tools | {"view", "export", "discover", "acquire", "layout", "pair_images", "slice_sheet"} | RETRO_TOOLS
     for spec in REGISTRY.values():
         assert len(spec.description) >= 40, spec.name
 
@@ -78,6 +79,8 @@ def test_every_schema_is_valid_json_schema(name):
 # (mutates, network, read_only, writes_files): the approval gate (spec 7), the recipe log and the
 # session's in-process export rely on these.
 FLAGS = {
+    **{n: (True, False, False, False) for n in RETRO_TOOLS - {'collection_items'}},
+    'collection_items': (False, True, False, False),
     "layout": (True, False, False, False),
     "pair_images": (True, False, False, False),
     "slice_sheet": (True, False, False, False),

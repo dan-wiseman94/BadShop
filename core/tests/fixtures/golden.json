@@ -1079,6 +1079,177 @@
      ]
     }
    }
+  },
+  "retro-forum": {
+   "lines": [],
+   "data": {
+    "style": {
+     "id": "forum",
+     "name": "phpBB forum post",
+     "era": "2000s",
+     "family": "Social",
+     "width": 640,
+     "height": 420,
+     "background": "#dce5ee",
+     "foreground": "#172940",
+     "accent": "#315f8a",
+     "furniture": "forum",
+     "version": 1
+    },
+    "slots": [
+     [
+      18,
+      54,
+      82,
+      82
+     ],
+     [
+      120,
+      76,
+      502,
+      284
+     ]
+    ],
+    "font": "Pillow bundled 6x11 Latin-1 bitmap",
+    "seed": 7
+   },
+   "files": {
+    "work/forum.png": {
+     "format": "PNG",
+     "size": [
+      640,
+      420
+     ],
+     "sha256": "b8b6165dded595a0ed2c99e050b6be988aaab5bae56c4033d0fee41713558f2b",
+     "frames": [
+      "2afdb3f550791ed9744a931a0d1f49a26d9a8875995afd535c6c8f4d4d081795"
+     ]
+    }
+   }
+  },
+  "retro-canvas": {
+   "lines": [],
+   "data": {},
+   "files": {
+    "work/canvas.png": {
+     "format": "PNG",
+     "size": [
+      64,
+      64
+     ],
+     "sha256": "795198cbcf0473aac8592313f9c392dd2de4d0c800d7516e418af861d9a76141",
+     "frames": [
+      "c050df2fbccad09e54058d39cb404e0b6e892001aa7ddd6cdf184a1fdf5d41e2"
+     ]
+    }
+   }
+  },
+  "retro-pattern": {
+   "lines": [],
+   "data": {
+    "seed": 7
+   },
+   "files": {
+    "work/pattern.png": {
+     "format": "PNG",
+     "size": [
+      128,
+      128
+     ],
+     "sha256": "27bc63ee2ce65f1a420061177489148fc51c82cf529480399bfbb6c7601b7d7a",
+     "frames": [
+      "3b3075dc4df2123589892040557420e916fb95b55f7fa0d7873bb5749c35812c"
+     ]
+    }
+   }
+  },
+  "retro-palette": {
+   "lines": [],
+   "data": {
+    "colors": [
+     "#000000",
+     "#55ffff",
+     "#ff55ff",
+     "#ffffff"
+    ]
+   },
+   "files": {
+    "work/palette.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "c8927b762d13e20fd1c718be0c085be9bdf5dc0aea4fbfb0cf4769db7b0ca237",
+     "frames": [
+      "487fe630bcc75d8f9c3e6b10e73ad7540a665406d4e07334811a8990bcf50909"
+     ]
+    }
+   }
+  },
+  "retro-bitmap": {
+   "lines": [],
+   "data": {
+    "font": "Pillow bundled 6x11 Latin-1 bitmap"
+   },
+   "files": {
+    "work/bitmap-text.png": {
+     "format": "PNG",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "cd0548c61850fa0499535ea80d5f3cda5ef49b68c290dc493b005cfa79b1d35d",
+     "frames": [
+      "503ac1f0556fcace36c66eae928c84c545cd204abe805c59a0a7f1c102eba743"
+     ]
+    }
+   }
+  },
+  "retro-sticker": {
+   "lines": [],
+   "data": {
+    "frames": 4,
+    "delay": 100,
+    "loop": 0
+   },
+   "files": {
+    "work/sticker.gif": {
+     "format": "GIF",
+     "size": [
+      457,
+      600
+     ],
+     "sha256": "c2037fd6427886f45b2108d096c1ceffac09a79de3432ff6b1b8301221b5acd3",
+     "frames": [
+      "94d8dbd2061e598b6e8d9cd193b4098f40e1fdb94801ff277a469cddfa7ccdc1",
+      "ac0e88995837909434ca1bb5f9caeee1007421816066eb68c79c15767eeba9d0",
+      "2a41178d3f27f2bec4fb4c8ed6b6264f8d0787880a235d87603092b4a230fbe2",
+      "ac0e88995837909434ca1bb5f9caeee1007421816066eb68c79c15767eeba9d0"
+     ]
+    }
+   }
+  },
+  "retro-export": {
+   "lines": [],
+   "data": {
+    "bytes": 1812,
+    "quality": 80,
+    "profile": "web-button"
+   },
+   "files": {
+    "work/export.png": {
+     "format": "PNG",
+     "size": [
+      88,
+      31
+     ],
+     "sha256": "82baa0f2dc33a7b43bfd56a61b3fa37bdae8b1a570d6b2919678c56823a227c2",
+     "frames": [
+      "f4a68ab94f943aa4792dfb8cfbbc0883a7fe87174380c105b1be7c6c72ecf308"
+     ]
+    }
+   }
   }
  }
 }

@@ -237,6 +237,16 @@ class Session:
     def propose(self, tool: str, raw: dict, actor: str, reason: str | None = None) -> Step:
         """Validate a call for `actor` and add it as a proposed step. Image refs must name artifacts of
         this session (never paths, whoever asks); they are stored as full ids."""
+        if tool == 'retro_layout':
+            defaults = self.data.creative.model_dump(include={'style','density','exact_text','seed','fit'})
+            raw = {**defaults, **raw}
+        if tool == 'animate_sticker':
+            raw = {'delay': self.data.creative.animation_delay, **raw}
+        if tool == 'discover' and getattr(self, 'source_defaults', None):
+            raw = {**self.source_defaults, **raw}
+            allowed = self.source_defaults.get('allow_sources', [])
+            if allowed:
+                raw['allow_sources'] = allowed
         params = self._resolved(runner.validate(tool, raw, actor))
         step = Step(id=self._next_id("s"), index=len(self.data.steps) + 1, tool=tool, params=params,
                     actor=actor, status="proposed", reason=reason)
@@ -292,7 +302,7 @@ class Session:
                 inputs = {id: self.artifacts.data(self.artifacts.resolve(id)) for id in _image_refs(step)}
                 trusted = netpolicy.typed_urls(step.tool, step.params, step.actor)  # a user's own link
                 call = ToolCall(step.tool, step.params, inputs, stem, trusted_urls=trusted,
-                                guard_network=True)
+                                guard_network=True, no_remote=getattr(self, 'no_remote', False))
                 outcome = self.executor.run(call, cancel=cancel)  # the caller's stop goes with its call
             outputs = self._store_outputs(step, outcome, stem) if outcome.ok else []
         except EngineError as e:
@@ -603,6 +613,7 @@ class Session:
             return set(self.artifacts.ids())
         branch = self.data.branches[self.data.active_branch_id]
         ids = set(branch.artifact_ids)
+        ids.update(self.data.creative.source_roles.values())
         for step in self.data.steps:
             ids.update(_image_refs(step), step.outputs, step.previous_outputs)
         for message in self.data.messages:
@@ -624,6 +635,7 @@ class Session:
         # message or agent turn names them, so a save or autosave right after a drop keeps the picture.
         originals = {a.original_id for a in meta.values() if a.original_id}
         ids = {i for i, a in meta.items() if a.produced_by is None and i not in originals}
+        ids.update(self.data.creative.source_roles.values())
         for s in self.data.steps:
             ids.update(_image_refs(s), s.outputs, s.previous_outputs)
         named: set[str] = set()
@@ -640,6 +652,7 @@ class Session:
             ids.update(by_short[found])
         for branch in self.data.branches.values():
             ids.update(branch.artifact_ids)
+            ids.update(branch.creative.source_roles.values())
         originals = [meta[i].original_id for i in ids if i in meta]
         ids.update(o for o in originals if o)
         return ids

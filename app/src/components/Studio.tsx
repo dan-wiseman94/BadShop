@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { action, imageUrl, useCoreQuery, useSession } from "../data";
+import { action, imageUrl, run, useCoreQuery, useSession } from "../data";
 import { rpc } from "../rpc";
 import { useUI } from "../store";
 import { openLink } from "../native";
@@ -13,6 +13,7 @@ import { RecentChoices } from "./RecentChoices";
 import { LocalMedia } from "./LocalMedia";
 import { IdeaMixer } from "./IdeaMixer";
 import { SpriteSheet } from "./SpriteSheet";
+import { RetroStudio } from "./RetroStudio";
 import type { LibraryEntry, Params } from "../types";
 
 type Candidate = {
@@ -178,6 +179,7 @@ export function Studio({
         <nav className="studio-tabs" aria-label="Images and directions">
           {[
             ["discover", "Find images"],
+            ["retro", "Retro workbench"],
             ["ideas", "Idea mixer"],
             ["library", "Junk drawer"],
             ["branches", "Branches"],
@@ -209,6 +211,7 @@ export function Studio({
         )}
         {tab === "discover" && (
           <>
+              <p className="muted">{[['pexels','Photos provided by Pexels','https://www.pexels.com/'],['pixabay','Images from Pixabay','https://pixabay.com/']].filter(([id])=>candidates.some(c=>c.source.kind===id)).map(([id,label,url])=><button key={id} onClick={()=>run(()=>openLink(url))}>{label}</button>)}</p>
             <details className="collection-status">
               <summary>Collection availability</summary>
               <p>Ready means the required configuration is present; it does not test the service or validate its credentials.</p>
@@ -670,7 +673,8 @@ export function Studio({
           </>
         )}
         {tab === "layouts" && <LayoutsPacks key={session?.id} onAttach={onAttach} />}
-        {tab === "ideas" && <IdeaMixer onDraft={onDraft} onSearch={value => {
+        {tab === "retro" && <RetroStudio key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} onDraft={onDraft} />}
+        {tab === "ideas" && <IdeaMixer key={`${session?.id}-${useUI.getState().documentGeneration}`} onDraft={onDraft} onSearch={value => {
           setQuery(value); setPurpose("background"); setSource("all"); setPose(""); setExpression("");
           setSameSubject(false); setCandidates([]); setSheet(null); setNotes(""); setTab("discover");
         }} />}

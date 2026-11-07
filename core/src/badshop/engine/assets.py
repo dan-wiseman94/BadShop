@@ -63,7 +63,11 @@ class _WebOnlyRedirects(urllib.request.HTTPRedirectHandler):
         except BaseException:
             fp.close()
             raise
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected and urllib.parse.urlsplit(req.full_url)[:2] != urllib.parse.urlsplit(newurl)[:2]:
+            for name in ('Authorization', 'X-subscription-token'):
+                redirected.remove_header(name)
+        return redirected
 
 
 _OPENER = urllib.request.build_opener(_WebOnlyRedirects)
@@ -94,13 +98,14 @@ def _too_big(url: str, max_bytes: int) -> EngineError:
     return EngineError(f"{url[:60]} is larger than {size}", hint="use a smaller image or its thumbnail link")
 
 
-def http_get(url: str, timeout: float = 30, max_bytes: int = MAX_DOWNLOAD) -> tuple[bytes, str]:
+def http_get(url: str, timeout: float = 30, max_bytes: int = MAX_DOWNLOAD, headers: dict[str, str] | None = None) -> tuple[bytes, str]:
     """GET an http(s) link: at most `max_bytes`, all of it within `timeout` seconds (EngineError past
     either). Other schemes (file:, ftp:, data:) raise URLError, even via a redirect."""
     if urllib.parse.urlsplit(url).scheme not in WEB_SCHEMES:
         raise urllib.error.URLError(f"only http and https links can be fetched ({url[:60]})")
     deadline = time.monotonic() + timeout
-    with _open(url, min(10, timeout)) as r:  # the socket timeout bounds each recv, not the whole body
+    response = _open(url, min(10, timeout), headers) if headers else _open(url, min(10, timeout))
+    with response as r:  # the socket timeout bounds each recv, not the whole body
         length = _content_length(r.headers)
         if length is not None and length > max_bytes:
             raise _too_big(url, max_bytes)
