@@ -33,7 +33,7 @@ def rembg_session(model: str) -> object:
         return session
     drop_sessions()  # free the other model before loading this one
     try:
-        manifest.ensure_rembg_model(model)  # imports rembg, after pointing it at our data dir
+        manifest.ensure_rembg_model(model)  # points rembg at the verified cache before importing it
         from rembg import new_session
     except ImportError:
         raise EngineError("rembg is not installed", hint='pip install "rembg[cpu]", or use no_ai') from None

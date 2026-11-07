@@ -18,6 +18,8 @@ import { openLink } from "../native";
 import type { Params, NoveltyMode } from "../types";
 import { creativeRequest, creativeStyles } from "../creative";
 import "../creative.css";
+import { ON_DEVICE } from "../constants";
+
 export function Chat({
   attachments,
   onAttachments,
@@ -127,14 +129,19 @@ export function Chat({
               Bad intentions.
             </h1>
             <p>
-              Tell your agent what to cut, paste, caption, or absolutely ruin.
+              {session?.provider_profile_id === ON_DEVICE
+                ? "Add a photo, then describe one edit you want to make."
+                : "Tell your agent what to cut, paste, caption, or absolutely ruin."}
             </p>
             <div className="example-prompts">
-              {[
-                "Put laser eyes on this.",
-                "Make it look like a 2005 forum signature.",
-                "Find a cat. Deep fry it. Add “stonks”.",
-              ].map((prompt) => (
+              {(session?.provider_profile_id === ON_DEVICE
+                ? ["Put laser eyes on the person on the left.", "Deep fry this photo.", "Add a caption that says “MONDAY”."]
+                : [
+                    "Put laser eyes on this.",
+                    "Make it look like a 2005 forum signature.",
+                    "Find a cat. Deep fry it. Add “stonks”.",
+                  ]
+              ).map((prompt) => (
                 <button key={prompt} onClick={() => setText(prompt)}>
                   {prompt}
                   <ArrowUp size={13} />
