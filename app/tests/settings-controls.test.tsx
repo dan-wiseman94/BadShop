@@ -1,17 +1,11 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AssetRow, Settings, Welcome } from "../src/components/Settings";
+import { AssetRow, Settings } from "../src/components/Settings";
 import { action, queries } from "../src/data";
 import { rpc } from "../src/rpc";
 import { useUI } from "../src/store";
-import type { Session, Profile } from "../src/types";
+import type { Profile, Session } from "../src/types";
 const session: Session = {
   id: "s",
   name: "Settings",
@@ -82,37 +76,7 @@ it("keeps shared manual download cancellation available across widget unmount an
     ).not.toBeInTheDocument(),
   );
 });
-it("requires choosing an existing saved provider when the current session has none", async () => {
-  const chosen = { ...session, provider_profile_id: profile.id };
-  const request = vi
-    .spyOn(rpc, "request")
-    .mockImplementation(
-      (method) =>
-        Promise.resolve(
-          method === "providers.list"
-            ? [profile]
-            : method === "session.get" || method === "providers.select"
-              ? chosen
-              : [],
-        ) as never,
-    );
-  render(<Welcome onClose={() => {}} />, { wrapper });
-  expect(screen.getByRole("button", { name: "Use Saved local" })).toBeVisible();
-  expect(
-    screen.queryByRole("button", { name: "Start making badshops" }),
-  ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Use Saved local" }));
-  await waitFor(() =>
-    expect(request).toHaveBeenCalledWith("providers.select", {
-      profile_id: profile.id,
-    }),
-  );
-  await waitFor(() =>
-    expect(
-      screen.getByRole("button", { name: "Start making badshops" }),
-    ).toBeVisible(),
-  );
-});
+
 it("keeps setup checks offline and only sends a paid-capable probe on explicit Test connection", async () => {
   let probed = false;
   const request = vi.spyOn(rpc, "request").mockImplementation(

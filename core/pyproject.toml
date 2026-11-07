@@ -46,6 +46,8 @@ exclude = ["**/__pycache__", "**/*.pyc"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "unit: isolated module and engine-component checks (see tests/conftest.py)",
+    "integration: process, transport, persistence, reference/golden, model or service checks",
     "models: needs downloaded models or fonts (rembg, YuNet, Anton, Comic Neue); cached in core/.test-cache",
     "network: talks to real internet services",
     "live: explicitly opted-in real provider smoke tests",

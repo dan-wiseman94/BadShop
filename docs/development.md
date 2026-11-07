@@ -18,8 +18,6 @@ uv sync --project core --locked
 pnpm.cmd --dir app install --frozen-lockfile
 pnpm.cmd --dir app exec playwright install chromium
 uv run --project core --locked python scripts/verify.py doctor
-uv run --project core --locked python scripts/verify.py quick
-uv run --project core --locked python scripts/verify.py browser
 ```
 
 Linux and macOS:
@@ -42,6 +40,38 @@ executables and library metadata. Install missing system packages yourself with 
 normal package manager; verification never invokes sudo.
 
 ## Pick the relevant checks
+
+Start with the smallest test selection covering the changed behavior. State what it
+checks before running it. Documentation-only changes need no application tests;
+test deletions need collection and lint checks. Do not rebuild installers for test or
+documentation changes.
+
+From the repository root (use `pnpm.cmd` instead of `pnpm` in Windows PowerShell):
+
+```sh
+# One Python regression, or omit ::test_name to run its file.
+uv run --project core --locked pytest core/tests/test_sheets.py::test_invalid_grid_creates_no_partial_output_artifacts -q
+
+# One component regression; omit -t to run the affected file.
+pnpm --dir app exec vitest run tests/session-actions.test.tsx -t "Cancel"
+
+# One real browser/core journey.
+pnpm --dir app exec playwright test e2e/project-journey.spec.ts --grep "manual editing"
+
+# Collect without executing; unit/integration markers do not change the default suite.
+uv run --project core --locked pytest core/tests --collect-only -q -m unit
+pnpm --dir app exec vitest list --json
+```
+
+Add the affected end-to-end workflow when a feature crosses the UI/core boundary.
+Broaden only when a shared fixture or dependency changes, a failure or coverage gap
+requires it, or release validation explicitly calls for it. For example, changing the
+shared browser/core fixture justifies the browser suite, but not a native rebuild.
+Once the relevant checks pass, stop unless another edit changes their inputs.
+
+The broader verification modes below remain available for those explicit cases.
+They are not the default validation for each edit. The [test suite review](test-suite-review.md)
+records which unit cases were removed and which integration coverage was preserved.
 
 | Command | What it exercises | What it does not establish |
 | --- | --- | --- |
@@ -84,12 +114,19 @@ Windows and macOS installer/runtime validation remains in
 
 ## Evidence and diagnosis
 
-Each invocation creates `artifacts/verification/<UTC timestamp>-<pid>/`, containing a log
+Each `verify` invocation creates `artifacts/verification/<UTC timestamp>-<pid>/`, containing a log
 for every command and `summary.json` with source revision/status, check statuses,
 exit codes, and timings. Use
 `--output /absolute/path` to choose a directory. Browser failures retain screenshots and
 Playwright traces under `browser/`; native runs save `native.png`, `launcher.png`, and
 matching app logs. Generated evidence is ignored by Git.
+
+Direct Playwright commands write failure screenshots, traces and core logs to
+`artifacts/verification/playwright/`. Every test starts an isolated real core and the
+fixtures reject unhandled browser exceptions. The project journeys verify actual image
+bytes, replayed dependencies, save/reopen in a fresh process, collision-safe export and
+recovery after a damaged project fails to open. They use browser dialog fallbacks; native
+file pickers and installers still need the platform checks described below.
 
 The runner prints the log location immediately and the final lines when a command ends.
 For a long compilation, follow its log in another terminal. To inspect a browser trace:

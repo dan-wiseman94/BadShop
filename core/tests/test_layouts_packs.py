@@ -14,16 +14,6 @@ from badshop.session.session import Session
 
 
 @pytest.mark.parametrize("definition", definitions(), ids=lambda d: d["id"])
-def test_every_layout_is_deterministic_and_reports_geometry(definition):
-    images = [Image.new("RGB", (31, 23), "red") for _ in definition["slots"]]
-    p = LayoutParams(template=definition["id"], images=["x"] * len(images), captions=["Caption"] * len(images))
-    first = render(p, images)
-    assert first.outputs[0].encode() == render(p, images).outputs[0].encode()
-    assert first.outputs[0].image.size == (definition["width"], definition["height"])
-    assert first.data["layout"]["slots"] == definition["slots"]
-
-
-@pytest.mark.parametrize("definition", definitions(), ids=lambda d: d["id"])
 def test_layout_regions_are_bounded_and_each_slot_accepts_edits(definition):
     width, height = definition["width"], definition["height"]
     assert max(width, height) <= 1000

@@ -1,4 +1,4 @@
-import { test, expect, python, root } from "./fixtures";
+import { test, expect, startCore, root } from "./fixtures";
 import type { WebSocketRoute } from "@playwright/test";
 import type { Session } from "../src/types";
 import path from "node:path";
@@ -56,66 +56,7 @@ test("temporary socket loss preserves unsent messages, attachments, selected ima
   ).toBe(7);
 });
 
-async function startRecoveryCore(folder: string) {
-  const { spawn } = await import("node:child_process");
-  const { createInterface } = await import("node:readline");
-  const child = spawn(
-    python,
-    ["-m", "badshop.server", "serve"],
-    {
-      cwd: root,
-      env: {
-        ...process.env,
-        PYTHONPATH: path.join(root, "core/src"),
-        BADSHOP_CONFIG_DIR: path.join(folder, "config"),
-        BADSHOP_DATA_DIR: path.join(folder, "data"),
-        BADSHOP_LOG_DIR: path.join(folder, "logs"),
-        XDG_CACHE_HOME: path.join(folder, "cache"),
-        BADSHOP_FAKE_PROVIDER: "",
-        BADSHOP_OUT: folder,
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
-  const logs: string[] = [];
-  child.stderr.on("data", (chunk) => logs.push(String(chunk)));
-  const connection = await new Promise<{ port: number; token: string }>(
-    (resolve, reject) => {
-      const timer = setTimeout(
-        () =>
-          reject(
-            new Error(`Recovery core startup timed out: ${logs.join("")}`),
-          ),
-        20000,
-      );
-      createInterface({ input: child.stdout }).once("line", (line) => {
-        clearTimeout(timer);
-        resolve(JSON.parse(line));
-      });
-      child.once("exit", (code) =>
-        reject(new Error(`Recovery core exited ${code}: ${logs.join("")}`)),
-      );
-    },
-  );
-  return {
-    connection,
-    child,
-    async close() {
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      child.stdin.end();
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          child.kill("SIGKILL");
-          resolve();
-        }, 3000);
-        child.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
-    },
-  };
-}
+const startRecoveryCore = (folder: string) => startCore(folder);
 
 for (const outcome of ["restored", "damaged", "older"] as const) {
   test(`real core restart ${outcome} recovery preserves drafts until its outcome and only prunes missing references`, async ({

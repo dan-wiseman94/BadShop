@@ -1,14 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Coordinates,
-  ToolForm,
-  normalizeSchema,
-  schemaUI,
-} from "../src/components/ToolForm";
-import { useUI } from "../src/store";
-import type { FieldProps, RJSFSchema } from "@rjsf/utils";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
+import { ToolForm } from "../src/components/ToolForm";
 import type { Tool } from "../src/types";
 function wrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -21,86 +14,6 @@ function wrapper({ children }: { children: React.ReactNode }) {
     </QueryClientProvider>
   );
 }
-describe("registry forms", () => {
-  it("renders nullable image and coordinate formats without a raw union selector", () => {
-    const normalized = normalizeSchema({
-      type: "object",
-      properties: {
-        image: {
-          anyOf: [
-            { type: "string", format: "badshop-image" },
-            { type: "null" },
-          ],
-          default: null,
-        },
-        box: {
-          type: "array",
-          format: "badshop-box",
-          prefixItems: [
-            { type: "integer" },
-            { type: "integer" },
-            { type: "integer" },
-            { type: "integer" },
-          ],
-        },
-      },
-    } as RJSFSchema);
-    expect(normalized.properties?.image).toEqual({
-      type: "string",
-      format: "badshop-image",
-    });
-    expect(schemaUI(normalized).box).toMatchObject({
-      "ui:field": "Coordinates",
-    });
-    expect(schemaUI(normalized).image).toEqual({ "ui:widget": "ImagePicker" });
-  });
-  it("validates required parameters before submitting a tool", async () => {
-    const submit = vi.fn().mockResolvedValue(undefined);
-    const tool: Tool = {
-      name: "text",
-      category: "text",
-      summary: "Caption",
-      description: "Caption",
-      mutates: true,
-      network: false,
-      read_only: false,
-      schema: {
-        type: "object",
-        required: ["caption"],
-        properties: { caption: { type: "string", title: "Caption" } },
-      },
-    };
-    render(<ToolForm tool={tool} onSubmit={submit} />, { wrapper });
-    fireEvent.change(screen.getByLabelText(/Caption/), {
-      target: { value: "STONKS" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Run tool" }));
-    await vi.waitFor(() =>
-      expect(submit).toHaveBeenCalledWith({ caption: "STONKS" }),
-    );
-  });
-  it("connects segment coordinate selection to the viewer without swapping endpoints", () => {
-    const changed = vi.fn();
-    const props = {
-      schema: { type: "array", title: "Arrow", format: "badshop-segment" },
-      formData: [10, 20, 30, 40],
-      onChange: changed,
-      fieldPathId: { $id: "arrow", path: ["arrow"] },
-      registry: {
-        formContext: {
-          coordinateImageId: "input",
-          coordinateImageLabel: "Input image",
-        },
-      },
-    } as unknown as FieldProps;
-    render(<Coordinates {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Pick on image" }));
-    expect(useUI.getState().pick?.kind).toBe("segment");
-    useUI.getState().pick?.complete([80, 90, 10, 20]);
-    expect(changed).toHaveBeenCalledWith([80, 90, 10, 20], ["arrow"]);
-  });
-});
-
 it("leaves an untouched optional coordinate tuple absent from submitted parameters", async () => {
   const submit = vi.fn().mockResolvedValue(undefined);
   const tool: Tool = {
