@@ -32,6 +32,11 @@ build = [
 ]
 # jsonschema is used to validate the registry's generated schemas.
 dev = ["pytest>=8", "pytest-xdist>=3,<4", "ruff>=0.6", "jsonschema>=4"]
+quality = [
+    "import-linter>=2.16",
+    "lizard>=1.25.1",
+    "vulture>=2.16",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -62,5 +67,16 @@ line-length = 110
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]  # ruff's classic defaults, whatever ruff version resolves
+select = ["E4", "E7", "E9", "F", "TID251"]  # ruff's classic defaults, whatever ruff version resolves
 ignore = ["E741"]  # the verbatim-ported reference code and the plan's tests use `l` as a loop variable
+
+# Session owns app execution. The standalone parity CLI intentionally uses FileStore.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"badshop.tools.runner.execute" = { msg = "Execute application tools through session/." }
+"badshop.tools.runner.run_tool" = { msg = "Execute application tools through session/." }
+
+[tool.ruff.lint.per-file-ignores]
+# Engine/registry tests intentionally exercise the runner without a session.
+"**/tests/*.py" = ["TID251"]
+"**/src/badshop/session/*.py" = ["TID251"]
+"**/src/badshop/cli/main.py" = ["TID251"]

@@ -10,6 +10,11 @@ callers and inspect the assertions independently.
 > tests that assert a toast or mock call without checking the promised file, pixels, state, or
 > process cleanup. Check compatibility with older project data when persistence changes.
 > Look for removed guards whose failure mode the tests would miss.
+> What can this change delete? Does it introduce a second source of truth? Does each
+> new abstraction reduce actual duplication or isolate a real boundary? Check that
+> replacements remove obsolete paths and dependencies, and that compatibility code
+> names its supported version/format and removal condition. Review the maintenance
+> growth report; file size alone is not a finding.
 >
 > For each actionable finding, give a file and line, the input or sequence that triggers the
 > problem, the wrong observable result, and the smallest test that would distinguish it.

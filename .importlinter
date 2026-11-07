@@ -1,0 +1,41 @@
+[importlinter]
+root_package = badshop
+
+[importlinter:contract:engine]
+name = Engine cannot depend on application layers
+type = forbidden
+source_modules = badshop.engine
+forbidden_modules =
+    badshop.tools
+    badshop.session
+    badshop.agent
+    badshop.providers
+    badshop.server
+    badshop.mcp
+    badshop.cli
+
+[importlinter:contract:tools]
+name = Tool definitions cannot depend on application orchestration
+type = forbidden
+source_modules = badshop.tools
+forbidden_modules =
+    badshop.session
+    badshop.agent
+    badshop.providers
+    badshop.server
+    badshop.mcp
+    badshop.cli
+
+[importlinter:contract:providers]
+name = Providers adapt protocols instead of executing tools or pixels
+type = forbidden
+source_modules = badshop.providers
+forbidden_modules =
+    badshop.tools.runner
+    badshop.engine
+    badshop.session.session
+    badshop.session.execution
+allow_indirect_imports = True
+# Profile validation shares the public error type; it does not execute pixels.
+ignore_imports = badshop.providers.profiles -> badshop.engine.errors
+unmatched_ignore_imports_alerting = error
