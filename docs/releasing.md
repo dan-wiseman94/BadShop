@@ -84,8 +84,8 @@ profile if a host CLI is unavailable there.
 
 ## Release workflow
 
-`native-desktop.yml` is shared by PR CI and `release.yml`: it builds and tests each
-supported installer before uploading it. On a `v*` tag, `release.yml` creates a draft GitHub release. A manual dispatch builds artifacts without publishing.
+Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to build
+and test each supported installer before attaching it to a draft GitHub release.
 The PyPI job runs only on version tags after all bundle jobs pass, through the protected
 `pypi` GitHub environment and trusted publishing. Configure the repository/environment as
 a trusted PyPI publisher before its first release. Match the tag to Python, frontend and
