@@ -1,6 +1,6 @@
 [project]
 name = "badshop"
-version = "0.2.0"
+version = "0.3.0"
 description = "Deliberately bad, old-internet photoshops, art-directed by any LLM"
 requires-python = ">=3.12,<3.14"
 license = "MIT"

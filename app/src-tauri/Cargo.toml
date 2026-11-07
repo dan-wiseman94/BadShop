@@ -1,6 +1,6 @@
 [package]
 name = "badshop-desktop"
-version = "0.2.0"
+version = "0.3.0"
 description = "Badshop — a cockpit for deliberately bad photoshops"
 authors = ["Dan Wiseman"]
 license = "MIT"
