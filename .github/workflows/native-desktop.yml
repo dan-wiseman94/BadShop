@@ -80,7 +80,7 @@ jobs:
         if: always()
         env:
           PYTHONIOENCODING: utf-8
-        run: uv run --project core python -c "from pathlib import Path; p = Path('packaging/native-build.log'); print(p.read_text(encoding='utf-8', errors='replace')[-40000:] if p.exists() else 'Native build was not reached')"
+        run: python -c "from pathlib import Path; p = Path('packaging/native-build.log'); print(p.read_text(encoding='utf-8', errors='replace')[-40000:] if p.exists() else 'Native build was not reached')"
       - name: Installed desktop window, renderer, normal exit (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_installer.py --screenshot packaging/native-smoke.png
