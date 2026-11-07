@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import zipfile
 
 import pytest
@@ -79,6 +80,32 @@ def test_library_refuses_corrupt_data_without_partial_import(tmp_path):
     assert not target.artifacts.ids()
     with pytest.raises(EngineError, match="invalid library"):
         lib.get("../../etc/passwd")
+
+
+@pytest.mark.parametrize("failed_suffix", [".png", ".json"])
+def test_library_save_failure_preserves_existing_assets_and_cleans_temporary_files(tmp_path, monkeypatch,
+                                                                                 failed_suffix):
+    session = Session.new()
+    existing = session.import_image(picture(), "existing")
+    library = AssetLibrary(tmp_path / "library")
+    entry = library.save(session, existing.id, "Existing", [], AssetDetails())
+    before = library.list()
+    added = session.import_image(picture((1400, 70)), "new")
+    replace = os.replace
+
+    def fail_write(source, destination):
+        if destination.suffix == failed_suffix:
+            raise OSError("disk full")
+        return replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_write)
+    with pytest.raises(EngineError, match="no new library entries"):
+        library.save(session, added.id, "New", ["portrait"], AssetDetails(notes="Keep the original"))
+    assert library.list() == before
+    assert not list(library.root.glob("*.tmp"))
+    restored = Session.new()
+    library.restore(restored, entry["id"])
+    assert restored.artifacts.data(existing.id) == session.artifacts.data(existing.id)
 
 
 def test_branches_keep_independent_replay_and_survive_save(tmp_path):

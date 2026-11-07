@@ -134,22 +134,8 @@ class AssetLibrary:
         now = time.time()
         entry = LibraryEntry(id=uuid.uuid4().hex, name=name, tags=self._tags(tags), metadata=details,
                              artifact=meta, original=original, created_at=now, updated_at=now)
-        self.root.mkdir(parents=True, exist_ok=True)
-        for item in (meta, original):
-            if item is None:
-                continue
-            path = self.root / f"{item.id}{item.ext}"
-            blob = session.artifacts.data(item.id)
-            if not path.exists():
-                tmp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-                try:
-                    tmp.write_bytes(blob)
-                    os.replace(tmp, path)
-                except OSError as e:
-                    raise EngineError(f"can't save library image: {e}") from None
-                finally:
-                    tmp.unlink(missing_ok=True)
-        return self._write(entry)
+        images = {item.id: session.artifacts.data(item.id) for item in (meta, original) if item is not None}
+        return self._commit_entries([entry], images)[0]
 
     def update(self, id: str, name: str | None = None, tags: list[str] | None = None,
                metadata: AssetDetails | None = None) -> dict:
@@ -185,26 +171,37 @@ class AssetLibrary:
                 actual = checked.add(data, meta.label)
                 if (actual.width, actual.height, actual.format) != (meta.width, meta.height, meta.format):
                     raise EngineError("asset image metadata does not match its pixels")
+        now = time.time()
+        fresh = [entry.model_copy(update={"id": uuid.uuid4().hex, "created_at": now, "updated_at": now})
+                 for entry in entries]
+        return self._commit_entries(fresh, {aid: checked.data(aid) for aid in checked.ids()})
+
+    def _commit_entries(self, entries: list[LibraryEntry], images: dict[str, bytes]) -> list[dict]:
+        """Persist new records through one path for saves and portable imports.
+
+        Images have already been validated by the session or install(). Publish records only after
+        their bytes are in place. On failure remove published records, retaining shared image bytes.
+        """
+        metas = {meta.id: meta for entry in entries for meta in (entry.artifact, entry.original)
+                 if meta is not None}
         installed = []
         try:
             self.root.mkdir(parents=True, exist_ok=True)
-            for aid, meta in checked.meta.items():
+            for aid, meta in metas.items():
                 dest = self.root / f"{aid}{meta.ext}"
                 if not dest.exists():
                     tmp = dest.with_suffix(f".{uuid.uuid4().hex}.tmp")
                     try:
-                        tmp.write_bytes(checked.data(aid))
+                        tmp.write_bytes(images[aid])
                         os.replace(tmp, dest)
                     finally:
                         tmp.unlink(missing_ok=True)
-            now = time.time()
             for entry in entries:
-                new = entry.model_copy(update={"id": uuid.uuid4().hex, "created_at": now, "updated_at": now})
-                installed.append(self._write(new))
+                installed.append(self._write(entry))
         except (OSError, EngineError):
             for entry in installed:
                 self._path(entry["id"]).unlink(missing_ok=True)
-            raise EngineError("could not install assets; no new library entries were kept") from None
+            raise EngineError("could not save assets; no new library entries were kept") from None
         return installed
 
     def remove(self, id: str) -> dict:
