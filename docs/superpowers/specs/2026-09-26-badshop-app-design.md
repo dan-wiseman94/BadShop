@@ -62,8 +62,12 @@ export, session save/open, installers for Linux (AppImage, .deb, Flatpak), Windo
 
 **Out of scope for v1:** manual canvas editing (users edit parameters, never pixels
 directly), image-generation models, accounts, cloud hosting, web version, mobile,
-posting to social networks, code signing and notarization, auto-update, localization,
+posting to social networks, code signing and notarization, localization,
 multiple simultaneous sessions, GPU inference.
+
+**2026-11-07 scope update:** manual/automatic update checks and explicit signed
+in-app installation are now included. See `docs/releasing.md` for platform support
+and updater signing configuration.
 
 ## 5. Architecture
 

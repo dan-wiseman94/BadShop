@@ -44,6 +44,7 @@ import {
 import { reportNativeReadiness } from "./nativeReadiness";
 import type { ApprovalMode } from "./types";
 import { useReducedMotion } from "./appearance";
+import { useUpdates, UpdateProgress } from "./updates";
 import "./themes.css";
 function Resizer({
   side,
@@ -107,6 +108,7 @@ export default function App() {
   const [attachments, setAttachments] = useState<string[]>([]);
   const { workbench, widths, resize, reset, contentWidth } = usePaneLayout();
   const documents = useSessionActions();
+  const updates = useUpdates(() => documents.request({ kind: "close" }));
   const [welcome, setWelcome] = useState(
     !localStorage.getItem("badshop.welcome"),
   );
@@ -660,7 +662,14 @@ export default function App() {
           }}
         />
       )}
-      {ui.settingsOpen && !documents.pending && <Settings />}
+      {ui.settingsOpen && !documents.pending && <Settings updates={updates} />}
+      {updates.info?.version && !ui.settingsOpen && !documents.pending && updates.phase === "idle" && (
+        <div className="update-notice" role="status">
+          badshop {updates.info.version} is available.
+          <button onClick={() => ui.set({ settingsOpen: true })}>Review update in Settings → Updates</button>
+        </div>
+      )}
+      <UpdateProgress updates={updates} />
       {ui.paletteOpen && !documents.pending && <ToolPalette />}
       {studioOpen && !documents.pending && <Studio
         onClose={() => setStudioOpen(false)}

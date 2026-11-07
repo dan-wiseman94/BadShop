@@ -1,6 +1,11 @@
 name: installed desktop
 on:
   workflow_call:
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
 permissions:
   contents: read
 jobs:
@@ -73,9 +78,42 @@ jobs:
         if: matrix.label == 'macos-x64'
         run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/badshop-core --background-removal
       - run: pnpm --dir app install --frozen-lockfile
+      - name: Configure signed release updates
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: python
+        env:
+          BADSHOP_UPDATER_PUBLIC_KEY: ${{ vars.BADSHOP_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          import json, os
+          from pathlib import Path
+          for key in ('BADSHOP_UPDATER_PUBLIC_KEY', 'TAURI_SIGNING_PRIVATE_KEY'):
+              if not os.environ.get(key, '').strip():
+                  raise SystemExit(f'Release updates require {key}')
+          config = Path('app/src-tauri/tauri.conf.json')
+          value = json.loads(config.read_text())
+          value['bundle']['createUpdaterArtifacts'] = True
+          value['plugins']['updater']['pubkey'] = os.environ['BADSHOP_UPDATER_PUBLIC_KEY'].strip()
+          config.write_text(json.dumps(value, indent=2))
       - name: Build native installers
         id: desktop-build
         run: pnpm --dir app exec tauri build --verbose --bundles ${{ matrix.bundles }} > packaging/native-build.log 2>&1
+        env:
+          BADSHOP_UPDATER_PUBLIC_KEY: ${{ vars.BADSHOP_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Give Mac updater archives distinct architecture names
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        shell: python
+        env:
+          UPDATE_LABEL: ${{ matrix.label }}
+        run: |
+          import os
+          from pathlib import Path
+          for path in Path('app/src-tauri/target/release/bundle').rglob('*.app.tar.gz'):
+              name = f"badshop-{os.environ['UPDATE_LABEL']}.app.tar.gz"
+              Path(str(path) + '.sig').rename(path.with_name(name + '.sig'))
+              path.rename(path.with_name(name))
       - name: Native build diagnostics
         if: always()
         env:
@@ -145,4 +183,6 @@ jobs:
             app/src-tauri/target/release/bundle/**/*.exe
             app/src-tauri/target/release/bundle/**/*.dmg
             packaging/*.flatpak
+            app/src-tauri/target/release/bundle/**/*.app.tar.gz
+            app/src-tauri/target/release/bundle/**/*.sig
           if-no-files-found: error

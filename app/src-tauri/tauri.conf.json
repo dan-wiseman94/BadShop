@@ -3,6 +3,9 @@
   "productName": "badshop",
   "version": "0.2.0",
   "identifier": "io.github.danwiseman94.badshop",
+  "plugins": {
+    "updater": { "pubkey": "" }
+  },
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",

@@ -1,6 +1,7 @@
 #[cfg(target_os = "macos")]
 mod macos_quit;
 mod supervisor;
+mod updates;
 use std::path::PathBuf;
 use std::sync::Arc;
 use supervisor::{Connection, Launch, Supervisor};
@@ -132,27 +133,37 @@ fn launch(app: &tauri::AppHandle) -> Result<Launch, Box<dyn std::error::Error>> 
     })
 }
 
+fn start_core(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let config = launch(app)?;
+    let handle = app.clone();
+    let supervisor = Supervisor::start(config, move |status| {
+        let _ = handle.emit("core-status", status);
+    });
+    app.manage(Core(Arc::new(supervisor)));
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Updates::default())
         .invoke_handler(tauri::generate_handler![
             core_connection,
             core_restart,
             renderer_ready,
             smoke_probe_enabled,
+            updates::update_check,
+            updates::update_download,
+            updates::update_install,
             diagnostics
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             macos_quit::install(app.handle())?;
-            let config = launch(app.handle())?;
-            let handle = app.handle().clone();
-            let supervisor = Supervisor::start(config, move |status| {
-                let _ = handle.emit("core-status", status);
-            });
-            app.manage(Core(Arc::new(supervisor)));
+            start_core(app.handle())?;
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -163,10 +174,16 @@ pub fn run() {
                 // the same unsaved-project decision as the titlebar close button.
                 // Once the frontend destroys the window, the next exit can proceed.
                 #[cfg(target_os = "macos")]
-                if let Some(window) = app.get_webview_window("main") {
-                    _api.prevent_exit();
-                    let _ = window.close();
-                    return;
+                if !app
+                    .state::<updates::Updates>()
+                    .restarting
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    if let Some(window) = app.get_webview_window("main") {
+                        _api.prevent_exit();
+                        let _ = window.close();
+                        return;
+                    }
                 }
                 app.state::<Core>().0.stop();
             } else if matches!(event, tauri::RunEvent::Exit) {
