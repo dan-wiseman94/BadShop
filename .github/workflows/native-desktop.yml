@@ -120,6 +120,8 @@ jobs:
           name: desktop-evidence-${{ matrix.label }}
           path: |
             packaging/*smoke.png
+            packaging/*smoke.ready.json
+            packaging/*smoke.log
             artifacts/verification/installed-windows/
           if-no-files-found: warn
       - uses: actions/upload-artifact@v6

@@ -75,7 +75,7 @@ records which unit cases were removed and which integration coverage was preserv
 
 | Command | What it exercises | What it does not establish |
 | --- | --- | --- |
-| `./verify.sh quick` (the default) | Python lint and tests, verification-harness contracts, frontend components, production frontend build, Rust formatting and tests | A rendered browser or native window; excludes tests marked models, network, or live |
+| `./verify.sh quick` (explicit broad run) | Python lint and tests, verification-harness contracts, frontend components, production frontend build, Rust formatting and tests | A rendered browser or native window; excludes tests marked models, network, or live |
 | `./verify.sh browser` | Playwright UI workflows with a real Python core, local fixtures, and scripted model responses | Native Tauri dialogs/clipboard; real model quality |
 | `./verify.sh desktop` | Linux native debug build and the actual `start.sh` launcher, real WebKit rendering, core connection, normal window close, child-process cleanup | A packaged installer; native dialog/clipboard interactions |
 | `./verify.sh all` | All three layers, including independent layers after a failed check | Windows/macOS runtime behavior, model downloads, live providers |
@@ -99,10 +99,10 @@ Run parallel tests apart from CPU-heavy builds. Omit the flags for serial execut
 when diagnosing timing-sensitive failures or running with limited memory. The PR
 and release commands use the existing full-suite defaults.
 
-Browser tests use port 1421 by default and refuse to reuse another server; set
-`BADSHOP_E2E_PORT` to choose another port. The launcher check uses
-port 1422 (set `BADSHOP_DEV_PORT` to override), leaving the usual development port 1420
-available for your app. A port conflict is a failure,
+The verification runner selects available private browser and launcher ports; use
+BADSHOP_E2E_PORT or BADSHOP_DEV_PORT to override them. Direct Playwright commands
+use a worktree-derived port and retain strict binding.
+A port conflict is a failure,
 not a reason to kill an unrelated process.
 
 ## A private desktop for automation
@@ -112,8 +112,11 @@ No login-session DISPLAY is required on Linux. The native runner starts `Xvfb` w
 settings, data, logs, and export directory in temporary folders. It only observes or
 closes windows belonging to the process it started. It never drives your KDE session.
 
-The native check waits for an actual window **and** an established renderer/core socket,
-then captures a nonblank screenshot. It sends a normal window-close request and verifies
+The native check waits for an actual window **and** a renderer receipt after
+authentication, loaded session/provider data, a successful tool-catalog RPC, and
+a paint opportunity. It then captures a nonblank screenshot. The receipt is enabled
+only by the isolated harness and is retained beside the screenshot as .ready.json.
+It sends a normal window-close request and verifies
 that the shell exits successfully and its children stop. Failure cleanup terminates only
 the processes owned by the harness. Screenshots prove rendering, not that every control
 works; browser workflow checks and native interactive checks cover those separately.
@@ -133,7 +136,7 @@ Playwright traces under `browser/`; native runs save `native.png`, `launcher.png
 matching app logs. Generated evidence is ignored by Git.
 
 Direct Playwright commands write failure screenshots, traces and core logs to
-`artifacts/verification/playwright/`. Every test starts an isolated real core and the
+`artifacts/verification/playwright/<run>/`. Every test starts an isolated real core and the
 fixtures reject unhandled browser exceptions. The project journeys verify actual image
 bytes, replayed dependencies, save/reopen in a fresh process, collision-safe export and
 recovery after a damaged project fails to open. They use browser dialog fallbacks; native
@@ -214,3 +217,82 @@ Real model/provider checks require the explicit environment switches documented 
 credentials, and cost allowance intentionally; none of the verification modes enables
 them. For packaged binaries, OS keychains, AppImage, Flatpak, Windows, and macOS, follow
 [releasing.md](releasing.md) and retain the CI evidence.
+
+
+## Focused checks with retained evidence
+
+Running ./verify.sh without a mode displays help and does not start a suite.
+Focused modes retain logs, timings, revision/content fingerprints, the checkout
+lock, and process cleanup. No matched/executed tests is a failure, including a
+title filter that skips every test. Counts record skipped cases separately.
+
+    ./verify.sh python --python-test core/tests/test_sheets.py::test_invalid_grid_creates_no_partial_output_artifacts
+    ./verify.sh component --component-test tests/session-actions.test.tsx --test-name Cancel
+    ./verify.sh browser --browser-test e2e/project-journey.spec.ts --test-name "manual editing"
+
+Repeat the test flag for additional selections. Focused browser runs use the real
+Vite/core journey without an unrelated production build. Run type/build checks
+separately when required. Frontend modes prepare locked dependencies; Python mode
+does not install frontend dependencies. Use --output for an explicit evidence
+folder, preserving previous runs with unique directories.
+
+## Task baseline and handoff
+
+Use the isolated task worktree. These commands report overlap without merging,
+rebasing, resetting, or changing another worktree.
+
+    python scripts/task.py start --accept "Save/reopen preserves the edited output"
+    python scripts/task.py finish
+
+Start fetches origin/main, records HEAD and inherited content hashes, and inspects
+other local worktrees. Finish fetches again, reports upstream changes, task overlap
+and unmerged local worktree overlap, and compares evidence fingerprints with current
+inputs. A failed fetch exits nonzero and remains unverified. Overlap and older
+evidence require review, not automatic retesting. Remote unpushed work is outside
+this local inventory. Reports live in artifacts/verification/task/. Use --record
+for another baseline location. An existing start record cannot be replaced.
+
+## Prepare a Linux task from Windows
+
+The helper uses the existing archlinux private toolchain, installs no system
+packages, and does not alter the setup checkout.
+
+    python scripts/wsl_task.py prepare --target /home/dan/.local/share/badshop-linux-test/worktrees/my-task --include scripts/my_new_file.py
+
+It transfers HEAD through a Git bundle plus all tracked working changes. Explicit
+--include paths select relevant untracked files/directories; omitted paths are
+reported. Ignored dependencies, credentials directories, and symlinks are not copied.
+A private virtualenv is synced from the lockfile and its badshop import must resolve
+inside that worktree. Follow-up runs reuse the worktree and warm compiled outputs.
+An active verification lock, unexpected Linux edits, or a changed HEAD cause refusal rather than reset. Preserve
+artifacts/verification/wsl-sync.json for change detection. Review wsl-ready.json for
+the revision and suggested ports. Strict binding protects the launch race.
+
+Run focused commands through the private launcher after changing into that
+worktree. Use broader modes only for a stated coverage/release reason. Copy Linux
+evidence into the Windows task when needed for review.
+
+## Versioned development skills
+
+Canonical sources live in skills/development/. The image-editing skill remains
+in skills/badshop/. Review local installation changes with:
+
+    python scripts/sync_skills.py
+    python scripts/sync_skills.py --apply
+
+The default prints differences and returns 1 when updates are available.
+--apply preflights both skills and refuses to overwrite edits differing from
+recorded installation hashes. For existing personal copies, --adopt records their
+hashes once without changing content; review the diff before applying.
+Use --destination for another installation. The .badshop-skills.json manifest
+belongs in that destination, not in repository history.
+
+## CI selection
+
+change-scope.yml uses scripts/ci_scope.py: Markdown docs and skill text skip app jobs,
+test-only changes select the affected layer, and unknown/shared inputs select broad
+coverage. Renderer changes retain installer coverage because browser tests cannot
+establish WebKit behavior. Packaging and dependencies retain installer coverage.
+Manual dispatch requests all jobs; releases always use the complete installer
+workflow. core-result and desktop-result provide aggregate outcomes including
+intentional skips. Branch protection settings are not changed by this update.

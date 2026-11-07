@@ -4,11 +4,22 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
+  workflow_dispatch:
 concurrency:
   group: core-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  scope:
+    uses: ./.github/workflows/change-scope.yml
+    with:
+      full: ${{ inputs.full == true }}
   test:
+    needs: scope
+    if: needs.scope.outputs.core == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30  # a cold run (dependencies, models, fonts) takes a few minutes; a hang never ends
     defaults:
@@ -26,3 +37,23 @@ jobs:
       - run: uv run ruff check --config pyproject.toml ../scripts ../packaging/smoke_desktop.py
       - run: uv run python -m unittest discover -s ../scripts/tests
       - run: uv run pytest -q
+  core-result:
+    if: always()
+    needs: [scope, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful selected checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          results = json.loads(os.environ["RESULTS"])
+          assert results["scope"]["result"] == "success", "Change classification failed"
+          failed = {name: job["result"] for name, job in results.items() if job["result"] not in ("success", "skipped")}
+          assert not failed, failed
+          for flag, job in {'core': 'test'}.items():
+              if results["scope"]["outputs"][flag] == "true":
+                  assert results[job]["result"] == "success", f"Selected job {job} did not pass"
+          print("All selected checks passed; unselected jobs were intentionally skipped.")
+          PY

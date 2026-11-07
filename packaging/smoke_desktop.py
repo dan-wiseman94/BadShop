@@ -4,13 +4,14 @@ xvfb-run -a uv run --project core python packaging/smoke_desktop.py \
     --screenshot /tmp/badshop.png -- /path/to/installed/badshop-desktop
 
 Linux needs Xvfb, xdotool, libX11 and ImageMagick; macOS needs PyObjC Cocoa/Quartz.
-Requires a visible window, a renderer/core socket, a nonblank content screenshot,
+Requires a visible window, authenticated renderer readiness, a nonblank content screenshot,
 and normal window close/application quit without surviving child processes.
 """
 import argparse
 import ctypes
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,26 @@ def is_core(process: psutil.Process) -> bool:
         return False
 
 
+def renderer_is_ready(path: Path, nonce: str) -> bool:
+    try:
+        receipt = json.loads(path.read_text())
+        return (isinstance(receipt, dict) and receipt.get('nonce') == nonce
+                and bool(receipt.get('session_id')) and isinstance(receipt.get('tool_count'), int)
+                and receipt['tool_count'] > 0)
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
+    if Path(command[0]).name == 'flatpak' and len(command) > 1 and command[1] == 'run':
+        # Flatpak has a private /tmp. Expose only this harness-owned temporary
+        # directory for the readiness receipt, without changing installed permissions.
+        return [*command[:2], f'--filesystem={root}',
+                f'--env=BADSHOP_SMOKE_READY_FILE={env["BADSHOP_SMOKE_READY_FILE"]}',
+                f'--env=BADSHOP_SMOKE_NONCE={env["BADSHOP_SMOKE_NONCE"]}', *command[2:]]
+    return command
+
+
 def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90, *,
           webview_profile: Path | None = None,
           exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
@@ -118,9 +139,13 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
             env['WEBVIEW2_USER_DATA_FOLDER'] = str((webview_profile or root / 'webview').resolve())
             if webview_profile is not None:
                 env['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=0'
+        ready_file = root / 'renderer-ready.json'
+        nonce = secrets.token_hex(16)
+        env['BADSHOP_SMOKE_READY_FILE'] = str(ready_file)
+        env['BADSHOP_SMOKE_NONCE'] = nonce
         log_path = root / 'desktop.log'
         with log_path.open('w') as log:
-            proc = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(isolated_command(command, root, env), env=env, stdout=log, stderr=subprocess.STDOUT)
             children = []
             try:
                 deadline = time.monotonic() + startup_timeout
@@ -141,14 +166,14 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                                 break
                         if not window and sys.platform == 'linux' and Path(command[0]).name == 'flatpak':
                             window = visible_window(0)
-                        if ports and connected and window:
+                        if ports and connected and window and renderer_is_ready(ready_file, nonce):
                             break
                     time.sleep(.2)
                 else:
-                    raise RuntimeError(f'No visible window with renderer/core connection after {startup_timeout}s')
+                    raise RuntimeError(f'No authenticated, usable renderer with a visible window after {startup_timeout}s')
                 print(json.dumps({'shell_pid': proc.pid, 'core_pid': core.pid,
                                   'core_executable': core.exe(), 'listen_ports': ports,
-                                  'established_connections': connected}), flush=True)
+                                  'established_connections': connected, 'renderer_ready': True}), flush=True)
                 shot = screenshot or root / 'window.png'
                 shot.parent.mkdir(parents=True, exist_ok=True)
                 paint_deadline = time.monotonic() + 30
@@ -186,7 +211,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if sys.platform == 'darwin':
                     assert 'native Quit routed through project close guard' in log_path.read_text(), \
                         'Native Quit bypassed the unsaved-project close guard'
-                print('Native desktop smoke passed: rendered window, connected core, clean close', flush=True)
+                print('Native desktop smoke passed: rendered window, authenticated session/catalog, clean close', flush=True)
             finally:
                 if proc.poll() is None:
                     children = psutil.Process(proc.pid).children(recursive=True)
@@ -208,6 +233,8 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if screenshot:
                     screenshot.parent.mkdir(parents=True, exist_ok=True)
                     screenshot.with_suffix('.log').write_bytes(log_path.read_bytes())
+                    if ready_file.exists():
+                        screenshot.with_suffix('.ready.json').write_bytes(ready_file.read_bytes())
                 print(log_path.read_text(encoding='utf-8', errors='replace')[-5000:])
 
 

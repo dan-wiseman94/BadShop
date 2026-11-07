@@ -8,6 +8,8 @@ permissions:
 jobs:
   core:
     uses: ./.github/workflows/core.yml
+    with:
+      full: true
   frontend:
     uses: ./.github/workflows/frontend-checks.yml
   bundle:

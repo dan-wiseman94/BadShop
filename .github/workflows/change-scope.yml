@@ -1,0 +1,38 @@
+name: change scope
+on:
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
+    outputs:
+      core:
+        value: ${{ jobs.scope.outputs.core }}
+      frontend:
+        value: ${{ jobs.scope.outputs.frontend }}
+      native:
+        value: ${{ jobs.scope.outputs.native }}
+      installers:
+        value: ${{ jobs.scope.outputs.installers }}
+permissions:
+  contents: read
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.classify.outputs.core }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+      native: ${{ steps.classify.outputs.native }}
+      installers: ${{ steps.classify.outputs.installers }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: classify
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FULL: ${{ inputs.full || github.event_name == 'workflow_dispatch' }}
+        run: |
+          args=(--base "$BASE")
+          if [ "$FULL" = true ]; then args+=(--full); fi
+          python scripts/ci_scope.py "${args[@]}"
