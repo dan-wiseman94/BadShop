@@ -88,6 +88,17 @@ The launcher check also exercises Vite and the development startup path. Only on
 verification run can own a checkout at a time, preventing simultaneous builds from
 replacing files under a running test. Use a separate worktree for parallel work.
 
+For a focused browser run with the verification summary, use
+`./verify.sh browser --browser-test e2e/project-journey.spec.ts`. Repeat the flag
+for additional Playwright file patterns. The summary labels this `browser-focused`.
+
+When a full local run is warranted, `./verify.sh quick --core-workers 4` distributes
+the offline Python suite by test file, and `./verify.sh browser --browser-workers 2`
+runs the full Playwright suite with two workers. Both flags also work with `all`.
+Run parallel tests apart from CPU-heavy builds. Omit the flags for serial execution
+when diagnosing timing-sensitive failures or running with limited memory. The PR
+and release commands use the existing full-suite defaults.
+
 Browser tests use port 1421 by default and refuse to reuse another server; set
 `BADSHOP_E2E_PORT` to choose another port. The launcher check uses
 port 1422 (set `BADSHOP_DEV_PORT` to override), leaving the usual development port 1420

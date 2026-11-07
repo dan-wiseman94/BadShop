@@ -157,12 +157,36 @@ def doctor(checks: Checks) -> bool:
     return good
 
 
+def positive_int(value: str) -> int:
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError('expected a positive integer') from exc
+    if result < 1:
+        raise argparse.ArgumentTypeError('expected a positive integer')
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=MODES, nargs='?', default='quick',
                         help='quick (default), browser, desktop (Linux Xvfb), all, or doctor')
     parser.add_argument('--output', type=Path, help='Evidence directory (default: artifacts/verification/<run>)')
+    parser.add_argument('--core-workers', type=positive_int,
+                        help='Python test workers for quick or all (default: 1)')
+    parser.add_argument('--browser-workers', type=positive_int,
+                        help='Override the Playwright worker count for browser or all')
+    parser.add_argument('--browser-test', action='append', default=[],
+                        help='Playwright file pattern for a focused browser run (repeatable)')
     args = parser.parse_args()
+    if args.core_workers is not None and args.mode not in ('quick', 'all'):
+        parser.error('--core-workers requires quick or all')
+    if args.browser_workers is not None and args.mode not in ('browser', 'all'):
+        parser.error('--browser-workers requires browser or all')
+    if args.browser_test and args.mode != 'browser':
+        parser.error('--browser-test requires browser')
+    if any(pattern.startswith('-') for pattern in args.browser_test):
+        parser.error('--browser-test takes a file pattern, not a Playwright option')
     try:
         with checkout_lock(ROOT / 'artifacts/verification/.lock'):
             return verify(args)
@@ -199,8 +223,11 @@ def verify(args: argparse.Namespace) -> int:
             checks.run('core-lint', [*python, '-m', 'ruff', 'check', '--config', 'core/pyproject.toml',
                                    'core', 'scripts', 'packaging/smoke_desktop.py'], env=env)
             checks.run('workflow-tests', [*python, '-m', 'unittest', 'discover', '-s', 'scripts/tests'], env=env)
-            checks.run('core-tests', [*python, '-m', 'pytest', 'core/tests', '-q', '-ra', '-m',
-                                     'not models and not network and not live'], env=env)
+            core_command = [*python, '-m', 'pytest', 'core/tests', '-q', '-ra', '-m',
+                            'not models and not network and not live']
+            if args.core_workers and args.core_workers > 1:
+                core_command.extend(['-n', str(args.core_workers), '--dist', 'loadfile'])
+            checks.run('core-tests', core_command, env=env)
             checks.run('frontend-tests', [*manager, '--dir', 'app', 'test'], env=env)
             built = checks.run('frontend-build', [*manager, '--dir', 'app', 'build'], env=env)
             checks.run('rust-format', ['cargo', 'fmt', '--manifest-path', 'app/src-tauri/Cargo.toml', '--', '--check'], env=env)
@@ -214,11 +241,16 @@ def verify(args: argparse.Namespace) -> int:
                 built = checks.run('frontend-build', [*manager, '--dir', 'app', 'build'], env=env)
             # CI disables reuse of an unrelated dev server. A dedicated port permits the normal app to stay open.
             browser_env = env | {'CI': '1', 'BADSHOP_E2E_PORT': os.environ.get('BADSHOP_E2E_PORT', '1421')}
+            name = 'browser-focused' if args.browser_test else 'browser-tests'
             if built:
-                checks.run('browser-tests', [*manager, '--dir', 'app', 'exec', 'playwright', 'test',
-                                            '--output', str(checks.output / 'browser')], env=browser_env, timeout=1800)
+                browser_command = [*manager, '--dir', 'app', 'exec', 'playwright', 'test',
+                                   '--output', str(checks.output / 'browser')]
+                if args.browser_workers is not None:
+                    browser_command.extend(['--workers', str(args.browser_workers)])
+                browser_command.extend(args.browser_test)
+                checks.run(name, browser_command, env=browser_env, timeout=1800)
             else:
-                checks.record('browser-tests', 'blocked', reason='Frontend build failed')
+                checks.record(name, 'blocked', reason='Frontend build failed')
         if args.mode in ('desktop', 'all'):
             if sys.platform != 'linux':
                 checks.record('native-desktop', 'blocked', reason='Local private-display runner supports Linux; see native CI for macOS/Windows')
