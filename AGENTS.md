@@ -47,6 +47,9 @@
   Keep focused unit tests for boundary conditions, security, concurrency and algorithms
   that an end-to-end check cannot reliably isolate. Do not replace removed tests with
   loops or giant combined tests just to lower the reported count.
+- For consequential changes, use the advisory second-pass prompt in `docs/diff-review.md`.
+  Require a concrete failure scenario and file/line for findings. When changing one of its
+  covered guards, run the corresponding opt-in negative control.
 - Verify user-visible changes through the actual affected workflow whenever possible.
   Distinguish mocked checks from real integration tests. Report exactly what was exercised
   and what remains unverified. If the environment prevents verification, investigate
