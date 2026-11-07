@@ -1,5 +1,6 @@
 import io
 import json
+import struct
 import zipfile
 
 import pytest
@@ -179,6 +180,60 @@ def test_pack_size_limit_is_checked_before_image_decode(tmp_path, monkeypatch):
     monkeypatch.setattr(packs, "MAX_ENTRY", 1)
     with pytest.raises(EngineError, match="size limit"):
         packs.import_pack(AssetLibrary(tmp_path / "target"), str(path))
+
+
+def test_pack_directory_is_bounded_before_allocation(tmp_path, monkeypatch):
+    path = tmp_path / "directory.badpack"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("pack.json", "{}")
+    raw = bytearray(path.read_bytes())
+    end = raw.rfind(b"PK\x05\x06")
+    struct.pack_into("<I", raw, end + 12, packs.MAX_DIRECTORY + 1)
+    path.write_bytes(raw)
+
+    def forbidden(*a, **kw):
+        pytest.fail("ZipFile allocated an unchecked pack directory")
+
+    monkeypatch.setattr(zipfile, "ZipFile", forbidden)
+    target = AssetLibrary(tmp_path / "target")
+    with pytest.raises(EngineError, match="directory metadata"):
+        packs.import_pack(target, str(path))
+    assert not target.list()
+
+
+@pytest.mark.parametrize("compression", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA])
+def test_pack_rejects_unbounded_decompressors(tmp_path, compression):
+    path = tmp_path / "compression.badpack"
+    with zipfile.ZipFile(path, "w", compression=compression) as archive:
+        archive.writestr("pack.json", '{"schema": 1, "entries": []}')
+    target = AssetLibrary(tmp_path / "target")
+    with pytest.raises(EngineError, match="compression"):
+        packs.import_pack(target, str(path))
+    assert not target.list()
+
+
+def test_pack_lying_size_header_cannot_request_unbounded_inflate(tmp_path, monkeypatch):
+    path = tmp_path / "lying-size.badpack"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("pack.json", b" " * (8 * 2**20))
+    raw = bytearray(path.read_bytes())
+    central = raw.index(b"PK\x01\x02")
+    struct.pack_into("<I", raw, central + 24, 64)
+    struct.pack_into("<I", raw, 22, 64)
+    path.write_bytes(raw)
+    original = zipfile.ZipExtFile.read
+    requests = []
+
+    def bounded_read(file, n=-1):
+        assert 0 < n <= packs.READ_CHUNK, "unbounded inflate request"
+        requests.append(n)
+        return original(file, n)
+
+    monkeypatch.setattr(zipfile.ZipExtFile, "read", bounded_read)
+    target = AssetLibrary(tmp_path / "target")
+    with pytest.raises(EngineError):
+        packs.import_pack(target, str(path))
+    assert requests and not target.list()
 
 
 def test_pack_rpc_management_is_user_only(tmp_path):

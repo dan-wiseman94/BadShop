@@ -326,6 +326,7 @@ def test_save_replaces_the_old_file_in_one_step(tmp_path, monkeypatch):
     assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".part")] == []  # no temp file left
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX umask/mode contract; Windows uses inherited ACLs")
 def test_a_saved_project_gets_the_mode_any_saved_file_gets(saved, tmp_path):
     s, _ = saved
     old = os.umask(0o022)

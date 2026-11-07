@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import stat
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -98,7 +99,8 @@ def test_diagnostics_redacts_before_disk_and_report(tmp_path, monkeypatch):
     handler.doRollover()
     logger.info("after rollover")
     assert "after rollover" in path.read_text()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows privacy is inherited ACLs, not POSIX mode bits.
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert len(list(tmp_path.glob("badshop.log.*"))) == 1
 
 

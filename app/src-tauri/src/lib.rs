@@ -8,8 +8,6 @@ use tauri::{Emitter, Manager, State};
 
 struct Core(Arc<Supervisor>);
 
-// An opt-in receipt for the isolated native harness, never an arbitrary path
-// supplied by web content. Normal application launches do not write this file.
 #[tauri::command]
 fn smoke_probe_enabled() -> bool {
     std::env::var_os("BADSHOP_SMOKE_READY_FILE").is_some()
@@ -17,21 +15,43 @@ fn smoke_probe_enabled() -> bool {
 }
 
 #[tauri::command]
-fn renderer_ready(session_id: String, tool_count: usize) -> Result<(), String> {
-    if !smoke_probe_enabled() {
-        return Ok(());
+fn renderer_ready(
+    core: State<'_, Core>,
+    ready: bool,
+    session_id: String,
+    revision: u64,
+    unsaved: bool,
+    welcome: bool,
+    close_pending: bool,
+    tool_count: usize,
+) -> Result<(), String> {
+    // Only the isolated native harness supplies this path. No connection token
+    // or project contents are exported; ordinary startup performs no probe I/O.
+    if smoke_probe_enabled() {
+        let path = PathBuf::from(std::env::var_os("BADSHOP_SMOKE_READY_FILE").unwrap());
+        if !ready {
+            let _ = std::fs::remove_file(path);
+            return Ok(());
+        }
+        if session_id.is_empty() || tool_count == 0 {
+            return Err("Renderer readiness requires a session and tool catalog".into());
+        }
+        let Some(connection) = core.0.current_connection() else {
+            let _ = std::fs::remove_file(path);
+            return Ok(());
+        };
+        let state = serde_json::json!({
+            "nonce": std::env::var("BADSHOP_SMOKE_NONCE").map_err(|e| e.to_string())?,
+            "tool_count": tool_count,
+            "shell_pid": std::process::id(), "port": connection.port,
+            "session_id": session_id, "revision": revision,
+            "unsaved": unsaved, "welcome": welcome, "close_pending": close_pending,
+        });
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, state.to_string()).map_err(|e| e.to_string())?;
+        std::fs::rename(temporary, path).map_err(|e| e.to_string())?;
     }
-    if session_id.is_empty() || tool_count == 0 {
-        return Err("Renderer readiness requires a session and tool catalog".into());
-    }
-    let path = PathBuf::from(std::env::var_os("BADSHOP_SMOKE_READY_FILE").unwrap());
-    let nonce = std::env::var("BADSHOP_SMOKE_NONCE").map_err(|e| e.to_string())?;
-    let receipt = serde_json::json!({
-        "nonce": nonce, "session_id": session_id, "tool_count": tool_count
-    });
-    let temporary = path.with_extension("tmp");
-    std::fs::write(&temporary, receipt.to_string()).map_err(|e| e.to_string())?;
-    std::fs::rename(temporary, path).map_err(|e| e.to_string())
+    Ok(())
 }
 
 #[tauri::command]
@@ -120,9 +140,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core_connection,
             core_restart,
-            diagnostics,
+            renderer_ready,
             smoke_probe_enabled,
-            renderer_ready
+            diagnostics
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

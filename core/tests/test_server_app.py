@@ -64,6 +64,34 @@ def env(tmp_path, monkeypatch):
 # --- settings -----------------------------------------------------------------------------------
 
 
+def test_slow_subscriber_is_disconnected_without_losing_other_subscribers(env):
+    async def scenario():
+        app = CoreApp(executor_factory=lambda **_: InProcessExecutor())
+        started, overflow = asyncio.Event(), asyncio.Event()
+        received = []
+        async def slow(message):
+            started.set()
+            await asyncio.Event().wait()
+        async def fast(message):
+            received.append(message)
+        cancel_slow = app.subscribe(slow, on_overflow=overflow.set)
+        cancel_fast = app.subscribe(fast)
+        try:
+            app._deliver("first")
+            await started.wait()
+            for i in range(300):
+                app._deliver(str(i))
+                await asyncio.sleep(0)
+            assert overflow.is_set()
+            assert received == ["first", *map(str, range(300))]
+            assert len(app._subscribers) == 1
+        finally:
+            cancel_slow()
+            cancel_fast()
+            await app.close()
+    asyncio.run(scenario())
+
+
 def test_settings_round_trip_and_bad_files(env):
     assert config_dir() == env / "config"
     assert load_settings() == Settings()  # no file yet

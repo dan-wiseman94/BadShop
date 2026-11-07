@@ -22,7 +22,7 @@ from badshop.engine.types import Params
 from badshop.session import netpolicy
 from badshop.session.execution import (
     CRASH_HINT, STOPPED, BytesStore, Executor, InProcessExecutor, OutputRecord, ToolCall, ToolOutcome,
-    cache_key, execute_call, json_safe,
+    cache_key, execute_call, json_safe, runtime_fingerprint,
 )
 from badshop.tools.registry import REGISTRY, ToolSpec
 from conftest import FIXTURES
@@ -368,7 +368,7 @@ def test_calls_and_outcomes_cross_a_process_boundary():
 
 def test_cache_key(monkeypatch):
     key = cache_key("paste", {"base": "a" * 64, "scale": 1.1, "at": [1, 2]})
-    blob = json.dumps({"engine": badshop.__version__, "tool": "paste",
+    blob = json.dumps({"engine": badshop.__version__, "runtime": runtime_fingerprint(), "tool": "paste",
                        "params": {"at": [1, 2], "base": "a" * 64, "scale": 1.1}},
                       separators=(",", ":"), sort_keys=True)
     assert key == hashlib.sha256(blob.encode()).hexdigest() and len(key) == 64

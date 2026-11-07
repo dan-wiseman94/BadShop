@@ -96,6 +96,20 @@ def rig(tmp_path):
     return Rig(tmp_path)
 
 
+def test_reopened_project_replays_after_runtime_changes(rig, tmp_path, monkeypatch):
+    from badshop.session import execution, project
+    steps = rig.chain()
+    path = project.save(rig.s, tmp_path / "runtime.badshop")
+    reopened = project.open_project(path, executor=rig.ex)
+    reopened.replay_from(steps[0].id)
+    assert not rig.ex.calls  # same runtime reuses the actual saved executions
+    fingerprint = execution.runtime_fingerprint()
+    monkeypatch.setattr(execution, "runtime_fingerprint", lambda: {**fingerprint, "codecs": {"zlib": "new"}})
+    reopened.replay_from(steps[0].id)
+    assert rig.ex.calls == [step.tool for step in steps]
+    assert [step.outputs for step in reopened.data.steps] == [step.outputs for step in steps]
+
+
 def test_edit_marks_the_step_and_later_steps_stale_without_running(rig):
     s1, s2, s3, s4 = rig.chain()
     rig.s.reject(rig.s.propose("filter", {"image": s4.outputs[0], "names": ["sepia"]}, "agent:fake").id)

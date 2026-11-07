@@ -124,10 +124,16 @@ export default function App() {
   const sessionMenu = useRef<HTMLDivElement>(null);
   useEffect(() => startCore(), []);
   useEffect(() => {
-    if (native && ui.status === "ready" && session?.id && profiles) {
-      void reportNativeReadiness(session.id).catch(error => console.error("Native readiness probe failed", error));
-    }
-  }, [ui.status, session?.id, !!profiles]);
+    if (!native) return;
+    let current = true;
+    void reportNativeReadiness({
+      ready: ui.status === "ready" && Boolean(session?.id) && Boolean(profiles) && !sessionError,
+      sessionId: session?.id ?? "", revision: session?.document_revision ?? 0,
+      unsaved: session?.unsaved_changes ?? false, welcome, closePending: Boolean(documents.pending),
+    }, () => current).catch(error => console.error("Native readiness probe failed", error));
+    return () => { current = false; };
+  }, [ui.status, session?.id, session?.document_revision, session?.unsaved_changes,
+    sessionError, !!profiles, welcome, documents.pending]);
   useEffect(() => {
     if (previousSession.current && previousSession.current !== session?.id) {
       setAttachments([]);

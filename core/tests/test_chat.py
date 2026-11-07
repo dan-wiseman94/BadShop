@@ -374,11 +374,14 @@ asyncio.run(main())
             result = subprocess.run([sys.executable, "-c", script], stdin=stream,
                                     capture_output=True, text=True, encoding="utf-8", timeout=5, env=env)
     else:
-        result = subprocess.run([sys.executable, "-c", script], input=content,
-                                capture_output=True, text=True, encoding="utf-8", timeout=5, env=env)
+        # Text-mode subprocess input translates LF to CRLF on Windows, turning
+        # our explicit CRLF into CRCRLF. Send exactly the bytes under test.
+        result = subprocess.run([sys.executable, "-c", script], input=content.encode("utf-8"),
+                                capture_output=True, timeout=5, env=env)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == ["雪🙂", "café", "last line"]
-    assert "Fatal Python error" not in result.stderr
+    assert "Fatal Python error" not in (result.stderr.decode("utf-8")
+                                       if isinstance(result.stderr, bytes) else result.stderr)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX canonical TTY input")

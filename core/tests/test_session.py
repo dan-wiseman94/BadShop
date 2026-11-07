@@ -223,7 +223,7 @@ def test_export_writes_bytes_unchanged_and_never_overwrites(session, tmp_path):
         [f"{work.label}.png", f"{work.label}_2.png", "my.meme.png", "lincoln.jpg"])
 
 
-def test_export_never_loops_on_a_name_it_cannot_take(session, tmp_path, monkeypatch):
+def test_export_refuses_a_broken_link(session, tmp_path, symlinks):
     work = session.import_image(LINCOLN, "lincoln")
     out = tmp_path / "out"
     out.mkdir()
@@ -231,6 +231,12 @@ def test_export_never_loops_on_a_name_it_cannot_take(session, tmp_path, monkeypa
     with pytest.raises(EngineError, match=f"can't write {work.label}.png: a broken link with that name") as e:
         session.export(work.id)
     assert "remove it" in e.value.hint and os.listdir(out) == [f"{work.label}.png"]
+
+
+def test_export_never_loops_on_a_name_it_cannot_take(session, tmp_path, monkeypatch):
+    work = session.import_image(LINCOLN, "lincoln")
+    out = tmp_path / "out"
+    out.mkdir()
     real = files.final_path
 
     def raced(final_dir, stem, ext):  # another program saves under the name final_path just picked

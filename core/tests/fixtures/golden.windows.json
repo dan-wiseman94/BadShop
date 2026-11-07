@@ -1,0 +1,88 @@
+{
+ "versions": {
+  "pillow": "12.3.0",
+  "numpy": "2.5.3",
+  "opencv-python-headless": "4.14.0.94",
+  "onnxruntime": "1.30.0"
+ },
+ "codecs": {
+  "zlib": "1.3.1.zlib-ng",
+  "zlib_ng": "2.3.3",
+  "jpg": "8.0",
+  "libjpeg_turbo": "3.1.4.1",
+  "webp": "1.6.0"
+ },
+ "cases": {
+  "prep": {
+   "work/trump_work.png": "42d4abc951fce1d2ce4e164582dd13031d3bb14e4e30b91da0f2e03edbc29cce",
+   "work/trump_work_grid.png": "85704597de15db85b7cbfd890d9194b26fb481b2883f656dae70d1a3e7381cae"
+  },
+  "view-grid": {
+   "work/lincoln_view.png": "cc2bb7c826bbba9eb3eb058da67e612fef79d82920807e6e238caeaf6011c3b8"
+  },
+  "view-emoji": {
+   "work/emoji_joy_view.png": "7f60e1bc6f5deb55def394f490bc88b6ca8c83e77dc29ba6deaa56aa7bc503dc"
+  },
+  "find-haar": {
+   "work/trump_faces.png": "29700e48d51c0aba9028ba206e3240a681c333e74e611e7123a17dd3530613b4"
+  },
+  "cutout-oval": {
+   "work/trump_cutout.png": "168d10fb633f662e706f07d8b4048d7a0dccfa755f4132cfb4387f402778b5d5"
+  },
+  "cutout-no-ai": {
+   "work/lincoln_cutout.png": "ddd13d3f94faa32e17573aba5d8eb0ad0b4d79936403c8c0de7dee430056ccc6"
+  },
+  "paste-fit-box": {
+   "work/result.png": "3672492cf8e273210ec00c43fa7f24bf32b9cd0204e6e369f3b47acacd02cc70"
+  },
+  "paste-at": {
+   "work/result.png": "3086e25d2ac8c83712b83ca3d57cb9784193003d7dfe3c481d8152627ea2d98a"
+  },
+  "paste-repeat": {
+   "work/result.png": "6e6dc0330f081277c4cd45cf77add1ccbc22acc09a8d33fada0c7507fb78b8c9"
+  },
+  "draw": {
+   "work/result.png": "808d8e5153be9437c6524bf3852a7bdbc9ddbcdab21afd17165ee92d203cdcfc"
+  },
+  "censor-pixelate": {
+   "work/result.png": "685a5c0ab0dc2f5c1b0ae322ce4e0495af87c1fb0ff88b6e5ed2742876dba731"
+  },
+  "censor-bar": {
+   "work/result.png": "5ea3319e390ea6c4d9de4272f480758153225b73ac4c388c3457d6ec21a3807c"
+  },
+  "censor-blur": {
+   "work/result.png": "b6b7c2c431c9803cc6d39641bc290ca4af7e57b0b6f06e6165207d691723fff5"
+  },
+  "eyes": {
+   "work/result.png": "0973e45d589565a9693139afa56a6cb6509311906bf44645a2de21d0162fa9a2"
+  },
+  "filter": {
+   "work/result.png": "2b6d500267135aebcbc04e639a339560189eba350f41e95edd0540bcdf41203c"
+  },
+  "warp": {
+   "work/result.png": "713d29a104c8911a541b6534b666451f5c69b636074464bec6dfb5e60a34a0e0"
+  },
+  "flare": {
+   "work/result.png": "a9e61a694611c41e202774c258d948982b28f1a32970fe843d96129ee64fedd4"
+  },
+  "sparkle": {
+   "work/result.png": "b5ad220bc0ec7fa758b79cb75108b7f6d81a409c75162bdbce4ac8fce304b2c3"
+  },
+  "watermark": {
+   "work/result.png": "58f2cffd475a07492afdc7916ab7ee8860c9da5134c7ee7fd7b4f567c9c32ec7"
+  },
+  "layout-card": {
+   "work/trading-card.png": "d62ef37ffae7ab8d7479b48f5137aeed54846bb5500d8a4635312d149454cd5e"
+  },
+  "layout-sparse-comic": {
+   "work/comic.png": "6b763f36479e699c197fa09fc1ae380aaee76f31d0c07e72ab9d10c075c9eddf"
+  },
+  "pair-images-head": {
+   "work/pair_candidates.png": "462b72c0ca3119b68a281f3c354d1de99cad0a4f252059dd240fd0889f23e9c7"
+  },
+  "slice-sheet-sparse": {
+   "work/lincoln_cell_0_r0_c0.png": "caa77f98e75cd8df1415394a487562c870b02dae750792d0453ec152b7d383bc",
+   "work/lincoln_cell_4_r1_c1.png": "fb6b4cb37a76559fe4388057553e86032ed137e3d6f0dc26c3213e3258ea8128"
+  }
+ }
+}

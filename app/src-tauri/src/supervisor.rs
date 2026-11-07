@@ -63,12 +63,28 @@ fn terminate(child: &mut Child) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if matches!(child.try_wait(), Ok(Some(_))) {
+            kill_group(child);
             return;
         }
         thread::sleep(Duration::from_millis(50));
     }
     let _ = child.kill();
+    kill_group(child);
     let _ = child.wait();
+}
+
+fn kill_group(_child: &Child) {
+    #[cfg(unix)]
+    {
+        // The source launcher (uv) may exit before its Python child. Each launch
+        // has its own group; never target the desktop's or caller's group.
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        unsafe {
+            kill(-(_child.id() as i32), 9);
+        }
+    }
 }
 
 impl Supervisor {
@@ -126,6 +142,11 @@ impl Supervisor {
                             .stdin(Stdio::piped())
                             .stdout(Stdio::piped())
                             .stderr(log);
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::process::CommandExt;
+                            cmd.process_group(0);
+                        }
                         #[cfg(windows)]
                         {
                             use std::os::windows::process::CommandExt;
@@ -245,6 +266,10 @@ impl Supervisor {
         }
     }
 
+    pub fn current_connection(&self) -> Option<Connection> {
+        self.snapshot.0.lock().unwrap().connection.clone()
+    }
+
     pub fn connection(&self) -> Result<Connection, String> {
         let (lock, changed) = &*self.snapshot;
         let (data, timeout) = changed
@@ -350,5 +375,46 @@ mod tests {
         let start = Instant::now();
         supervisor.stop();
         assert!(start.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn termination_drains_descendants_after_wrapper_exits() {
+        use std::os::unix::process::CommandExt;
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        let mut child = Command::new("/bin/sh")
+            .args([
+                "-c",
+                "sleep 120 & echo $! > \"$1\"",
+                "_",
+                pidfile.to_str().unwrap(),
+            ])
+            .stdin(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+        let pid = fs::read_to_string(&pidfile).unwrap();
+        terminate(&mut child);
+        // Linux's /proc distinguishes a killed, unreaped orphan from a live child.
+        #[cfg(target_os = "linux")]
+        {
+            let path = format!("/proc/{}/stat", pid.trim());
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                let text = fs::read_to_string(&path).unwrap_or_default();
+                if text.is_empty() || text.split(") ").nth(1).unwrap_or("").starts_with('Z') {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "core descendant survived shutdown"
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = pid;
     }
 }

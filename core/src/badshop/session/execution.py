@@ -4,12 +4,16 @@ data, so a call runs the same in this process or in a worker process (session/wo
 
 import hashlib
 import json
+import platform
 import threading
+import sys
 from contextlib import nullcontext
 from dataclasses import dataclass, field
+from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, version
 from typing import Protocol, runtime_checkable
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError, features
 
 import badshop
 from badshop.engine.common import load_image
@@ -107,10 +111,25 @@ def execute_call(call: ToolCall) -> ToolOutcome:
                            error_message=f"the tool crashed ({type(e).__name__}: {e})")
 
 
+@lru_cache(maxsize=1)
+def runtime_fingerprint() -> dict:
+    """A lockfile/codec/platform change can change pixels or encoded artifact IDs."""
+    libraries = {}
+    for package in ("pillow", "numpy", "opencv-python-headless", "onnxruntime", "rembg"):
+        try:
+            libraries[package] = version(package)
+        except PackageNotFoundError:
+            libraries[package] = "unavailable"
+    return {"platform": sys.platform, "machine": platform.machine(), "libraries": libraries,
+            "codecs": {name: features.version(name) for name in
+                       ("zlib", "zlib_ng", "jpg", "libjpeg_turbo", "webp")}}
+
+
 def cache_key(tool: str, params: dict) -> str:
     """Identifies one execution: the engine version, the tool and its stored params. Image refs in
     stored params are full artifact ids (content hashes), so the key covers the input bytes too."""
-    blob = json.dumps({"engine": badshop.__version__, "tool": tool, "params": params},
+    blob = json.dumps({"engine": badshop.__version__, "runtime": runtime_fingerprint(),
+                       "tool": tool, "params": params},
                       sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
 

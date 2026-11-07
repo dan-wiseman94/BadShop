@@ -6,8 +6,10 @@ binary patch: `/home/dan/.local/share/badshop-linux-test/worktrees/state-machine
 It has its own editable Python environment; `linux/baseline.txt` and `linux/patch.sha256`
 under the evidence root identify the transferred inputs.
 This is the single audit file: machine definitions, reachable failures, grouped repair
-issues, and verification evidence are maintained here. Issue IDs below are local work
-items, not published GitHub issues. Pixel algorithms are outside this change.
+issues, and verification evidence are maintained here. SM issue IDs are local work
+items; the follow-up R1–R6 issues below are published on GitHub. Pixel algorithms are
+outside this change. The original verification section is historical; current results
+and limitations are in the reliability follow-up at the end of this file.
 
 ## Acceptance criteria
 
@@ -283,7 +285,7 @@ land on a new Session with reused step IDs. Recovery saves are atomic temp+repla
 | guarded replacement | revision changed or unsaved without discard | refuse, preserve current document |
 | New / Open success | replacement complete | baseline user-saved; Open retains project path unless it is recovery storage |
 | Restore success | consume recovery offer | untitled/unsaved; recovery of it becomes current autosave |
-| next core launch | claim_autosave | move session.badshop to previous.badshop before any new mutation; offer restore |
+| next core launch | runtime leases acquired, then claim_autosave | move session.badshop to previous.badshop before any new mutation; offer restore; competing owner refused (R2) |
 | project load | validate schema, sizes, IDs, hashes/decoders/refs | new Session or clean error; interrupted steps normalized |
 | closing | Stop, drain work, final autosave, executor/provider cleanup | closed; no managed turn starts |
 
@@ -356,16 +358,17 @@ Owners: `server/ws.py`, `app/src/rpc.ts`, `app/src/data.ts`,
 `app/src-tauri/src/supervisor.rs`. Server states: awaiting hello, authenticated(user/CLI),
 closing, closed. UI states: starting, connecting, ready, disconnected, failed; recovery
 is an extra flag. Native supervisor states: starting, ready, failed, stopped, attempt 0–3.
-Invariants: token/actor check precedes dispatch; one writer orders responses/events per
+Invariants: actor-bound credential check precedes dispatch; one writer orders responses/events per
 socket; request IDs correlate replies, **not** deduplicate operations; obsolete socket
 generations cannot publish events; recovery does not expose an empty replacement before
 restoring previous work; at most three automatic core restarts after the initial launch.
 
 | Machine / from | Trigger | To / effects |
 | --- | --- | --- |
-| server awaiting hello | valid token and allowed actor within 10 s | welcome; subscribe; user connection count++ if appropriate |
+| server awaiting hello | valid credential for this actor within 10 s | welcome; subscribe; user connection count++ if appropriate (R3) |
 | server awaiting hello | invalid/timeout/binary | policy close; no RPC execution |
-| server authenticated | request | independent task; methods may overlap, mutations still locked |
+| server authenticated | request within pending count/byte budget | independent task; methods may overlap, mutations still locked |
+| server authenticated | pending calls or queued output exceed budget | close 1013; cancel/drain requests and detach subscriber (R4) |
 | server closing | socket lost | unsubscribe, cancel/drain its requests; last user triggers on_client_gone |
 | client disconnected | connect | increment generation; authenticate new socket |
 | client connecting | welcome in current live generation | authenticated/ready |
@@ -375,7 +378,7 @@ restoring previous work; at most three automatic core restarts after the initial
 | native starting | valid stdout handshake within 30 s | ready; drain stdout and monitor child |
 | native running/start failed | unexpected exit/startup failure | restart while attempt < 3, otherwise failed |
 | native failed | explicit Restart | reset attempt; starting |
-| native any | Stop/drop/normal app exit | close stdin; wait up to 5 s then kill/reap; stopped |
+| native any | Stop/drop/normal app exit | close stdin; wait up to 5 s then kill/reap; drain private Unix process group even when wrapper exited; stopped (R1) |
 
 ### M10 — user Save/Discard/Cancel and form drafts (implicit)
 
@@ -446,7 +449,7 @@ removing library entries does not delete shared content needed by other entries.
 | library absent | save asset | write immutable blob(s), then atomic entry metadata |
 | library installed | import | validate/decode all blob(s), then add to session and persist metadata note |
 | library installed | update/remove | atomic metadata update or remove record; retain shared blobs |
-| pack selected | import | validate all members/hashes/limits first; write blobs, fresh entry IDs; roll back installed entry records on failure |
+| pack selected | import | bound directory allocation and chunked decompression; validate all members/hashes first; write blobs, fresh entry IDs; roll back installed entry records on handled failure (R6) |
 | built-in pack | install | generate deterministic engine artwork, save entries; reinstallation is additive |
 
 ### M13 — provider profiles and settings (implicit)
@@ -587,3 +590,168 @@ attempts could not run async tests. Those owned test processes were stopped, and
 suite was rerun with approved local socket/process access. The original checkout's
 source and unrelated processes were preserved. Linux verification used the authorized
 `archlinux` WSL 2 launcher and isolated Xvfb, without driving the user's desktop.
+
+## Reliability follow-up: R1–R6
+
+Baseline: main `05de166` (PR #12 merged). Isolated branch:
+`fix/reliability-audit`. No unrelated working changes were inherited. Main advanced
+to `69c675b` during the task (PR #14 verification selection/parallelism); it was merged
+as `e3a662b`, and the overlapping verification driver was reviewed. Main then advanced
+to `d1bcb9f` (PR #15 development workflow). Merge `7f580ed` resolves overlapping
+App/Rust/harness readiness changes by retaining main's nonce/catalog validation and
+adding revision/recovery/close state and obsolete-completion guards. Main's focused
+verification, private ports and provenance features are retained. The Linux worktree
+reuses its own virtualenv and build outputs, with the Windows task's tracked diff
+transferred on top of `05de166`. Source manifests accompany the retained evidence.
+
+### Acceptance and execution order
+
+| Order | Area | Acceptance |
+| --- | --- | --- |
+| 1 | Native lifecycle | A pass requires authenticated, painted session data. Core crash/restart preserves unsaved work; Cancel preserves the window; Discard closes it and drains the owned core group. Attribute or delimit native teardown failures. |
+| 2 | Crash consistency | A killed writer preserves the last committed project and permits retry. Competing runtimes cannot claim live recovery or independently overwrite shared runtime configuration. |
+| 3 | Trust boundaries | CLI credentials cannot acquire user authority. Project/pack members, local paths and URLs fail safely when invalid. Refusal must preserve existing state. |
+| 4 | Resource ownership | Bound pending requests and event/output buffers; overload/disconnect drains owned tasks without stranding approvals or breaking healthy clients. |
+| 5 | Windows portability | Classify the previous 68 failures, fix platform assumptions without relaxing pixel parity, and exercise real Windows subprocess/transport/persistence behavior. |
+| 6 | Project/replay compatibility | Valid old/current projects still restore; malformed archives are bounded and fail cleanly; changed runtime/codec versions invalidate replay caches. |
+
+### Prioritized confirmed issues
+
+P1 denotes recovery/authority failures or unreliable lifecycle verification; P2 denotes
+bounded-resource, compatibility and test-coverage failures. All six groups are
+implemented in this branch; GitHub issues close when the PR merges.
+
+| Group | Reachable baseline trace and impact | Repair and evidence |
+| --- | --- | --- |
+| [R3 / #18](https://github.com/dan-wiseman94/BadShop/issues/18), P1 | `_make_provider` gives a CLI the renderer token → `_hello` accepts that token with client-supplied `actor=user` → user-only approval/settings RPCs become available. | HMAC-derived per-actor credentials; validate actor+credential before dispatch; redact scoped tokens. Bad-hello tests reject CLI→user, CLI→other CLI and root→CLI; real CLI/MCP bridge still succeeds. |
+| [R2 / #17](https://github.com/dan-wiseman94/BadShop/issues/17), P1 | Second core constructs CoreApp → `claim_autosave` moves the live core's session to previous recovery; independent asyncio locks cannot serialize shared config/library updates. | OS leases on both resolved data/config directories before CoreApp construction. Real competing-core test checks recovery bytes and continued first-core use. Process tests cover overlapping directories, partial acquisition, hard kill and repeated reacquisition. |
+| [R1 / #16](https://github.com/dan-wiseman94/BadShop/issues/16), P1 | TCP+image entropy can pass a loading UI or fatal WebKit stderr. Stronger direct/source-launcher tests also expose surviving Python cores when the uv wrapper exits first. | Private Unix launch group drained after wrapper exit; renderer/session readiness probe; fatal diagnostic rejection and retained logs. Native workflow changes approval mode, kills its core, checks restored session+unsaved state, and exercises Cancel then Discard. Rust orphan-descendant and Python readiness regressions cover the boundaries. |
+| [R4 / #19](https://github.com/dan-wiseman94/BadShop/issues/19), P2 | Repeated frames each create an independent blocked task; a slow subscriber or reader retains an unbounded queue of snapshots/replies. | 64 pending calls / 64 MiB retained request strings per socket; subscriber/outbox queues capped at 256 messages / 64 MiB each. Overload closes with 1013, drains calls and detaches subscribers. Flood and blocked-subscriber tests require healthy/fresh clients to remain usable. |
+| [R6 / #21](https://github.com/dan-wiseman94/BadShop/issues/21), P2 | ZipFile allocates the entire directory before member checks; packs accept whole-member reads and BZIP2/LZMA. Duplicate timeline IDs/index gaps pass project validation. Replay cache keys omit codec/runtime versions. | Bound directory allocation on the same open file, reject unsupported pack compression, read bounded chunks, reject ambiguous timelines and malformed nested JSON. Saved project bytes remain intact; runtime/codec fingerprint changes force actual replay. |
+| [R5 / #20](https://github.com/dan-wiseman94/BadShop/issues/20), P2 | The old Windows run had 68 baseline failures caused by script execution, permissions, paths/CRLF, codec bytes and signal assumptions. Asset status can also spend its timeout importing rembg merely to locate model files. | Platform-accurate fixtures/assertions and explicit capability skips; shared decoded-pixel/frame parity remains strict. Lightweight model path matches actual rembg classes, and a fresh-process regression proves status imports no rembg/onnxruntime. |
+
+Regression entry points: [runtime ownership](../core/tests/test_runtime_lease.py),
+[transport](../core/tests/test_server_ws.py), [subscriber ownership](../core/tests/test_server_app.py),
+[queue bounds](../core/tests/test_message_queue.py), [project boundaries](../core/tests/test_project_boundaries.py),
+[pack boundaries](../core/tests/test_layouts_packs.py), [replay](../core/tests/test_replay.py),
+[asset status](../core/tests/test_manifest.py), [native readiness](../scripts/tests/test_native_ready.py),
+and [native supervisor](../app/src-tauri/src/supervisor.rs).
+
+### Additional machines and invariants
+
+M15 — runtime lease, owned by the desktop server or terminal chat. Standalone
+low-level Session/CoreApp embedding must provide its own directory ownership.
+Stable lock inodes must never be removed. Partial acquisition is rolled back.
+
+| From | Event / guard | To / effect |
+| --- | --- | --- |
+| unowned | acquire both data/config locks | held; only now construct CoreApp and claim recovery |
+| acquiring | either lock unavailable | refused; release any acquired lock; no recovery mutation |
+| held | graceful close | drain CoreApp, then release both locks |
+| held | process killed | OS releases locks; bounded Windows cleanup retry permits reacquisition |
+| refused/released | explicit next launch | attempt acquisition again; no stale PID-file authority |
+
+M16 — archive and replay compatibility. Input is untrusted until every required
+member, timeline identity, reference, hash and image decoder check succeeds. No
+archive path is extracted. Projects cap physical size at 2 GiB + 64 MiB, directory
+metadata at 8 MiB and member count at 10,000; packs cap physical size at 82 MiB,
+directory metadata at 1 MiB and member count at 201. Existing tighter uncompressed
+session/image limits still apply. Declared sizes alone do not bound inflation.
+
+| From | Event / guard | To / effect |
+| --- | --- | --- |
+| selected file | check same open stream's size/end record | bounded directory parse or clean error before ZipFile allocation |
+| indexed | validate names, duplicates, compression and declared sizes | chunked member reads; bounded inflate steps |
+| decoded metadata | old supported schema / current schema | migrate/validate unique IDs and timeline order; future schema refused |
+| validated project | hashes/decoders/references pass | construct new Session; normalize interrupted work; old live Session unchanged until replacement |
+| validated pack | all entries/images checked | publish immutable blobs, then independent atomic entry records; handled failures remove new records |
+| replay requested | matching engine/runtime/codec key and present outputs | reuse eligible result; file-writing operations remain excluded |
+| replay requested | old/mismatched cache key | execute step again; opening alone never rewrites saved pixels |
+| save preparing | sibling archive fsynced and validated | atomic replace; killed writer before replace preserves old committed file |
+
+M17 — bounded subscriber/request ownership extends M9. Retained string size and
+count are independently bounded; one oversized message is sufficient for overload.
+The budgets are per connection, not a whole-process memory cap.
+
+| From | Event / guard | To / effect |
+| --- | --- | --- |
+| active | request/event within budgets | queue/start task; charge retained bytes |
+| active | completed request / dequeued message | release its byte/count charge |
+| active | any budget exceeded | overloaded; close 1013 or detach local subscriber; no stale connected client silently loses events |
+| overloaded/disconnected | cleanup | unsubscribe; cancel writer/requests; settle approvals through existing cancellation rules; drained |
+| drained | new authenticated connection | independent fresh budgets; no replay of old mutations |
+
+### Windows classification
+
+Fixture CLI scripts now launch through the worktree's Python on Windows; this still
+uses real processes, pipes, Job Objects and MCP. Graceful core shutdown uses stdin EOF,
+since Windows SIGTERM is TerminateProcess. CRLF tests supply explicit bytes. Paths are
+normalized only after comparing port and reference results; actual path behavior is
+still asserted. POSIX mode-bit contracts skip only on Windows. Symlink tests probe
+capability and skip only privilege error 1314; independent collision/race/content-change
+checks still run. The newly merged workflow fixture also excludes its generated
+evidence/lock files, matching the real checkout: Windows correctly refuses attempts
+to hash a held byte-range lock. Its focused regression passes after this correction.
+
+The Windows PNG codec baseline stores encoded hashes separately. Its generator first
+asserts every shared decoded pixel/frame, dimension, format, metadata and text result.
+It then records the Windows codec fingerprint and only differing encoded hashes.
+The model-dependent golden cases were not regenerated or claimed verified.
+
+### Native diagnostic and coverage limits
+
+The retained SIGABRT trace identifies `/usr/lib/webkit2gtk-4.1/WebKitWebProcess`;
+the failing free during exit has `libgallium-26.2.2-arch1.1.so` frames. This attributes
+the observed abort to a WebKit child during Mesa teardown, **not** the original
+allocation that corrupted the heap. The Xvfb harness defaults to
+`WEBKIT_DISABLE_COMPOSITING_MODE=1`; production Wayland settings are unchanged.
+Fatal-log detection remains enabled. Passing software-composited runs do not prove
+the Mesa problem is fixed for every display/driver.
+
+The real unsaved native workflow uses a mode change, not a live model call. It verifies
+the native close guard and core recovery; it does not claim native file-picker or
+clipboard coverage. Windows native windows, macOS, installers, physical power loss,
+network/model/live-provider tests remain outside this source verification.
+
+Atomic library records may leave unreferenced blobs after a crash. A killed bulk-pack
+import can leave a valid subset of independent entries; whole-pack crash atomicity is
+not a current contract. Runtime fingerprints do not hash external fonts/model files.
+Actor-scoped credentials are protocol authority boundaries, not an OS sandbox against
+same-user processes. Descendants that deliberately create separate process sessions
+are outside the native core-group cleanup guarantee.
+
+### Follow-up verification
+
+Evidence root: `artifacts/verification/reliability/`. Both worktrees have independent
+Python environments. Native automation owns private Xvfb and temporary config/data;
+no real user settings, credentials or desktop input are used.
+
+| Layer / selection | Actual outcome | Retained evidence |
+| --- | --- | --- |
+| Linux quick, four core workers | 1,219 core tests passed, 39 skipped; 46 frontend tests, 9 workflow tests, lint, frontend build, Rust format and 4 Rust tests passed. Run before PR #15 integration; core behavior is unchanged by that merge. | `linux/linux-quick-final/summary.json` and per-layer logs |
+| Merged workflow/readiness | 19 Linux workflow tests and 3 focused readiness component tests passed, including a delayed obsolete catalog reply. | `linux/merged-workflow-tests.log`, `linux/merged-readiness-tests.log` |
+| Focused Linux browser, two workers | 9 passed: actual saved/exported bytes after replay and fresh-process reopen; damaged-project preservation; temporary disconnect; restored/damaged/older/missing recovery; invalid approval edit remains actionable. | `linux/browser-final/summary.json`, JSON report and traces |
+| Exact-source Linux desktop | Debug build, direct native launch and source launcher passed. Each changes approval mode, kills its own core, verifies same session+unsaved recovery, then Cancel and Discard with no surviving owned core. Close-dialog screenshots visually inspected. | `linux/native-exact/summary.json`, `native.png`, `native-close.png`, `launcher-close.png`, retained logs and readiness receipts |
+| Windows focused final boundaries | 71 passed, 1 model-dependent case deselected; includes pack/project refusal and round-trip contracts, rembg directory compatibility, lightweight status and asset progress. | `final-boundaries-windows.log` |
+| Windows final quick, four core workers | 1,202 core tests passed, 56 skipped; all 49 frontend tests, lint/build/format and 2 Rust tests passed. Workflow: 18 passed, 1 newly merged fixture failed on hashing its held Windows lock; corrected fixture's focused regression then passed on Windows and Linux. The retained aggregate remains failed, not relabeled green. | `windows-quick-final/summary.json`, `windows-workflow-recheck.log`, `linux/linux-workflow-recheck.log` |
+
+The native/browser source tree was compared to Windows commit `7f580ed`: Git tree
+`3409581314b39aaac75277ac2dbbb1b5b5d9aea6` matches exactly, including normalized file
+modes. `linux/tested-tree.txt` and `windows-index.txt` retain the comparison. A copied,
+unused helper missed by an incremental transfer was removed before the exact-source
+native rerun. Subsequent edits are the Windows workflow-test fixture and this document;
+application code is unchanged.
+
+Failures are retained rather than overwritten: `linux/native-first/` exposed orphaned
+cores; `linux/native-guard/` refused the allocator diagnostic even with clean process
+cleanup; `linux/abort-probe-2-run.log` contains the WebKit/Mesa abort trace. The first
+Windows quick run had 1,193 passes, 56 skips and the asset-status timeout; its serial
+recheck passed, and the subsequent lightweight status fix has dedicated fresh-process
+and rembg compatibility regressions. An earlier loaded Windows batch timed out in
+three CLI/MCP tests; their serial recheck passed all three, and the later full runs
+exercise the real bridge again. These earlier failed attempts are not described as
+passing full runs.
+
+Final remote check: `origin/main` remains `d1bcb9f`; both intervening main updates
+are incorporated, and the readiness merge conflicts are resolved. The reference
+engine and procedural pixel algorithms have no diff.

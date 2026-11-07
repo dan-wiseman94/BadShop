@@ -147,7 +147,7 @@ def test_collection_index_dedup_search_and_roundtrip(tmp_path):
     assert fresh.search(summary["id"], "office")
 
 
-def test_collection_no_symlink_escape_and_changed_file_rejected(tmp_path):
+def test_collection_no_symlink_escape_and_changed_file_rejected(tmp_path, symlinks):
     photos = tmp_path / "photos"
     photos.mkdir()
     outside = tmp_path / "private.png"
@@ -166,6 +166,18 @@ def test_collection_no_symlink_escape_and_changed_file_rejected(tmp_path):
     (photos / "dog.png").unlink()
     (photos / "dog.png").symlink_to(outside)
     with pytest.raises(EngineError, match="link"):
+        collections.restore(Session.new(), summary["id"], entry["id"])
+
+
+def test_collection_changed_file_rejected_without_symlinks(tmp_path):
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    Image.new("RGB", (40, 30), "blue").save(photos / "dog.png")
+    collections = LocalCollections(tmp_path / "index")
+    summary = collections.index(str(photos))
+    entry = collections.search(summary["id"])[0]
+    Image.new("RGB", (40, 30), "green").save(photos / "dog.png")
+    with pytest.raises(EngineError, match="changed"):
         collections.restore(Session.new(), summary["id"], entry["id"])
 
 

@@ -14,7 +14,9 @@ import time
 from collections.abc import Callable
 
 from badshop import __version__
+from badshop.engine.errors import EngineError
 from badshop.server.app import CoreApp
+from badshop.server.lease import runtime_lease
 from badshop.server.settings import load_settings
 from badshop.server.ws import bound_port, serve
 
@@ -173,4 +175,11 @@ def main(argv: list[str] | None = None) -> int:
         from badshop.mcp.proxy import run_stdio
         asyncio.run(run_stdio(a.connect, a.token, a.actor, heartbeat_s=a.heartbeat_seconds))
         return 0
-    return asyncio.run(_serve(a.port))
+    try:
+        # Acquire before CoreApp claims recovery or loads mutable settings. Hold until
+        # its final autosave and worker cleanup finish, including startup failures.
+        with runtime_lease():
+            return asyncio.run(_serve(a.port))
+    except EngineError as e:
+        print(f"badshop-core: {e.message}\nhint: {e.hint}", file=sys.stderr)
+        return 1

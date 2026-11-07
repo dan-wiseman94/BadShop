@@ -90,7 +90,7 @@ class Client:
 @asynccontextmanager
 async def client(port: int, token: str, actor: str = "user"):
     async with connect(f"ws://127.0.0.1:{port}", max_size=None) as ws:
-        await ws.send(json.dumps({"type": "hello", "token": token, "actor": actor}))
+        await ws.send(json.dumps({"type": "hello", "token": actor_token(token, actor), "actor": actor}))
         welcome = json.loads(await asyncio.wait_for(ws.recv(), WAIT_S))
         assert welcome == {"type": "welcome", "actor": actor, "version": __version__}
         yield Client(ws)
@@ -139,7 +139,7 @@ class FakeApp:
         return json.dumps({"jsonrpc": "2.0", "id": msg["id"],
                            "result": {"method": msg["method"], "actor": actor}})
 
-    def subscribe(self, send):
+    def subscribe(self, send, **kwargs):
         self.subscribers.append(send)
         return lambda: self.subscribers.remove(send)
 
@@ -181,6 +181,9 @@ def test_listens_on_loopback_and_answers_with_the_connection_actor():
 
 
 BAD_HELLOS = [json.dumps(h) for h in (
+    {"type": "hello", "token": actor_token(TOKEN, "cli:claude"), "actor": "user"},
+    {"type": "hello", "token": actor_token(TOKEN, "cli:claude"), "actor": "cli:codex"},
+    {"type": "hello", "token": TOKEN, "actor": "cli:claude"},
     {"type": "hello", "token": "wrong", "actor": "user"},
     {"type": "hello", "actor": "user"},
     {"type": "hello", "token": 12345, "actor": "user"},
@@ -321,6 +324,23 @@ def test_port_argument_is_checked(capsys):
         assert "is not a port number" in capsys.readouterr().err
 
 
+def test_request_flood_closes_and_drains_before_accepting_a_fresh_client(monkeypatch):
+    monkeypatch.setattr(transport, "MAX_REQUESTS", 4)
+    async def scenario():
+        async with fake_server() as (app, server):
+            async with client(bound_port(server), TOKEN) as ui:
+                for rid in range(4):
+                    await ui.ws.send(json.dumps({"id": rid, "method": "slow"}))
+                await until(lambda: len(app.slow) == 4)
+                await ui.ws.send(json.dumps({"id": 5, "method": "slow"}))
+                assert await closed_with(ui.ws) == 1013
+            await until(lambda: len(app.cancelled) == 4)
+            assert app.gone == 1 and not app.subscribers
+            async with client(bound_port(server), TOKEN) as fresh:
+                assert (await fresh.call("who"))["actor"] == "user"
+    asyncio.run(scenario())
+
+
 def test_a_busy_port_is_a_clean_error_and_changes_nothing(tmp_path):
     env = cli_env(tmp_path)
     env["BADSHOP_CONFIG_DIR"] = str(tmp_path / "config")
@@ -356,6 +376,9 @@ class Core:
     def stop(self) -> None:
         """SIGTERM, as the desktop shell sends when it quits (sent once, and not after hang_up)."""
         if not self.stopped:
+            if sys.platform == "win32":
+                self.hang_up()  # SIGTERM on Windows is TerminateProcess, not a catchable signal.
+                return
             self.stopped = True
             self.proc.send_signal(signal.SIGTERM)
 

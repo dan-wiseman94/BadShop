@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 from PIL import Image
@@ -20,7 +21,7 @@ def _find_parity(pair, *args, found: bool = True) -> list[str]:
     assert new == ref
     stem = args[0].removesuffix(".png")
     if found:
-        assert new[0].startswith(f"annotated: badshop_work/{stem}_faces.png   (red = face")
+        assert new[0].replace(os.sep, "/").startswith(f"annotated: badshop_work/{stem}_faces.png   (red = face")
         pair.assert_same(f"badshop_work/{stem}_faces.png")
     else:
         assert new == [f"nothing found in {args[0]}; pick the box from the grid instead"]

@@ -15,6 +15,7 @@ from badshop.mcp.proxy import CoreConnection, CoreError
 from badshop.server.app import CoreApp
 from badshop.server.settings import Settings
 from badshop.server.ws import bound_port, serve
+from badshop.server.auth import actor_token
 from badshop.session.execution import InProcessExecutor
 from conftest import FIXTURES
 
@@ -34,6 +35,7 @@ async def connected(*, heartbeat=.03, timeout=5, mode="auto", logging_callback=N
     server = await serve(app, token)
     url = f"ws://127.0.0.1:{bound_port(server)}"
     app.set_connection(url, token)
+    token = actor_token(token, "cli:claude")
     frozen = os.environ.get("BADSHOP_MCP_EXECUTABLE")
     params = StdioServerParameters(command=frozen or sys.executable, args=[
         *([] if frozen else ["-m", "badshop.server"]), "mcp", "--connect", url, "--token", token, "--actor", "cli:claude",

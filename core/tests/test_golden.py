@@ -12,12 +12,14 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import shutil
+import sys
 from importlib.metadata import version
 from pathlib import Path
 
 import pytest
-from PIL import Image, ImageSequence
+from PIL import Image, ImageSequence, features
 
 from badshop.cli.filestore import FileStore
 from badshop.engine import assets, text
@@ -27,6 +29,7 @@ from badshop.tools.runner import run_tool
 from conftest import FIXTURES
 
 GOLDEN = FIXTURES / "golden.json"
+WINDOWS_ENCODINGS = FIXTURES / "golden.windows.json"
 LIBRARIES = ("pillow", "numpy", "opencv-python-headless", "onnxruntime")
 
 L, T, J = "lincoln.png", "trump.png", "emoji_joy.png"
@@ -157,12 +160,19 @@ def run_case(case_id: str, folder: Path) -> dict:
     store = FileStore(folder / "work", folder / "final")
     with pinned_fonts():
         run = run_tool(tool, raw, store)
-    strip = lambda s: s.replace(f"{folder}/", "")  # noqa: E731
+    def strip(value):
+        if isinstance(value, str):
+            return value.replace(str(folder) + os.sep, "").replace(os.sep, "/")
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        if isinstance(value, dict):
+            return {key: strip(item) for key, item in value.items()}
+        return value
     written = sorted(p for d in ("work", "final") for p in (folder / d).rglob("*") if p.is_file())
     return {
         "lines": [strip(line) for line in run.result.lines],
-        "data": _rounded(json.loads(strip(json.dumps(run.result.data)))),
-        "files": {str(p.relative_to(folder)): _file_record(p) for p in written},
+        "data": _rounded(strip(json.loads(json.dumps(run.result.data)))),
+        "files": {p.relative_to(folder).as_posix(): _file_record(p) for p in written},
     }
 
 
@@ -171,7 +181,11 @@ def versions() -> dict[str, str]:
 
 
 def _golden() -> dict:
-    return json.loads(GOLDEN.read_text())
+    return json.loads(GOLDEN.read_text(encoding="utf-8"))
+
+
+def codec_versions() -> dict:
+    return {name: features.version(name) for name in ("zlib", "zlib_ng", "jpg", "libjpeg_turbo", "webp")}
 
 
 def test_cases_cover_every_local_tool():
@@ -192,4 +206,10 @@ def test_golden(tmp_path, case_id):
     assert got["data"] == want["data"], moved
     assert list(got["files"]) == list(want["files"]), moved
     for name, record in want["files"].items():
+        if sys.platform == "win32":
+            variants = json.loads(WINDOWS_ENCODINGS.read_text(encoding="utf-8"))
+            sha = variants["cases"].get(case_id, {}).get(name)
+            if sha:
+                assert codec_versions() == variants["codecs"], "Review Windows encoding pins after codec changes"
+                record = {**record, "sha256": sha}
         assert got["files"][name] == record, f"{name}{moved}"

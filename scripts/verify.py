@@ -321,12 +321,12 @@ def verify(args: argparse.Namespace) -> int:
                 if built:
                     checks.run('native-desktop', ['dbus-run-session', '--', 'xvfb-run', '-a',
                                '--server-args=-screen 0 1600x1100x24', *python, 'packaging/smoke_desktop.py',
-                               '--screenshot', str(checks.output / 'native.png'), '--',
+                               '--restart-core', '--screenshot', str(checks.output / 'native.png'), '--',
                                str(ROOT / 'app/src-tauri/target/debug/badshop-desktop')], env=env, timeout=180)
                     launcher_env = env | {'BADSHOP_DEV_PORT': env['BADSHOP_DEV_PORT']}
                     checks.run('launcher-desktop', ['dbus-run-session', '--', 'xvfb-run', '-a',
                                '--server-args=-screen 0 1600x1100x24', *python, 'packaging/smoke_desktop.py',
-                               '--startup-timeout', '900', '--screenshot', str(checks.output / 'launcher.png'),
+                               '--restart-core', '--startup-timeout', '900', '--screenshot', str(checks.output / 'launcher.png'),
                                '--', str(ROOT / 'start.sh')], env=launcher_env, timeout=1020)
                 else:
                     checks.record('native-desktop', 'blocked', reason='Desktop build failed')

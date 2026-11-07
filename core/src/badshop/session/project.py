@@ -19,6 +19,7 @@ import stat
 import struct
 import time
 import zipfile
+from typing import BinaryIO
 import zlib
 from pathlib import Path, PurePosixPath
 
@@ -48,6 +49,9 @@ MESSAGE_ID = re.compile(r"m[1-9][0-9]{0,8}")
 MAX_SESSION_BYTES = 16 * 2**20
 MAX_MEMBER_BYTES = 512 * 2**20  # one artifact
 MAX_PROJECT_BYTES = 2 * 2**30  # session.json and every artifact together
+MAX_ARCHIVE_BYTES = MAX_PROJECT_BYTES + 64 * 2**20  # recipes and ZIP metadata included
+MAX_DIRECTORY_BYTES = 8 * 2**20
+MAX_MEMBERS = 10_000
 READ_CHUNK = 2**20
 # The only compression methods badshop writes. zipfile inflates BZIP2 and LZMA members with no output
 # limit at all, so a few KB of them can become gigabytes before any size check sees a byte.
@@ -138,6 +142,8 @@ def save(session: Session, path: Path) -> Path:
                           hint="this is a bug in badshop; export the images you want to keep")
     # The desktop lists images in insertion order. Preserve that order across Save and Open.
     keep = [aid for aid in session.artifacts.meta if aid in referenced]
+    if len(keep) + 2 > MAX_MEMBERS:
+        raise EngineError("can't save: too many project members", hint=TOO_BIG_HINT)
     payload = session.data.model_dump(mode="json", by_alias=True)
     payload["artifacts"] = {aid: session.artifacts.meta[aid].model_dump(mode="json", by_alias=True)
                             for aid in keep}
@@ -166,6 +172,8 @@ def save(session: Session, path: Path) -> Path:
             os.fsync(fh.fileno())
         with contextlib.suppress(FileNotFoundError):
             os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
+        with tmp.open("rb") as file:
+            _preflight(path, file)
         os.replace(tmp, path)
     except BaseException as e:
         if created:
@@ -198,7 +206,13 @@ def _index(path: Path, zf: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     """Artifact id -> member. Refuses names that could climb out of a folder and compression methods
     badshop never writes (every member, read or not)."""
     found: dict[str, zipfile.ZipInfo] = {}
+    if len(zf.infolist()) > MAX_MEMBERS:
+        raise _too_big(path, "too many members")
+    names = set()
     for info in zf.infolist():
+        if info.filename in names:
+            raise _damaged(path, f"member {info.filename!r} is stored twice")
+        names.add(info.filename)
         if _unsafe(info.filename):
             raise EngineError(f"{path.name} isn't a safe badshop project: it holds a file named "
                               f"{info.filename!r}",
@@ -237,7 +251,7 @@ def _read(path: Path, zf: zipfile.ZipFile, info: zipfile.ZipInfo, cap: int) -> b
 def _session_data(path: Path, raw: bytes) -> SessionData:
     try:
         payload = json.loads(raw)
-    except ValueError as e:  # UnicodeDecodeError is a ValueError too
+    except (ValueError, RecursionError) as e:  # UnicodeDecodeError is a ValueError too
         raise _damaged(path, f"session.json isn't JSON ({e})") from None
     schema = payload.get("schema") if isinstance(payload, dict) else None
     if type(schema) is not int or schema < 1:
@@ -249,6 +263,12 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
         data = SessionData.model_validate(payload)
     except ValidationError as e:
         raise _damaged(path, "session.json isn't a badshop session", hint=runner.explain(e)) from None
+    if len({step.id for step in data.steps}) != len(data.steps):
+        raise _damaged(path, "duplicate step ids")
+    if [step.index for step in data.steps] != list(range(1, len(data.steps) + 1)):
+        raise _damaged(path, "step indexes are not in timeline order")
+    if len({message.id for message in data.messages}) != len(data.messages):
+        raise _damaged(path, "duplicate message ids")
     for step in data.steps:
         if step.tool not in REGISTRY:
             raise _damaged(path, f"step {step.index} uses a tool this badshop doesn't have ({step.tool})",
@@ -301,6 +321,18 @@ def _finish_interrupted(data: SessionData, artifacts: ArtifactStore) -> None:
             step.result_text = result_text(step, artifacts)
 
 
+def _preflight(path: Path, file: BinaryIO) -> BinaryIO:
+    """Bound directory allocation on the stream ZipFile will actually read."""
+    from badshop.archives import check_directory
+
+    try:
+        check_directory(file, archive_bytes=MAX_ARCHIVE_BYTES,
+                        directory_bytes=MAX_DIRECTORY_BYTES, members=MAX_MEMBERS)
+    except ValueError as e:
+        raise _too_big(path, str(e)) from None
+    return file
+
+
 def open_project(path: Path, **session_kw) -> Session:
     """Open a project as a new Session (`session_kw` go to Session: executor, emit, output_dir, on_change).
 
@@ -312,7 +344,7 @@ def open_project(path: Path, **session_kw) -> Session:
     an EngineError; nothing outside the returned Session changes."""
     path = Path(path)
     try:
-        with zipfile.ZipFile(path) as zf:
+        with path.open("rb") as file, zipfile.ZipFile(_preflight(path, file)) as zf:
             members = _index(path, zf)
             try:
                 info = zf.getinfo(SESSION_JSON)

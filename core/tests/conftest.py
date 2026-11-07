@@ -28,6 +28,7 @@ test_chat test_cli test_cli_live test_cli_provider test_core_operations
 test_document_state test_downloads test_execution test_golden test_harness test_live_provider
 test_macos_images test_manifest test_mcp_proxy test_project test_provider_start test_recipes
 test_replay test_server_app test_server_ws test_smoke test_stdin_watcher test_worker
+test_runtime_lease test_project_boundaries
 """.split())
 
 
@@ -113,12 +114,25 @@ class Pair:
         assert new == ref
         for f in files:
             self.assert_same(f)
-        return new
+        return new.replace(os.sep, "/")  # assertions use portable paths; parity above stays exact
 
 
 @pytest.fixture
 def pair(tmp_path: Path) -> Pair:
     return Pair(tmp_path)
+
+
+@pytest.fixture
+def symlinks(tmp_path):
+    """Probe the actual Windows capability without skipping unrelated assertions."""
+    try:
+        link = tmp_path / "symlink-probe"
+        link.symlink_to(tmp_path / "missing-target")
+        link.unlink()
+    except OSError as error:
+        if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+            pytest.skip("Windows symlinks require Developer Mode or SeCreateSymbolicLinkPrivilege")
+        raise
 
 
 def load_reference():

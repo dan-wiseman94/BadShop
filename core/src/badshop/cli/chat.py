@@ -297,12 +297,14 @@ class TerminalClient:
 
 def run_command(args) -> int:
     from badshop.server.app import CoreApp
+    from badshop.server.lease import runtime_lease
 
     async def run():
         return await TerminalClient(CoreApp()).run(args)
 
     try:
-        return asyncio.run(run())
+        with runtime_lease():
+            return asyncio.run(run())
     except KeyboardInterrupt:
         return 130
     except (EngineError, OSError) as e:
