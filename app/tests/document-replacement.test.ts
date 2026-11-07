@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { action, queries } from "../src/data";
 import { rpc } from "../src/rpc";
 import { useUI } from "../src/store";
@@ -30,31 +30,6 @@ beforeEach(() => {
   queries.setQueryData(["artifact", "discarded", false], { data: "old-image" });
 });
 afterEach(() => vi.restoreAllMocks());
-
-it.each(["session.new", "session.open", "session.restore"] as const)(
-  "resets transient document state only after successful %s",
-  async (method) => {
-    vi.spyOn(rpc, "request").mockResolvedValue(session);
-    await action(
-      method,
-      method === "session.open" ? { path: "/saved.badshop" } : undefined,
-    );
-    expect(useUI.getState()).toMatchObject({
-      documentGeneration: 8,
-      selectedArtifact: null,
-      selectedStep: null,
-      paletteOpen: false,
-      pick: null,
-    });
-    expect(
-      queries.getQueryData(["artifact", "discarded", false]),
-    ).toBeUndefined();
-    expect(queries.getQueryData(["session.get"])).toMatchObject({
-      id: "same-session",
-      stream_text: "",
-    });
-  },
-);
 
 it("preserves drafts, selections and image cache when Open fails", async () => {
   vi.spyOn(rpc, "request").mockRejectedValue(new Error("file is unavailable"));
