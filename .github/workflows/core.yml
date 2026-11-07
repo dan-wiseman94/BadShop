@@ -3,6 +3,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
   workflow_dispatch:
 concurrency:
   group: core-${{ github.event.pull_request.number || github.ref }}
@@ -10,6 +15,8 @@ concurrency:
 jobs:
   scope:
     uses: ./.github/workflows/change-scope.yml
+    with:
+      full: ${{ inputs.full == true }}
   test:
     needs: scope
     if: needs.scope.outputs.core == 'true'

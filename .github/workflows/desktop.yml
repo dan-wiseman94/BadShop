@@ -15,26 +15,7 @@ jobs:
   frontend:
     needs: scope
     if: needs.scope.outputs.frontend == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-      - uses: astral-sh/setup-uv@v10.2.0
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - run: uv sync --project core --locked
-      - run: pnpm --dir app install --frozen-lockfile
-      - run: pnpm --dir app test
-      - run: pnpm --dir app exec playwright install --with-deps chromium
-      - run: ./verify.sh browser
-      - uses: actions/upload-artifact@v6
-        if: failure()
-        with:
-          name: browser-test-results
-          path: artifacts/verification
+    uses: ./.github/workflows/frontend-checks.yml
   native:
     needs: scope
     if: needs.scope.outputs.native == 'true'

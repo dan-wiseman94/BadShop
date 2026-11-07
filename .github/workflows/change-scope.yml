@@ -1,6 +1,10 @@
 name: change scope
 on:
   workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
     outputs:
       core:
         value: ${{ jobs.scope.outputs.core }}
@@ -24,7 +28,7 @@ jobs:
       - id: classify
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          FULL: ${{ github.event_name == 'workflow_dispatch' }}
+          FULL: ${{ inputs.full || github.event_name == 'workflow_dispatch' }}
         run: |
           args=(--base "$BASE")
           if [ "$FULL" = true ]; then args+=(--full); fi

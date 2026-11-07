@@ -2,6 +2,7 @@
 The app lists them (assets.status), pre-downloads them (assets.download) and maps assets.PROGRESS
 events back to them by name."""
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,23 +56,15 @@ def get_asset(name: str) -> Asset:
     raise EngineError(f"unknown asset {name!r}", hint=f"assets: {', '.join(a.name for a in ASSETS)}")
 
 
-def _session_class(model: str):
-    """rembg's session class for `model`, found the way rembg.new_session finds it."""
-    assets.configure_rembg()  # before rembg reads REMBG_HOME / U2NET_HOME
-    from rembg.sessions import sessions_class
-
-    for cls in sessions_class:
-        if cls.name() == model:
-            return cls
-    raise EngineError(f"this rembg has no {model} model", hint="update rembg, or use another model")
-
-
 def asset_path(a: Asset) -> Path:
-    """Where the asset lives once downloaded. A rembg model goes where its session class looks first
-    (<model_dir>/<model>.onnx), so rembg finds it and never downloads it itself."""
+    """Find the pinned cache file without importing the background-removal runtime."""
     if a.rembg_model is None:
         return assets.data_dir() / a.name
-    return Path(_session_class(a.rembg_model).model_dir()) / f"{a.rembg_model}.onnx"
+    # Match configure_rembg's defaults and BaseSession.model_dir's per-model layout.
+    # Settings calls this for every model on first run. Importing rembg here
+    # starts ONNX and can compile Numba kernels even when no model is requested.
+    home = os.environ.get("U2NET_HOME") or os.environ.get("REMBG_HOME", str(assets.data_dir() / "rembg"))
+    return Path(os.path.expanduser(home)) / "models" / a.rembg_model / f"{a.rembg_model}.onnx"
 
 
 def is_present(a: Asset) -> bool:
