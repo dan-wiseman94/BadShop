@@ -111,6 +111,7 @@ export async function action<K extends keyof MethodMap>(
   method: K,
   params?: MethodMap[K][0],
 ): Promise<MethodMap[K][1]> {
+  const documentGeneration = useUI.getState().documentGeneration;
   if (useUI.getState().status !== "ready")
     throw new Error(
       "Wait for the core to reconnect before running this action.",
@@ -169,6 +170,8 @@ export async function action<K extends keyof MethodMap>(
     await queries.invalidateQueries({ queryKey: ["novelty.recent"] });
   if (method.startsWith("branches.") || method.startsWith("session."))
     await queries.invalidateQueries({ queryKey: ["branches.list"] });
+  if (method === "artifacts.import" && useUI.getState().documentGeneration !== documentGeneration)
+    throw new Error("The session changed while importing the image. Import it again into the current session.");
   return value;
 }
 export function run<T>(work: () => Promise<T>) {
@@ -404,11 +407,14 @@ export function imageUrl(data: { mime: string; data: string } | undefined) {
   return data ? `data:${data.mime};base64,${data.data}` : undefined;
 }
 export async function importBlob(blob: Blob, name = "pasted.png") {
+  const generation = useUI.getState().documentGeneration;
   const data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(",")[1]);
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
+  if (generation !== useUI.getState().documentGeneration)
+    throw new Error("The session changed while reading the image. Import it again into the current session.");
   return action("artifacts.import", { data, name });
 }

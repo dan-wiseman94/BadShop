@@ -85,6 +85,16 @@ class ApprovalGate:
     def pending(self) -> list[str]:
         return [step_id for step_id, (_, fut) in self._waiting.items() if not fut.done()]
 
+    def cancel(self, step_id: str, note: str = "the agent stopped waiting") -> None:
+        """Retire one caller's waiter, including a future cancelled with its request task."""
+        entry = self._waiting.pop(step_id, None)
+        if entry is None:
+            return
+        _, fut = entry
+        if not fut.done():
+            fut.set_result(Decision("reject", note=note))
+        self._emit("approval.resolved", {"step_id": step_id, "decision": "reject", "note": note})
+
     def cancel_all(self, note: str = "the user closed the app") -> None:
         """Reject every waiting step (Stop, or no client left to answer)."""
         waiting, self._waiting = self._waiting, {}

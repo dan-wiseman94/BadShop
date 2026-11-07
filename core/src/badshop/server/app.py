@@ -29,7 +29,7 @@ from badshop.providers import profiles
 from badshop.providers.litellm_provider import LiteLLMProvider, close_clients
 from badshop.providers.cli_provider import CLIProvider, discover_clis, inspect_cli
 from badshop.providers.cli_turn import run_cli_turn
-from badshop.agent.loop import TurnConfig, run_turn
+from badshop.agent.loop import TurnConfig, _to_the_end, run_turn
 from badshop.engine import assets, manifest
 from badshop.engine.common import fit, has_alpha, to_rgb
 from badshop.engine.errors import EngineError
@@ -157,6 +157,7 @@ class CoreApp:
         self._turn: asyncio.Task | None = None
         self._starting = False  # a provider/keychain lookup reserved the next turn
         self._start_generation = 0  # Stop invalidates a lookup even before _turn exists
+        self._approval_generation = 0  # disconnect/replacement also invalidates proposals still being saved
         self._turn_cfg: TurnConfig | None = None
         self._switching = 0  # session.new / session.open calls under way: no turn may start meanwhile
         self._provider: Provider | None = None
@@ -261,11 +262,12 @@ class CoreApp:
         """Runs in a worker thread under the lock. A failed autosave is reported, never raised."""
         if not self._dirty:
             return
-        self._dirty = False
         try:
             project.autosave(self.session)
         except (EngineError, OSError) as e:
             self._log("warning", f"autosave failed: {getattr(e, 'message', e)}")
+        else:
+            self._dirty = False  # a failed recovery write must be retried, including on close
         if hasattr(self, "novelty"):
             try:
                 self.novelty.remember(self.session)
@@ -378,6 +380,7 @@ class CoreApp:
 
     def _cancel_approvals(self, note: str) -> None:
         """Reject every step waiting for approval, the turn's and the CLI agents'."""
+        self._approval_generation += 1
         self.gate.cancel_all(note)
         self._cli_gate.cancel_all(note)
 
@@ -889,6 +892,7 @@ class CoreApp:
         an edit the session refuses rejects it, and so does a caller that stops waiting (Task 13 cancels a
         closed connection's requests). chat.stop never touches it: Stop is about the in-app turn."""
         got: dict[str, Any] = {}
+        generation = self._approval_generation
 
         def propose() -> Step:
             if actor == self._cli_turn_actor and self._cli_remaining is not None:
@@ -910,6 +914,10 @@ class CoreApp:
             step = await self._blocking(propose)
             session, edited = got["session"], None
             if approval.needs_approval(registry.get(tool), session.data.approval_mode):
+                if generation != self._approval_generation or session is not self.session:
+                    step = await self._blocking(self._settle, session, step.id,
+                                                "the session changed or the user disconnected")
+                    return step.model_dump(mode="json")
                 decision = await self._cli_gate.request(step)
                 if decision.decision == "reject":
                     step = await self._blocking(self._settle, session, step.id, decision.note)
@@ -920,12 +928,17 @@ class CoreApp:
             step = await asyncio.shield(task)
             return step.model_dump(mode="json")
         except asyncio.CancelledError:
-            if "cancel" in got:
-                got["cancel"].set()
-            if "task" in got:
-                await asyncio.shield(got["task"])
-            if "step" in got:  # proposed, and maybe still waiting: settle it before letting go
-                await self._blocking(self._settle, got["session"], got["step"].id, "the agent stopped waiting")
+            async def cleanup() -> None:
+                if "cancel" in got:
+                    got["cancel"].set()
+                if "step" in got:
+                    self._cli_gate.cancel(got["step"].id)
+                if "task" in got:
+                    await asyncio.shield(got["task"])
+                if "step" in got:  # settle before relinquishing ownership, even under a second Stop
+                    await self._blocking(self._settle, got["session"], got["step"].id,
+                                         "the agent stopped waiting")
+            await _to_the_end(cleanup())
             raise
         finally:
             if "step" in got:
@@ -952,17 +965,19 @@ class CoreApp:
             return session.reject(step_id, f"the edited parameters were refused: {e.message}")
 
     async def _steps_edit(self, actor: str, step_id: str, params: dict) -> dict:
-        def edit() -> tuple[Session, list[Step]]:
-            return self.session, self.session.edit(step_id, params)
+        def edit() -> tuple[Session, list[Step], list[Step]]:
+            return self.session, self.session.data.steps, self.session.edit(step_id, params)
 
-        session, stale = await self._blocking(edit)
+        session, timeline, stale = await self._blocking(edit)
         if self.settings.auto_replay and stale:
-            self._spawn(self._auto_replay(session, step_id))
+            self._spawn(self._auto_replay(session, timeline, step_id))
         return {"stale": [s.id for s in stale]}
 
-    async def _auto_replay(self, session: Session, step_id: str) -> None:
+    async def _auto_replay(self, session: Session, timeline: list[Step], step_id: str) -> None:
         try:
-            await self._blocking(lambda: session.replay_from(step_id) if session is self.session else [])
+            # Branch switches replace the timeline inside the same Session, including a round trip.
+            await self._blocking(lambda: session.replay_from(step_id)
+                                 if session is self.session and session.data.steps is timeline else [])
         except Exception as e:  # nobody awaits this task: report instead of raising
             log.exception("auto replay failed")
             self._log("warning", f"replay failed: {getattr(e, 'message', e)}")
@@ -981,6 +996,9 @@ class CoreApp:
         # The gate checks an edit (valid as the user's, image ids in the session): a bad one is an
         # EngineError and the step waits on. A step in neither gate is the turn gate's clean EngineError.
         gate = self._cli_gate if step_id in self._cli_gate.pending() else self.gate
+        if decision == "edit" and isinstance(params, dict) and step_id in gate.pending():
+            # Keep invalid edits waiting: accepting the decision first would lose the approval card.
+            self.session.validate_step_params(step_id, params)
         gate.respond(step_id, decision, params, note)
         return {"ok": True}
 
@@ -992,6 +1010,8 @@ class CoreApp:
 
     async def _artifacts_import(self, actor: str, path: str | None = None, data: str | None = None,
                                 name: str | None = None) -> dict:
+        session = self.session
+        timeline = session.data.steps
         if (path is None) == (data is None):
             raise RpcError(INVALID_PARAMS, "give either path or data",
                            {"hint": "path: a file the user picked; data: the image bytes in base64"})
@@ -1006,6 +1026,9 @@ class CoreApp:
             label = name or ""
 
         def do() -> tuple:  # the store turns a file name into a label ("pasted" when there is none)
+            if self.session is not session or session.data.steps is not timeline:
+                raise EngineError("the session changed while the image was being read",
+                                  hint="import the image again into the current session")
             working = self.session.import_image(_decode_paste(data) if blob is None else blob, label)
             return working, self.session.artifacts.meta.get(working.original_id or "", working)
 
