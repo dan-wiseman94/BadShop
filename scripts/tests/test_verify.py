@@ -72,6 +72,18 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn('doctor', result.stdout)
 
+    def test_rejects_options_that_would_narrow_or_skip_full_checks(self):
+        for args in (['all', '--browser-test', 'controller'],
+                     ['browser', '--browser-test=--pass-with-no-tests'],
+                     ['quick', '--browser-workers', '2'],
+                     ['desktop', '--core-workers', '1'],
+                     ['quick', '--core-workers', '0']):
+            with self.subTest(args=args):
+                result = subprocess.run([sys.executable, str(SCRIPT), *args],
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn('Evidence:', result.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()
