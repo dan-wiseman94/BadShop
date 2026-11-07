@@ -17,6 +17,7 @@ dependencies = [
     "platformdirs>=4",
     "psutil>=6",
     "websockets>=15,<17",
+    "httpx>=0.28,<1",
     "litellm>=1.106.6,<2",  # streaming and function-only MCP bypass tested against this API
     "keyring>=25,<26",
     "mcp>=2.3,<3",

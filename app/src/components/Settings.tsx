@@ -23,8 +23,14 @@ import { themes, savePreference, type Density, type Motion } from "../appearance
 import { pickFolder } from "../native";
 import { ErrorNotice } from "./ErrorNotice";
 import { SourceSettings } from "./SourceSettings";
-import { BIREFNET_MEMORY_NOTE } from "../constants";
-import type { Asset, CLIDetection, Params, Profile, Settings as SettingsType } from "../types";
+import { BIREFNET_MEMORY_NOTE, ON_DEVICE } from "../constants";
+import type {
+  Asset,
+  CLIDetection,
+  Params,
+  Profile,
+  Settings as SettingsType,
+} from "../types";
 const kindNames = {
   api: "Cloud API",
   local: "Local model",
@@ -309,6 +315,95 @@ export function AssetRow({ asset, active = false }: { asset: Asset; active?: boo
     </div>
   );
 }
+const isLocalVision = (asset: Asset) => asset.name.startsWith("local-vision/");
+
+function LocalVisionDownload({ onLater }: { onLater?: () => void }) {
+  const { data: assets, error } = useCoreQuery("assets.status");
+  const { data: downloads } = useQuery<DownloadActivities>({
+    queryKey: ["downloads"],
+    queryFn: () => ({}),
+    enabled: false,
+  });
+  const [downloading, setDownloading] = useState(false);
+  const { data: session } = useSession();
+  const supported = assets?.some(isLocalVision);
+  const files = supported
+    ? (assets ?? []).filter(
+        (asset) => isLocalVision(asset) || asset.name === "face_detection_yunet_2023mar.onnx",
+      )
+    : [];
+  const missing = files.filter((asset) => !asset.present);
+  const active = files.find((asset) => (downloads?.[asset.name]?.pending ?? 0) > 0);
+  const { data: progress } = useQuery<Params>({
+    queryKey: ["progress", active?.name],
+    queryFn: () => ({}),
+    enabled: false,
+  });
+  const ready = files.length > 0 && !missing.length;
+  const selected = session?.provider_profile_id === ON_DEVICE;
+  const downloadMiB = missing.reduce((total, asset) => total + asset.approx_mb, 0);
+
+  return (
+    <div className="assets">
+      <h3>On-device AI</h3>
+      <p className="muted">
+        Ask for basic photo edits like captions, filters, or laser eyes.
+        Your photos stay on this computer. No account or key needed.
+      </p>
+      {error && <p className="error-text">{error.message}</p>}
+      {assets && !supported ? (
+        <p className="muted">On-device AI is unavailable on this computer.</p>
+      ) : (
+        <button
+          disabled={!supported || downloading || !!active || !!session?.turn_running || (ready && selected)}
+          onClick={() =>
+            run(async () => {
+              setDownloading(true);
+              try {
+                for (const asset of missing) {
+                  await action("assets.download", { name: asset.name });
+                }
+                await action("providers.on_device");
+                onLater?.();
+              } finally {
+                setDownloading(false);
+              }
+            })
+          }
+        >
+          {active
+            ? `Downloading ${active.label}…`
+            : downloading
+              ? "Setting up…"
+              : ready
+                ? selected ? "On-device AI is active" : "Use on-device AI"
+                : `Download and use on-device AI${downloadMiB ? ` (about ${downloadMiB} MiB)` : ""}`}
+        </button>
+      )}
+      {active && (
+        <>
+          <progress
+            aria-label="On-device AI download progress"
+            max={Number(progress?.total) || undefined}
+            value={Number(progress?.done) || undefined}
+          />
+          <button onClick={() => run(() => action("assets.cancel", { name: active.name }))}>
+            Cancel download
+          </button>
+        </>
+      )}
+      {onLater && (
+        <>
+          <button onClick={onLater} disabled={downloading || !!active}>
+            {selected ? "Continue" : "Download later"}
+          </button>
+          <p className="muted">Available anytime in Settings → Assets.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Assets() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const { data: downloads } = useQuery<DownloadActivities>({
@@ -331,7 +426,7 @@ function Assets() {
           run(async () => {
             try {
               for (const asset of assets ?? [])
-                if (!asset.present) {
+                if (!isLocalVision(asset) && !asset.present) {
                   setDownloading(asset.name);
                   await action("assets.download", { name: asset.name });
                 }
@@ -340,13 +435,14 @@ function Assets() {
             }
           })
         }
-        label="Download all assets"
+        label="Download all editing assets"
         icon={Download}
         iconSize={15}
       />
-      {assets?.map((asset) => (
+      {assets?.filter((asset) => !isLocalVision(asset)).map((asset) => (
         <AssetRow key={asset.name} asset={asset} active={downloading === asset.name} />
       ))}
+      <LocalVisionDownload />
     </div>
   );
 }
@@ -465,7 +561,9 @@ export function Settings() {
                         <div>
                           <strong>{profile.label}</strong>
                           <span>
-                            {kindNames[profile.kind]} / {profile.model || profile.cli}
+                            {profile.id === ON_DEVICE
+                              ? "Runs on this computer"
+                              : `${kindNames[profile.kind]} / ${profile.model || profile.cli}`}
                           </span>
                           {test[profile.id] && (
                             <small
@@ -497,7 +595,7 @@ export function Settings() {
                               )
                             }
                           />
-                          <Button onClick={() => setEdit(profile)} label="Edit" />
+                          {profile.id !== ON_DEVICE && <Button onClick={() => setEdit(profile)} label="Edit" />}
                           <Button
                             disabled={checking}
                             onClick={() => void checkProvider(profile)}
@@ -825,13 +923,14 @@ export function Welcome({ onClose }: { onClose: () => void }) {
                     onClick={() => run(() => chooseProfile(profile))}
                   >
                     <strong>{profile.label}</strong>
-                    <span>{profile.model || profile.cli}</span>
+                    {profile.id !== ON_DEVICE && <span>{profile.model || profile.cli}</span>}
                     <ArrowRight size={15} />
                   </button>
                 ))}
                 <p>Or connect another provider below.</p>
               </div>
             )}
+            <LocalVisionDownload onLater={onClose} />
             <h3>Connect an AI model</h3>
             <div className="kind-grid">
               {Object.entries(kindNames).map(([value, label]) => {
@@ -860,7 +959,12 @@ export function Welcome({ onClose }: { onClose: () => void }) {
           <>
             <div className="welcome-assets">
               {assets
-                ?.filter((asset) => !asset.name.includes("rembg/") || asset.name === "rembg/u2net.onnx")
+                ?.filter(
+                  (asset) =>
+                    !isLocalVision(asset) &&
+                    (!asset.name.includes("rembg/") ||
+                      asset.name === "rembg/u2net.onnx"),
+                )
                 .map((asset) => (
                   <AssetRow asset={asset} key={asset.name} />
                 ))}

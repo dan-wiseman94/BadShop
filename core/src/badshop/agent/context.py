@@ -182,7 +182,7 @@ def _image_part(session: Session, aid: str) -> dict:
     return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + data}}
 
 
-def _add_images(session: Session, messages: list[dict]) -> None:
+def _add_images(session: Session, messages: list[dict], *, full_ids: bool = False) -> None:
     # Keep images in a user message: providers do not consistently accept image content in tool
     # messages. Its text clearly labels this as the current snapshot, not an historical user upload.
     user_index = next((i for i in range(len(messages) - 1, -1, -1)
@@ -219,7 +219,10 @@ def _add_images(session: Session, messages: list[dict]) -> None:
     parts = ([{"type": "text", "text": content}] if isinstance(content, str) else list(content))
     parts.append({"type": "text", "text": "Current session images (source pixel dimensions):"})
     for aid in selected:
-        parts.append({"type": "text", "text": image_placeholder(session.artifacts.meta[aid])})
+        label = image_placeholder(session.artifacts.meta[aid])
+        if full_ids:
+            label += f" Artifact ID: {aid}"
+        parts.append({"type": "text", "text": label})
         parts.append(_image_part(session, aid))
     if len(refs) > MAX_IMAGES:
         parts.append({"type": "text", "text": "Older views omitted from the image budget; reopen with view:\n"
@@ -228,7 +231,7 @@ def _add_images(session: Session, messages: list[dict]) -> None:
     messages[user_index]["content"] = parts
 
 
-def build_messages(session: Session) -> list[dict]:
+def build_messages(session: Session, full_ids: bool = False) -> list[dict]:
     """Build a disposable provider request. Stored history has ids and text only, never base64.
 
     The most recent user message starts the image budget: older turn references stay placeholders.
@@ -239,5 +242,5 @@ def build_messages(session: Session) -> list[dict]:
     system = f"{SYSTEM_PROMPT}\n\n{steps}"
     messages = [{"role": "system", "content": system}, *copy.deepcopy(_answered(session.data.transcript))]
     _mark_web_results(messages)
-    _add_images(session, messages)
+    _add_images(session, messages, full_ids=full_ids)
     return messages

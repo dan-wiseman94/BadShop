@@ -229,7 +229,8 @@ class _Turn:
                                + [Part(type="image", artifact_id=m.id) for m in images])
         tools = tool_definitions()
         while True:
-            messages = await self.call(build_messages, self.session)
+            messages = await self.call(build_messages, self.session,
+                                       getattr(self.provider, "full_image_ids", False))
             try:
                 reply = await self.provider.complete(messages, tools, self.delta)
             except ProviderError as e:

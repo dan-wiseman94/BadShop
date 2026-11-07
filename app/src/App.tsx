@@ -15,6 +15,7 @@ import {
   ClipboardPaste,
 } from "lucide-react";
 import { Chat } from "./components/Chat";
+import { ON_DEVICE } from "./constants";
 import { Viewer } from "./components/Viewer";
 import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
@@ -464,7 +465,7 @@ export default function App() {
               </option>
               {profiles?.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.label} / {profile.model || profile.cli}
+                  {profile.id === ON_DEVICE ? profile.label : `${profile.label} / ${profile.model || profile.cli}`}
                 </option>
               ))}
               <option value="add">+ Add provider…</option>

@@ -18,8 +18,9 @@ from pydantic import ValidationError
 
 from badshop.engine import assets, manifest
 from badshop.engine.errors import EngineError
+from badshop.providers import local_vision
 from badshop.server import app as server_app
-from badshop.server import rpc
+from badshop.server import local_runtime, rpc
 from badshop.server.app import CoreApp
 from badshop.server.rpc import Dispatcher, RpcError
 from badshop.server.settings import Settings, config_dir, load_settings, save_settings, settings_path
@@ -43,7 +44,7 @@ METHODS = sorted([
     "branches.list", "branches.create", "branches.switch", "branches.rename", "branches.remove",
     "providers.list", "providers.save", "providers.add", "providers.select", "providers.delete", "providers.test",
     "chat.retry",
-    "providers.detect", "diagnostics.get",
+    "providers.detect", "providers.on_device", "diagnostics.get",
     "session.new", "session.get", "session.open", "session.restore", "session.save", "session.save_as",
     "session.export_recipe", "session.set_approval_mode", "chat.send", "chat.stop", "tools.list",
     "tools.run", "steps.edit", "steps.replay_from", "steps.delete", "approval.respond", "artifacts.get",
@@ -1132,6 +1133,36 @@ def test_failures_are_reported_and_the_core_keeps_serving(env, monkeypatch):
         assert (await c.call("tools.run", tool="info", params={"image": lincoln}))["status"] == "done"
 
     run(body)
+
+
+def test_on_device_activation_requires_download_and_survives_restart(env, monkeypatch):
+    ready = False
+    monkeypatch.setattr(local_runtime, "available", lambda: ready)
+
+    async def endpoint(self):
+        assert ready
+
+    monkeypatch.setattr(local_runtime.LocalVisionRuntime, "endpoint", endpoint)
+
+    async def activate(app):
+        nonlocal ready
+        client = Client(app)
+        with pytest.raises(Failed, match="finish the On-device AI download"):
+            await client.call("providers.on_device")
+        assert await client.call("providers.list") == []
+        ready = True
+        session = await client.call("providers.on_device")
+        assert session["provider_profile_id"] == local_vision.PROFILE_ID
+        saved = await client.call("providers.list")
+        assert len(saved) == 1 and saved[0]["api_base"] is None and saved[0]["api_key_ref"] is None
+
+    async def restart(app):
+        client = Client(app)
+        session = await client.call("session.get")
+        assert session["provider_profile_id"] == local_vision.PROFILE_ID
+
+    run(activate)
+    run(restart)
 
 
 def test_assets_status_and_download_progress(env, monkeypatch):
