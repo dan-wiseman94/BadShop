@@ -32,7 +32,7 @@ from badshop.session.artifacts import ArtifactStore, short
 from badshop.session.models import SCHEMA, ArtifactMeta, SessionData, StepError
 from badshop.session.session import Session, result_text
 from badshop.tools import runner
-from badshop.tools.registry import REGISTRY, image_fields
+from badshop.tools.registry import REGISTRY, map_image_refs
 
 EXT = ".badshop"
 SESSION_JSON = "session.json"
@@ -112,11 +112,7 @@ def export_recipe(session: Session) -> dict:
         spec = REGISTRY.get(step.tool)
         if step.status != "done" or spec is None or not spec.mutates or spec.network or spec.writes_files:
             continue
-        params = dict(step.params)
-        for name, is_list in image_fields(spec.params).items():
-            value = params.get(name)
-            if value:
-                params[name] = [path_of(v) for v in value] if is_list else path_of(value)
+        params = map_image_refs(spec.params, step.params, path_of)
         argv = to_argv(spec, params)
         if step.outputs:  # before any "--": after it, "-o" would be read as a positional value
             at = argv.index("--") if "--" in argv else len(argv)

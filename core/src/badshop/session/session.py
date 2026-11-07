@@ -44,12 +44,7 @@ def _image_refs(step: Step) -> list[str]:
     """The artifact ids a step reads, in field order (paste: base, then piece). A tool this version
     doesn't have reads nothing here; running it is the executor's clean "unknown tool" error."""
     spec = registry.REGISTRY.get(step.tool)
-    refs: list[str] = []
-    for name, is_list in (registry.image_fields(spec.params) if spec else {}).items():
-        value = step.params.get(name)
-        if value is not None:
-            refs.extend(value if is_list else [value])
-    return refs
+    return registry.image_refs(spec.params, step.params) if spec else []
 
 
 # Steps the approval gate or a tool still owns: edit, replay and delete refuse to touch them.
@@ -58,12 +53,7 @@ _BUSY = {"proposed": "is waiting for approval", "approved": "is about to run", "
 
 def _map_refs(tool: str, params: dict, fn: Callable[[str], str]) -> dict:
     """A copy of stored params with every image ref passed through fn (replay's remap, short ids)."""
-    out = dict(params)
-    for name, is_list in registry.image_fields(registry.get(tool).params).items():
-        value = out.get(name)
-        if value is not None:
-            out[name] = [fn(v) for v in value] if is_list else fn(value)
-    return out
+    return registry.map_image_refs(registry.get(tool).params, params, fn)
 
 
 def _made(steps: list[Step]) -> set[str]:
@@ -179,13 +169,7 @@ class Session:
 
     def _resolved(self, params) -> dict:
         """Validated params as JSON, each image ref (an id or a unique prefix) replaced by the full id."""
-        dumped = params.model_dump(mode="json")
-        for name, is_list in registry.image_fields(type(params)).items():
-            value = dumped.get(name)
-            if value is not None:
-                resolve = self.artifacts.resolve
-                dumped[name] = [resolve(v) for v in value] if is_list else resolve(value)
-        return dumped
+        return registry.map_image_refs(type(params), params.model_dump(mode="json"), self.artifacts.resolve)
 
     def _stem(self, step: Step) -> str:
         """What a step's outputs are named after: its first image input, traced back through the steps
@@ -374,9 +358,7 @@ class Session:
         """One line for the agent's next system note about a step the user ran."""
         spec = registry.get(step.tool)
         shown = spec.params.model_validate(step.params).model_dump(mode="json", exclude_defaults=True)
-        for name, is_list in registry.image_fields(spec.params).items():
-            if shown.get(name) is not None:
-                shown[name] = [short(v) for v in shown[name]] if is_list else short(shown[name])
+        shown = registry.map_image_refs(spec.params, shown, short)
         call = f"{step.tool} {json.dumps(shown, ensure_ascii=False)}"
         if step.error is not None:
             return f"the user ran step {step.index}: {call}, which failed: {step.error.message}"

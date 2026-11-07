@@ -192,6 +192,27 @@ def test_credit_ancestry_includes_both_composition_inputs():
     assert {r["kind"] for r in recipes.credits(s, step.outputs[0])["sources"]} == {"one", "two"}
 
 
+def test_recipe_maps_scalar_and_list_inputs_without_rewriting_the_recipe():
+    session = Session.new()
+    source = imported(session, "red")
+    recipe = recipes.Recipe(name="blink", steps=[
+        {"tool": "filter", "params": {"image": "$input", "names": ["invert"]}},
+        {"tool": "animate", "params": {"images": ["$input", "$step0"], "delay": 100}},
+    ])
+    before = recipe.model_dump()
+    result = recipes.run(session, recipe, [source], threading.Event())
+    assert not result["errors"] and not result["cancelled"]
+    first, second = session.data.steps
+    assert first.params["image"] == source
+    assert second.params["images"] == [source, first.outputs[0]]
+    assert recipe.model_dump() == before
+    with Image.open(io.BytesIO(session.artifacts.data(second.outputs[0]))) as image:
+        assert image.n_frames == 2
+        assert image.convert("RGB").getpixel((0, 0)) == (255, 0, 0)
+        image.seek(1)
+        assert image.convert("RGB").getpixel((0, 0)) == (0, 255, 255)
+
+
 def test_offline_rejects_even_trusted_url_before_request(monkeypatch):
     monkeypatch.setattr(
         netpolicy, "refuse_private", lambda *a, **k: pytest.fail("must not resolve DNS offline")

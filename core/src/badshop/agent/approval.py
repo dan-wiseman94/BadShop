@@ -11,7 +11,7 @@ from typing import Literal
 from badshop.engine.errors import EngineError
 from badshop.session.models import Step
 from badshop.session.session import Emit
-from badshop.tools.registry import ToolSpec, image_fields
+from badshop.tools.registry import ToolSpec, image_refs
 from badshop.tools.runner import validate
 
 MODES = ("auto", "ask_changes", "ask_all")
@@ -71,10 +71,8 @@ class ApprovalGate:
             checked = validate(step.tool, params, "user")
             if self._resolve is not None:
                 dumped = checked.model_dump(mode="json")
-                for name, is_list in image_fields(type(checked)).items():
-                    value = dumped.get(name)
-                    for ref in (value if is_list else [value]) if value is not None else []:
-                        self._resolve(ref)  # EngineError "no such artifact: <ref>"
+                for ref in image_refs(type(checked), dumped):
+                    self._resolve(ref)  # EngineError "no such artifact: <ref>"
         elif params is not None:
             raise EngineError(f"parameters go with decision 'edit', not {decision!r}",
                               hint="send decision 'edit' to run the step with changed parameters")

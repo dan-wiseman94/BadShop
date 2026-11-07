@@ -73,6 +73,30 @@ def user_only_fields(params_cls: type[Params]) -> set[str]:
             if isinstance(f.json_schema_extra, dict) and f.json_schema_extra.get(USER_ONLY) is True}
 
 
+def image_refs(params_cls: type[Params], params: dict) -> list[str]:
+    """Collect validated image refs in declaration/list order, keeping duplicates."""
+    refs = []
+    for name, many in image_fields(params_cls).items():
+        value = params.get(name)
+        if value is not None:
+            refs.extend(value if many else [value])
+    return refs
+
+
+def map_image_refs(params_cls: type[Params], params: dict, transform: Callable[[str], str]) -> dict:
+    """Copy params, transforming only image references without changing scalar/list shape.
+
+    Missing and null optional fields stay untouched. The input dictionary and its image lists are
+    never modified, including when the transform raises. Non-image values are retained as-is.
+    """
+    mapped = dict(params)
+    for name, many in image_fields(params_cls).items():
+        value = params.get(name)
+        if value is not None:
+            mapped[name] = [transform(ref) for ref in value] if many else transform(value)
+    return mapped
+
+
 def ui_schema(spec: ToolSpec) -> dict:
     """The full parameter schema, for the UI's forms: user-only fields included and marked USER_ONLY."""
     return spec.params.model_json_schema()

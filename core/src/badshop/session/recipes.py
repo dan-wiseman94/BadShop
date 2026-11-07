@@ -27,11 +27,9 @@ class Recipe(BaseModel):
             if spec.network or spec.writes_files or not spec.mutates:
                 raise ValueError("recipes only accept local image-producing tools")
             runner.validate(step.tool, step.params)
-            for key, many in registry.image_fields(spec.params).items():
-                v = step.params.get(key)
-                for ref in (v if many else [v]) if v is not None else []:
-                    if ref != "$input" and ref not in {f"$step{n}" for n in range(i)}:
-                        raise ValueError("recipe images must be $input or an earlier $stepN")
+            for ref in registry.image_refs(spec.params, step.params):
+                if ref != "$input" and ref not in {f"$step{n}" for n in range(i)}:
+                    raise ValueError("recipe images must be $input or an earlier $stepN")
         return self
 
 
@@ -59,9 +57,7 @@ def run(session, recipe, inputs, cancel):
             def resolve(ref):
                 return source if ref == "$input" else outputs[int(ref[5:])]
 
-            for key, many in registry.image_fields(registry.get(item.tool).params).items():
-                if params.get(key) is not None:
-                    params[key] = [resolve(v) for v in params[key]] if many else resolve(params[key])
+            params = registry.map_image_refs(registry.get(item.tool).params, params, resolve)
             step = session.propose(item.tool, params, "user", reason="Recipe: " + recipe.name)
             step = session.run(step.id, cancel=cancel)
             if step.status != "done" or not step.outputs:
@@ -99,10 +95,7 @@ def credits(session, artifact_id):
         # Match output ids too: branch step ids can name different edits.
         step = next((s for s in all_steps if s.id == meta.produced_by and aid in s.outputs), None)
         if step:
-            for key, many in registry.image_fields(registry.get(step.tool).params).items():
-                value = step.params.get(key)
-                if value:
-                    pending.extend(value if many else [value])
+            pending.extend(registry.image_refs(registry.get(step.tool).params, step.params))
     return {
         "artifact_id": artifact_id,
         "sources": sources,

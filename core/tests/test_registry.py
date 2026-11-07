@@ -107,6 +107,36 @@ def test_image_fields_optional_list():
     assert registry.image_fields(_MaybeImages) == {"frames": True, "base": False}
 
 
+def test_image_reference_mapping_preserves_order_duplicates_and_non_image_values():
+    params = {"base": "base", "frames": ["second", "first", "second"], "label": ["first"]}
+    assert registry.image_refs(_MaybeImages, params) == ["second", "first", "second", "base"]
+    mapped = registry.map_image_refs(_MaybeImages, params, str.upper)
+    assert mapped == {"base": "BASE", "frames": ["SECOND", "FIRST", "SECOND"], "label": ["first"]}
+    assert params["frames"] == ["second", "first", "second"]
+    assert params["base"] == "base"
+
+
+@pytest.mark.parametrize("params", [{}, {"frames": None, "base": None}, {"frames": []}])
+def test_absent_image_references_are_preserved_without_transforming(params):
+    def unexpected(ref):
+        pytest.fail("an absent image must not reach the transform")
+    assert registry.image_refs(_MaybeImages, params) == []
+    assert registry.map_image_refs(_MaybeImages, params, unexpected) == params
+
+
+def test_failed_image_mapping_does_not_partially_rewrite_inputs():
+    params = {"frames": ["valid", "missing"], "base": "base"}
+
+    def resolve(ref):
+        if ref == "missing":
+            raise EngineError("no such artifact")
+        return "resolved"
+
+    with pytest.raises(EngineError, match="no such artifact"):
+        registry.map_image_refs(_MaybeImages, params, resolve)
+    assert params == {"frames": ["valid", "missing"], "base": "base"}
+
+
 def _subschemas(schema: dict):
     """A property's schema and every schema nested in it (anyOf branches, list items)."""
     yield schema
