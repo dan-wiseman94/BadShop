@@ -5,6 +5,7 @@ import contextlib
 import ctypes
 import hashlib
 import json
+import os
 import re
 import time
 from collections.abc import Callable
@@ -61,6 +62,40 @@ def debugger_url(profile: Path) -> str:
     raise RuntimeError(f'WebView2 did not publish a debugger endpoint in its private profile: {marker}')
 
 
+@contextlib.contextmanager
+def runner_webview_policy(executable: Path, profile: Path):
+    """WebView2 ignores environment overrides for elevated hosts on Actions."""
+    if os.environ.get('BADSHOP_SMOKE_WEBVIEW_POLICY') != '1':
+        yield
+        return
+    if os.environ.get('GITHUB_ACTIONS') != 'true':
+        raise RuntimeError('WebView2 machine policy is reserved for the disposable Actions runner')
+    import winreg
+
+    def restore(key, previous):
+        if previous is None:
+            with contextlib.suppress(FileNotFoundError):
+                winreg.DeleteValue(key, executable.name)
+        else:
+            value, kind = previous
+            winreg.SetValueEx(key, executable.name, 0, kind, value)
+
+    settings = {'AdditionalBrowserArguments': '--remote-debugging-port=0',
+                'UserDataFolder': str(profile.resolve())}
+    with contextlib.ExitStack() as stack:
+        for name, value in settings.items():
+            path = rf'SOFTWARE\Policies\Microsoft\Edge\WebView2\{name}'
+            key = stack.enter_context(winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, path, 0,
+                                                         winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE))
+            try:
+                previous = winreg.QueryValueEx(key, executable.name)
+            except FileNotFoundError:
+                previous = None
+            stack.callback(restore, key, previous)
+            winreg.SetValueEx(key, executable.name, 0, winreg.REG_SZ, value)
+        yield
+
+
 def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path) -> None:
     project = root / 'native-edit.badshop'
     summary = {'status': 'failed', 'stages': []}
@@ -90,7 +125,8 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path)
                             capture_window(window, shot.with_name(f'{shot.stem}-failure.png').resolve())
                     raise
 
-        smoke([str(executable)], shot, webview_profile=profile, exercise=exercise)
+        with runner_webview_policy(executable, profile):
+            smoke([str(executable)], shot, webview_profile=profile, exercise=exercise)
 
     output_hash = ''
 

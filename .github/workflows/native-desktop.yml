@@ -89,6 +89,7 @@ jobs:
         run: uv run --project core --with playwright==1.58.0 --with pywinauto==0.6.9 python packaging/smoke_installer.py --screenshot artifacts/verification/installed-windows/native-smoke.png
         env:
           PYTHONIOENCODING: utf-8
+          BADSHOP_SMOKE_WEBVIEW_POLICY: '1'
       - name: Installed desktop window, renderer, normal exit (macOS)
         if: runner.os == 'macOS'
         run: uv run --project core --with pyobjc-framework-Cocoa --with pyobjc-framework-Quartz python packaging/smoke_installer.py --screenshot packaging/native-smoke.png

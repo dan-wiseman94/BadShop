@@ -183,8 +183,10 @@ confirms the renderer opened a socket to its bundled core. The Windows installer
 imports an image using the native picker, applies Deepfry, cancels a dirty-window close, then
 saves and closes through the native dialog. It relaunches the app, opens the project through
 the native picker, and compares the rendered output with the saved artifact hash.
-The Windows test uses a private WebView2 profile and launch-only debugger settings. Run it on
-an isolated Windows runner with an interactive desktop. Its screenshots, app logs, WebView traces, and
+The Windows test uses a private WebView2 profile and a temporary debugger endpoint. On elevated
+GitHub Actions runners, it restores the two app-specific machine policy values after each launch.
+Run it locally on an isolated Windows runner with an interactive desktop and a non-elevated shell.
+Its screenshots, app logs, WebView traces, and
 `summary.json` are uploaded as `desktop-evidence-*` alongside the other platforms' screenshots.
 
 ```powershell
