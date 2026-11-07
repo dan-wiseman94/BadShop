@@ -406,7 +406,14 @@ export function useArtifact(id: string | null, thumb = false) {
 export function imageUrl(data: { mime: string; data: string } | undefined) {
   return data ? `data:${data.mime};base64,${data.data}` : undefined;
 }
+const MAX_PASTE_MIB = 47; // Matches MAX_PASTE_BYTES in the core and leaves room for the RPC envelope.
+
 export async function importBlob(blob: Blob, name = "pasted.png") {
+  if (blob.size > MAX_PASTE_MIB * 2 ** 20) {
+    throw new Error(
+      `This image exceeds the ${MAX_PASTE_MIB} MiB paste limit. Import it from a file or paste a smaller copy.`,
+    );
+  }
   const generation = useUI.getState().documentGeneration;
   const data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
