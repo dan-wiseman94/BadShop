@@ -13,6 +13,7 @@ jobs:
     uses: ./.github/workflows/frontend-checks.yml
   bundle:
     uses: ./.github/workflows/native-desktop.yml
+    secrets: inherit
   publish-installers:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [core, frontend, bundle]
@@ -20,10 +21,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v5
         with:
           path: artifacts
           pattern: badshop-*
+      - name: Generate signed update feed
+        run: python packaging/update_manifest.py artifacts "$RELEASE_TAG" "$GITHUB_REPOSITORY"
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*

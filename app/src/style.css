@@ -2214,3 +2214,4 @@ button.primary {
 .pack-selection { max-height: 240px; overflow-y: auto; margin: 14px 0; }
 .layouts-packs h3 { margin-top: 28px; }
 .studio select[multiple] { min-height: 140px; }
+.update-notice { position: fixed; bottom: 18px; right: 18px; z-index: 30; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; gap: 12px; align-items: center; }

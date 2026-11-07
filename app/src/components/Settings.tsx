@@ -23,6 +23,7 @@ import { themes, savePreference, type Density, type Motion } from "../appearance
 import { pickFolder } from "../native";
 import { ErrorNotice } from "./ErrorNotice";
 import { SourceSettings } from "./SourceSettings";
+import { UpdateSettings, type useUpdates } from "../updates";
 import { BIREFNET_MEMORY_NOTE, ON_DEVICE } from "../constants";
 import type {
   Asset,
@@ -446,8 +447,8 @@ function Assets() {
     </div>
   );
 }
-export function Settings() {
-  const [tab, setTab] = useState("providers");
+export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }) {
+  const [tab, setTab] = useState(updates.info?.version ? "updates" : "providers");
   const [edit, setEdit] = useState<Profile | null | undefined>(undefined);
   const [test, setTest] = useState<Record<string, { message: string; failed: boolean }>>({});
   const [checking, setChecking] = useState(false);
@@ -525,6 +526,7 @@ export function Settings() {
               ["providers", "Providers"],
               ["preferences", "Preferences"],
               ["assets", "Assets"],
+              ["updates", "Updates"],
             ].map(([id, label]) => (
               <Button
                 key={id}
@@ -535,6 +537,7 @@ export function Settings() {
             ))}
           </nav>
           <div className="settings-content">
+            {tab === "updates" && <UpdateSettings updates={updates} />}
             {tab === "providers" && (
               <>
                 {edit !== undefined ? (

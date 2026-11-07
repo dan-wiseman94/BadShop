@@ -84,6 +84,36 @@ profile if a host CLI is unavailable there.
 
 ## Release workflow
 
+### In-app updates
+
+Settings → Updates provides manual checks and a persisted automatic-check toggle
+(on by default, checks five seconds after launch and every six hours). Downloads
+are verified before the existing save/discard/cancel dialog. Installation is explicit
+and restarts the app. Windows NSIS, macOS apps and Linux AppImages support this;
+Debian and Flatpak users update through their package manager or a new download.
+Development builds do not self-update.
+
+Before tagging the first updater-enabled release, generate a durable signing key
+with `pnpm --dir app tauri signer generate -w <private-key-path>` outside the checkout.
+Keep a secure backup. Set repository variable `BADSHOP_UPDATER_PUBLIC_KEY` to the
+public key file contents and repository secret `TAURI_SIGNING_PRIVATE_KEY` to the
+private key contents; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if encrypted.
+These are updater signatures, separate from OS code signing. Never commit the private key.
+The public key is embedded at compile time; unsigned development/local builds report
+that updates are unavailable. Tag builds fail when signing configuration is absent.
+
+The native release matrix produces signed updater artifacts as well as installers.
+`packaging/update_manifest.py` requires all four artifacts and signatures and generates
+`latest.json`. Publish that file with the artifacts by publishing the draft release.
+The stable feed uses GitHub's `/releases/latest/download/latest.json`, so drafts and
+prereleases are not offered automatically. Existing versions without this feature
+need one manual installation. Keep the signing key stable across subsequent releases.
+
+Before publishing, test a version-to-version signed installation on Windows, each
+Mac architecture and AppImage: verify version after restart, saved project bytes,
+signature rejection, download failure/retry and no surviving old core processes.
+Component tests mock the native boundary and do not substitute for this release check.
+
 Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to build
 and test each supported installer before attaching it to a draft GitHub release.
 Both publishing jobs require the core and frontend checks and the native bundle matrix
