@@ -6,7 +6,7 @@ model what you want. Every edit appears in a timeline you can change and replay.
 
 ## Get badshop on Windows
 
-**[Download badshop 0.1.1 for Windows](https://github.com/dan-wiseman94/BadShop/releases/download/desktop-v0.1.1/badshop_0.1.1_x64-setup.exe)** (Intel or AMD 64-bit PC)
+**[Download the latest badshop release](https://github.com/dan-wiseman94/BadShop/releases/latest)**
 
 Open the downloaded setup file, follow the prompts, then launch **badshop** from
 Start. The installer includes the image tools. Choose **Edit a photo without AI**
@@ -129,7 +129,7 @@ uv run --project core badshop-core serve
 127.0.0.1 only, on a free port (`--port N` picks one), and prints exactly one line to stdout,
 `{"port": 40123, "token": "<a random token>"}`; everything else goes to stderr. A client connects to
 `ws://127.0.0.1:<port>` and first sends `{"type": "hello", "token": "<token>", "actor": "user"}`.
-The core answers `{"type": "welcome", "actor": "user", "version": "0.1.1"}`; any other first
+The core answers `{"type": "welcome", "actor": "user", "version": "0.2.0"}`; any other first
 message (or none within 10 s) closes the connection with code 1008. After that it is JSON-RPC
 2.0 in text frames: requests such as
 `{"jsonrpc": "2.0", "id": 1, "method": "tools.list", "params": {}}`, and events
