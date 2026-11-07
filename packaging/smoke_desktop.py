@@ -98,7 +98,7 @@ def is_core(process: psutil.Process) -> bool:
 
 
 def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90, *,
-          webview_port: int | None = None,
+          webview_profile: Path | None = None,
           exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
         root = Path(folder)
@@ -115,9 +115,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
         env.pop('WAYLAND_DISPLAY', None)
         env.pop('BADSHOP_FAKE_PROVIDER', None)
         if sys.platform == 'win32':
-            env['WEBVIEW2_USER_DATA_FOLDER'] = str(root / 'webview')
-            if webview_port is not None:
-                env['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = f'--remote-debugging-port={webview_port}'
+            env['WEBVIEW2_USER_DATA_FOLDER'] = str((webview_profile or root / 'webview').resolve())
+            if webview_profile is not None:
+                env['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=0'
         log_path = root / 'desktop.log'
         with log_path.open('w') as log:
             proc = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)

@@ -6,13 +6,11 @@ import ctypes
 import hashlib
 import json
 import re
-import socket
 import time
 from collections.abc import Callable
 from ctypes import wintypes
 from pathlib import Path
 
-import psutil
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, expect, sync_playwright
 from pywinauto import Desktop
@@ -48,29 +46,33 @@ def viewer_hash(page: Page) -> str:
     return hashlib.sha256(base64.b64decode(encoded)).hexdigest()
 
 
+def debugger_url(profile: Path) -> str:
+    """Read the ephemeral browser endpoint that WebView2 wrote inside this launch's profile."""
+    marker = profile / 'EBWebView' / 'DevToolsActivePort'
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        with contextlib.suppress(FileNotFoundError, PermissionError):
+            lines = marker.read_text(encoding='ascii').splitlines()
+            if len(lines) >= 2 and lines[0].isdigit() and re.fullmatch(r'/devtools/browser/[\w-]+', lines[1]):
+                port = int(lines[0])
+                if 0 < port <= 65535:
+                    return f'ws://127.0.0.1:{port}{lines[1]}'
+        time.sleep(.2)
+    raise RuntimeError(f'WebView2 did not publish a debugger endpoint in its private profile: {marker}')
+
+
 def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path) -> None:
     project = root / 'native-edit.badshop'
     summary = {'status': 'failed', 'stages': []}
     screenshot.parent.mkdir(parents=True, exist_ok=True)
 
     def run(shot: Path, scenario: Callable[[Page, int, int, Callable[[], None], Path], None]) -> None:
-        with socket.socket() as reserved:
-            reserved.bind(('127.0.0.1', 0))
-            port = reserved.getsockname()[1]
+        profile = root / f'{shot.stem}-webview'
+        assert not profile.exists(), 'The Windows test requires a fresh WebView2 profile'
 
         def exercise(pid: int, window: int, close: Callable[[], None]) -> None:
-            # Verify the listener belongs to this launch before attaching a debugger.
-            deadline = time.monotonic() + 15
-            while True:
-                if any(c.status == psutil.CONN_LISTEN and c.laddr == ('127.0.0.1', port)
-                       for child in psutil.Process(pid).children(recursive=True)
-                       if child.name().lower() == 'msedgewebview2.exe'
-                       for c in child.net_connections('tcp')):
-                    break
-                assert time.monotonic() < deadline, 'Owned WebView2 did not open its loopback debugger'
-                time.sleep(.2)
             with sync_playwright() as playwright:
-                browser = playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{port}', timeout=15000)
+                browser = playwright.chromium.connect_over_cdp(debugger_url(profile), timeout=15000)
                 page, = [page for context in browser.contexts for page in context.pages
                          if page.url.startswith('http://tauri.localhost')]
                 page.set_default_timeout(15000)
@@ -88,7 +90,7 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path)
                             capture_window(window, shot.with_name(f'{shot.stem}-failure.png').resolve())
                     raise
 
-        smoke([str(executable)], shot, webview_port=port, exercise=exercise)
+        smoke([str(executable)], shot, webview_profile=profile, exercise=exercise)
 
     output_hash = ''
 
