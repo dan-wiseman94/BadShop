@@ -76,5 +76,7 @@ ignore = ["E741"]  # the verbatim-ported reference code and the plan's tests use
 "badshop.tools.runner.run_tool" = { msg = "Execute application tools through session/." }
 
 [tool.ruff.lint.per-file-ignores]
+# Engine/registry tests intentionally exercise the runner without a session.
+"**/tests/*.py" = ["TID251"]
 "**/src/badshop/session/*.py" = ["TID251"]
 "**/src/badshop/cli/main.py" = ["TID251"]

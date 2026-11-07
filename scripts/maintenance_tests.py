@@ -40,6 +40,16 @@ class MaintenanceTests(unittest.TestCase):
                 if owner == 'server':
                     self.assertIn('TID251', result.stdout)
 
+    def test_ruff_allows_direct_runner_calls_in_core_tests(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'core/tests/test_runner.py'
+            source.parent.mkdir(parents=True)
+            source.write_text('from badshop.tools.runner import run_tool\nrun_tool(None)\n')
+            result = self.run_tool(['ruff', 'check', '--config', str(ROOT / 'core/pyproject.toml'),
+                                    '--select', 'TID251', str(source)], root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_vulture_detects_unreachable_code(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / 'probe.py'
