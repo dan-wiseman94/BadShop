@@ -114,6 +114,14 @@ Mac architecture and AppImage: verify version after restart, saved project bytes
 signature rejection, download failure/retry and no surviving old core processes.
 Component tests mock the native boundary and do not substitute for this release check.
 
+macOS packaging must select both `app,dmg`: the DMG alone does not produce the
+updater archive. The matrix rejects a missing or ambiguous `.app.tar.gz` before
+uploading its release artifacts. To recover packaging for an existing release tag
+without moving the tag, manually run `native-desktop.yml` with `source_ref` set to
+the full `refs/tags/vX.Y.Z`. This checks out that exact source and reruns the native
+matrix with the current packaging workflow. Only use its artifacts after every
+selected installer check passes; generate the feed from that run's complete set.
+
 Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to build
 and test each supported installer before attaching it to a draft GitHub release.
 Both publishing jobs require the core and frontend checks and the native bundle matrix
