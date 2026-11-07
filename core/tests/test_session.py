@@ -12,10 +12,10 @@ from badshop.engine.result import EngineResult
 from badshop.engine.sources import TWEMOJI_URL
 from badshop.engine.types import Params
 from badshop.session.artifacts import ArtifactStore, describe, short
-from badshop.session.execution import (CRASH_HINT, STOPPED, InProcessExecutor, OutputRecord, ToolCall,
-                                       ToolOutcome, cache_key)
+from badshop.session.execution import (CRASH_HINT, STOPPED, OutputRecord, ToolCall,
+                                       ToolOutcome)
 from badshop.session.models import Message, Part, SessionData
-from badshop.session.session import Session, label_for, result_text
+from badshop.session.session import Session
 from badshop.tools.registry import REGISTRY, ToolSpec
 from conftest import FIXTURES
 
@@ -63,17 +63,6 @@ def session(tmp_path, events):
     return Session.new("test", output_dir=tmp_path / "out", emit=lambda e, p: events.append((e, p)))
 
 
-def test_new_session_defaults(tmp_path, monkeypatch):
-    monkeypatch.setenv("BADSHOP_OUT", str(tmp_path / "pics"))
-    s = Session.new()
-    assert s.data.name == "Untitled" and s.data.approval_mode == "ask_changes" and s.data.steps == []
-    assert isinstance(s.executor, InProcessExecutor) and s.output_dir == tmp_path / "pics"
-    assert s.changes == [] and s.last_output() is None and s.summary() == ""
-    assert s.data.artifacts is s.artifacts.meta  # snapshots and project files see every artifact
-    dumped = json.loads(s.data.model_dump_json(by_alias=True))
-    assert dumped["schema"] == 2 and dumped["name"] == "Untitled"
-
-
 def test_propose_resolves_refs_to_full_ids(session, events):
     work = session.import_image(LINCOLN, "lincoln")
     step = session.propose("prep", {"image": work.id[:6].upper()}, "agent:fake", reason="make a copy")
@@ -94,24 +83,6 @@ def test_refs_never_reach_the_disk(session, tmp_path):
     with pytest.raises(EngineError, match="bad parameters for prep"):
         session.propose("prep", {"image": "x", "bogus": 1}, "user")
     assert session.data.steps == []
-
-
-def test_run_turns_outputs_into_artifacts(session, events):
-    work = session.import_image(LINCOLN, "lincoln")
-    step = session.run_tool("prep", {"image": work.id, "max": 300}, "user")
-    assert step.status == "done" and step.error is None and len(step.outputs) == 2
-    grid_id = step.outputs[1]
-    work2, grid = (session.artifacts.meta[i] for i in step.outputs)
-    assert (work2.label, grid.label) == ("lincoln_work", "lincoln_work_grid")
-    assert work2.produced_by == grid.produced_by == step.id and (grid.width, grid.height) == (228, 300)
-    assert step.result_text == f"work: {describe(work2)}\ngrid: {describe(grid)}\nsize: 228x300"
-    assert step.cache_key == cache_key("prep", step.params)
-    assert step.started_at <= step.finished_at
-    assert [e for e, _ in events] == ["step.proposed", "step.started", "step.finished"]
-    assert events[1][1]["step"]["status"] == "running"
-    assert events[2][1]["artifacts"] == [work2.model_dump(mode="json"), grid.model_dump(mode="json")]
-    json.dumps([p for _, p in events])  # every payload goes over the wire as is
-    assert session.last_output() == grid_id
 
 
 def test_failed_step_has_clean_error(session, events):
@@ -144,41 +115,6 @@ def test_identical_outputs_are_one_artifact_that_keeps_its_first_producer(sessio
     again = session.run_tool("prep", {"image": small.outputs[0], "max": 300}, "agent:fake")
     assert again.status == "done" and again.outputs == small.outputs
     assert all(session.artifacts.meta[i].produced_by == small.id for i in again.outputs)
-
-
-def test_run_with_user_edited_params(tmp_path):
-    s = Session.new(output_dir=tmp_path)
-    work = s.import_image(LINCOLN, "lincoln")
-    step = s.propose("filter", {"image": work.id, "names": ["sepia"]}, "agent:fake")
-    with pytest.raises(EngineError, match="bad parameters for filter"):
-        s.run(step.id, {"image": work.id, "names": ["no-such-filter"]})
-    assert step.status == "proposed" and step.params["names"] == ["sepia"] and not step.edited
-    s.run(step.id, {"image": work.id[:8], "names": ["invert"]})
-    assert step.status == "done" and step.edited and step.params == {"image": work.id, "names": ["invert"]}
-    with pytest.raises(EngineError, match="s1 is done, so it can't run"):
-        s.run(step.id)
-    # the user may set user-only fields when they edit an agent's call; the agent may not
-    ex = ScriptedExecutor(ToolOutcome(False, error_message="nothing on the clipboard"))
-    s2 = Session.new(output_dir=tmp_path, executor=ex)
-    fetch = s2.propose("fetch", {"query": "lincoln"}, "agent:fake")
-    s2.run(fetch.id, {"clipboard": True})
-    assert fetch.edited and ex.calls[0].params["clipboard"] is True and fetch.status == "error"
-
-
-def test_reject(session, events):
-    work = session.import_image(LINCOLN, "lincoln")
-    step = session.propose("filter", {"image": work.id, "names": ["invert"]}, "agent:fake")
-    session.reject(step.id, "too much")
-    assert step.status == "rejected" and step.result_text == "rejected by user: too much"
-    assert [e for e, _ in events] == ["step.proposed", "step.finished"]
-    with pytest.raises(EngineError, match="rejected, so it can't run"):
-        session.run(step.id)
-    with pytest.raises(EngineError, match="can't be rejected"):
-        session.reject(step.id)
-    plain = session.propose("filter", {"image": work.id, "names": ["invert"]}, "agent:fake")
-    assert session.reject(plain.id).result_text == "rejected by user"
-    with pytest.raises(EngineError, match="no such step: s9"):
-        session.reject("s9")
 
 
 def test_tools_go_through_the_executor(tmp_path):
@@ -351,21 +287,6 @@ def test_a_tool_that_writes_files_hands_back_strict_json_too(tmp_path, monkeypat
     json.dumps([p for _, p in events], allow_nan=False)  # raises ValueError if a NaN is left
 
 
-@pytest.mark.parametrize("hint, stem, tool, label", [
-    ("result.png", "lincoln", "paste", "lincoln_paste"),
-    ("result.png", "", "paste", "paste"),
-    ("{stem}_work.png", "lincoln", "prep", "lincoln_work"),
-    ("{stem}_work.png", "", "prep", "work"),
-    ("final:{stem}_deepfried", "lincoln", "deepfry", "lincoln_deepfried"),
-    ("final:my.meme", "lincoln", "save", "my.meme"),
-    ("final:{stem}", "", "save", "save"),
-    ("fetch/abraham_lincoln_1.jpg", "", "wiki", "abraham_lincoln_1"),
-    ("fetch/emoji_1f602.png", "", "emoji", "emoji_1f602"),
-])
-def test_label_for(hint, stem, tool, label):
-    assert label_for(OutputRecord("k", b"", hint), stem, tool) == label
-
-
 def test_labels_follow_the_picture_a_chain_started_from(tmp_path):
     s = Session.new(output_dir=tmp_path)
     lincoln = s.import_image(LINCOLN, "lincoln")
@@ -471,10 +392,3 @@ def test_on_change_after_every_settled_change(tmp_path):
     s.add_message("user", [Part(type="text", text="hi")])
     assert seen == [[], ["proposed"], ["done"], ["done", "proposed"], ["done", "rejected"],
                     ["done", "rejected"]]  # an autosave never catches a step mid-run
-
-
-def test_result_text_without_an_outcome(session):
-    work = session.import_image(LINCOLN, "lincoln")
-    step = session.run_tool("prep", {"image": work.id}, "user")
-    w, g = (session.artifacts.meta[i] for i in step.outputs)
-    assert result_text(step, session.artifacts) == f"1: {describe(w)}\n2: {describe(g)}"

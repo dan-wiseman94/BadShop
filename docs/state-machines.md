@@ -510,6 +510,13 @@ commands; recipe collapse of repeated output paths preserves first slot order.
 
 ## Verification record
 
+PR merge update: merged `main` at `551585f`. The only conflict was in
+`app/tests/document-replacement.test.ts`: retained both new import regressions and
+main's removal of three redundant replacement cases. No production-code conflict.
+Linux revalidation of the merged tree passed all 14 document/RPC tests and `tsc -b`;
+evidence is under `artifacts/verification/state-machines/merge/`. Earlier full-suite
+counts below describe the original audit revision, before main's test consolidation.
+
 Evidence root: `artifacts/verification/state-machines/` (ignored generated artifacts).
 
 | Evidence | Result / meaning |

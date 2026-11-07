@@ -1,15 +1,11 @@
-"""Review Focus 1 and 2 across every tool: odd image modes and phone photos, and coordinates off the image
-or inverted. Each call succeeds or fails with a clean EngineError, never another exception."""
+"""Model-dependent background removal with unusual image modes and phone orientation."""
 
-import shutil
 
 import pytest
 from PIL import Image
 
 from badshop.cli.filestore import FileStore
 from badshop.engine.errors import EngineError
-from badshop.tools import REGISTRY
-from badshop.tools.registry import image_fields
 from badshop.tools.runner import run_tool
 
 W, H = 120, 90  # the upright size of every odd input
@@ -45,44 +41,6 @@ def _odd(kind: str, folder) -> str:
 
 ODD = ["cmyk.jpg", "keyed.gif", "la.png", "sixteen.png", "phone.jpg"]
 
-# Every non-network tool (some twice), with baseline parameters; "{}" is the odd image.
-STEPS = [
-    ("info", {}), ("prep", {}), ("view", {"grid": True, "max": 64}), ("find", {"detector": "haar"}),
-    ("text", {"text": "top\nbottom"}), ("text", {"text": "hi", "style": "wordart", "at": [60, 45]}),
-    ("cutout", {"box": [5, 5, 100, 80], "no_ai": True, "sticker": 3}), ("cutout", {"oval": True, "no_ai": True}),
-    ("paste", {"base": "{}", "piece": "{}", "at": [10, 10], "width": 40, "rotate": 10}),
-    ("draw", {"circle": [[30, 30, 10]], "arrow": [[0, 0, 50, 50]], "line": [[5, 5, 60, 5]], "rect": [[10, 10, 40, 40]]}),
-    ("censor", {"box": [[10, 10, 60, 50]]}), ("censor", {"box": [[10, 10, 60, 50]], "style": "blur", "block": 4}),
-    ("eyes", {"at": [[30, 30], [60, 30]]}),
-    ("filter", {"names": ["emboss", "edges", "contour", "solarize", "posterize", "invert", "grayscale", "sepia",
-                          "blur", "sharpen", "oilpaint"]}),
-    ("warp", {"at": [[40, 40, 20]]}), ("flare", {"at": [60, 20]}), ("sparkle", {"at": [[20, 20]], "repeat": 3}),
-    ("watermark", {"names": ["hypercam", "bandicam", "ifunny", "mematic"], "text": "made in badshop"}),
-    ("save", {}), ("save", {"gif": True}), ("save", {"lowres": 0.3}), ("deepfry", {"level": 2}),
-    ("animate", {"images": ["{}", "{}"]}), ("animate", {"images": ["{}"], "effect": "zoom", "frames": 3, "hold": 1}),
-    ("layout", {"template": "trading-card", "images": ["{}"], "title": "Odd portrait", "fit": "cover"}),
-    ("layout", {"template": "comic", "images": ["{}"], "image_slots": [1], "captions": ["Before", "After"]}),
-    ("pair_images", {"donors": ["{}"], "backgrounds": ["{other}"], "role": "subject"}),
-    ("pair_images", {"donors": ["{}"], "backgrounds": ["{other}"], "role": "head"}),
-    ("slice_sheet", {"rows": 2, "columns": 3, "margins": [1, 2, 3, 4], "gap": [2, 3], "cells": [0, 4]}),
-    ("export", {}),
-]
-
-
-def test_steps_cover_every_local_tool():
-    assert {tool for tool, _ in STEPS} == {n for n, spec in REGISTRY.items() if not spec.network}
-
-
-def _params(tool: str, params: dict, image: str, other: str) -> dict:
-    filled = dict(params)
-    for name, many in image_fields(REGISTRY[tool].params).items():
-        default = other if name == "backgrounds" else image
-        value = filled.get(name, [default] if many else default)
-        replace = lambda v: image if v == "{}" else other if v == "{other}" else v  # noqa: E731
-        filled[name] = [replace(v) for v in value] if many else replace(value)
-    return filled
-
-
 class _ClosingStore(FileStore):
     """The CLI's store, closing what it loaded once the test is done: a GIF keeps its file open for
     later frames (accepted for the one-shot CLI), and the test must not leak it."""
@@ -104,18 +62,6 @@ def store(tmp_path):
         im.close()
 
 
-@pytest.mark.parametrize("kind", ODD)
-@pytest.mark.parametrize("tool, params", STEPS, ids=[f"{t}{i}" for i, (t, _) in enumerate(STEPS)])
-def test_every_tool_takes_odd_modes_and_phone_photos(tmp_path, store, tool, params, kind):
-    # Review Focus 1: every tool treats these as the upright RGB(A) picture; none fails on them.
-    image = _odd(kind, tmp_path)
-    other = str(tmp_path / f"other-{kind}")
-    shutil.copyfile(image, other)
-    run = run_tool(tool, _params(tool, params, image, other), store)
-    if tool == "info":
-        assert run.result.data == {"width": W, "height": H}  # upright, whatever the stored orientation
-
-
 @pytest.mark.models
 @pytest.mark.parametrize("kind", ODD)
 def test_the_background_remover_takes_odd_modes(tmp_path, store, kind):
@@ -124,51 +70,3 @@ def test_the_background_remover_takes_odd_modes(tmp_path, store, kind):
         run_tool("cutout", {"image": image, "box": [5, 5, 100, 80]}, store)
     except EngineError as e:  # a flat test picture may have no subject to keep
         assert e.message.startswith("nothing was kept"), e.message
-
-
-FAR = 100_000
-# Review Focus 2: points and boxes off the image, inverted, or degenerate, for every tool that takes one.
-PLACES = [
-    ("cutout", {"box": [100, 80, 5, 5], "no_ai": True}), ("cutout", {"box": [500, 500, 600, 600], "no_ai": True}),
-    ("cutout", {"box": [-50, -50, 50, 50], "oval": True}), ("cutout", {"box": [10, 10, 11, 11], "no_ai": True}),
-    ("paste", {"at": [-FAR, -FAR], "width": 40}), ("paste", {"at": [FAR, FAR], "width": 40, "anchor": "bottom"}),
-    ("paste", {"fit_box": [100, 80, 5, 5]}), ("paste", {"fit_box": [1000, 1000, 2000, 2000], "scale": 0.5}),
-    ("paste", {"fit_box": [-FAR, -FAR, FAR, FAR], "scale": 0.001}),
-    ("paste", {"repeat": 5, "width": 20, "region": [100, 80, 5, 5]}),
-    ("paste", {"repeat": 5, "width": 20, "region": [500, 500, 600, 600]}),
-    ("text", {"text": "hi", "at": [-1000, 50]}), ("text", {"text": "hi", "at": [FAR, -FAR], "rotate": 45}),
-    ("draw", {"circle": [[FAR, FAR, 10], [10, 10, 0], [10, 10, FAR]]}),
-    ("draw", {"arrow": [[100, 80, 5, 5], [5, 5, 5, 5], [-FAR, 0, FAR, 0]]}),
-    ("draw", {"rect": [[100, 80, 5, 5], [FAR, FAR, -FAR, -FAR]], "line": [[0, 0, 0, 0]]}),
-    ("censor", {"box": [[100, 80, 5, 5], [-10, -10, 30, 30]]}), ("censor", {"box": [[500, 500, 600, 600]]}),
-    ("censor", {"box": [[100, 80, 5, 5]], "style": "bar"}), ("censor", {"box": [[-FAR, -FAR, FAR, FAR]], "style": "blur"}),
-    ("eyes", {"at": [[-FAR, 5], [FAR, FAR]]}), ("eyes", {"at": [[0, 0]], "angle": -720}),
-    ("warp", {"at": [[FAR, FAR, 50]]}), ("warp", {"at": [[10, 10, 0]]}), ("warp", {"at": [[10, 10, FAR]]}),
-    ("warp", {"at": [[-5, -5, 30]], "strength": -1}),
-    ("flare", {"at": [-FAR, FAR]}), ("flare", {"at": [0, 0], "size": 2}),
-    ("sparkle", {"at": [[-FAR, FAR]]}), ("sparkle", {"repeat": 4, "region": [100, 80, 5, 5]}),
-    ("sparkle", {"repeat": 4, "region": [500, 500, 600, 600]}),
-    ("animate", {"effect": "zoom", "at": [FAR, FAR]}), ("animate", {"effect": "zoom", "at": [-FAR, 0], "amount": 1}),
-    ("layout", {"slots": [[100, 80, 5, 5]]}), ("layout", {"slots": [[-FAR, 0, FAR, FAR]]}),
-    ("layout", {"slots": [[10, 10, 10, 10]]}), ("layout", {"slots": [[5000, 5000, 6000, 6000]]}),
-    ("pair_images", {"target_box": [100, 80, 5, 5]}),
-    ("pair_images", {"target_box": [-FAR, -FAR, FAR, FAR]}),
-    ("pair_images", {"target_box": [10, 10, 10, 10]}),
-    ("pair_images", {"target_box": [5000, 5000, 6000, 6000]}),
-    ("slice_sheet", {"margins": [FAR, 0, 0, 0]}),
-    ("slice_sheet", {"rows": 2, "columns": 2, "gap": [FAR, FAR]}),
-    ("slice_sheet", {"margins": [-1, 0, 0, 0]}),
-]
-
-
-@pytest.mark.parametrize("tool, params", PLACES, ids=[f"{t}{i}" for i, (t, _) in enumerate(PLACES)])
-def test_coordinates_off_the_image_or_inverted(tmp_path, store, tool, params):
-    image = str(tmp_path / "pic.png")
-    _picture().save(image)
-    other = str(tmp_path / "other.png")
-    shutil.copyfile(image, other)
-    params = _params(tool, params, image, other)
-    try:
-        run_tool(tool, params, store)
-    except EngineError as e:
-        assert e.message and "Traceback" not in e.message

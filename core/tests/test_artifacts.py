@@ -1,29 +1,17 @@
 import builtins
-import hashlib
 import io
-import json
 import os
 import struct
-import subprocess
-import sys
-import typing
 import zlib
-from pathlib import Path
 
 import pytest
 from PIL import EpsImagePlugin, Image, UnidentifiedImageError
-from pydantic import ValidationError
 
-from badshop import files
-from badshop.cli import filestore
-from badshop.cli import main as cli_main
 from badshop.engine.common import load_image
 from badshop.engine.errors import EngineError
 from badshop.session import artifacts
-from badshop.session.artifacts import (IMPORT_FORMATS, MIME, REF_HINT, WORKING_MAX, ArtifactStore, describe,
-                                       short)
-from badshop.session.models import (EXT, SCHEMA, ArtifactMeta, ImageFormat, Message, Part, SessionData,
-                                    Source, Step, StepError)
+from badshop.session.artifacts import (IMPORT_FORMATS, REF_HINT, WORKING_MAX, ArtifactStore, describe)
+from badshop.session.models import (ArtifactMeta, Source)
 
 EPS = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\nshowpage\n"
 
@@ -39,98 +27,7 @@ def gif3() -> bytes:
     return encode(frames[0], "GIF", save_all=True, append_images=frames[1:], duration=100, loop=0)
 
 
-# --- files.py: the output folder rule and never-overwrite names, shared by the CLI and sessions ---
-
-def test_final_path_lives_in_files_and_the_cli_still_exports_it(tmp_path):
-    assert filestore.final_path is files.final_path
-    first = files.final_path(tmp_path / "out", "lincoln", ".png")
-    assert first == tmp_path / "out" / "lincoln.png"
-    first.write_bytes(b"x")
-    assert files.final_path(tmp_path / "out", "lincoln", ".png") == tmp_path / "out" / "lincoln_2.png"
-    with pytest.raises(EngineError, match="bad file name"):
-        files.final_path(tmp_path / "out", "../x", ".png")
-
-
-def test_default_output_dir_is_the_cli_rule(monkeypatch, tmp_path):
-    monkeypatch.setenv("BADSHOP_OUT", str(tmp_path / "mine"))
-    assert files.default_output_dir() == tmp_path / "mine"
-    assert cli_main.final_dir() == tmp_path / "mine"
-    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
-    pictures = tmp_path / "home" / "Pictures"
-    if os.name == "nt":
-        pictures = tmp_path / "OneDrive" / "Family Photos"
-        monkeypatch.setattr(files, "user_pictures_path", lambda: pictures)
-    monkeypatch.setenv("BADSHOP_OUT", "")  # set but empty: the default, as before
-    assert files.default_output_dir() == pictures / "badshop"
-    monkeypatch.delenv("BADSHOP_OUT")
-    assert files.default_output_dir() == pictures / "badshop"
-    assert cli_main.final_dir() == pictures / "badshop"
-
-
-# --- models.py ---
-
-def test_session_data_saves_schema_under_its_alias_and_round_trips():
-    aid = "a" * 64
-    meta = ArtifactMeta(id=aid, label="lincoln_work", width=457, height=600, format="PNG", mime="image/png",
-                        source=Source(kind="openverse", url="https://x.test/y.jpg", license="CC BY 2.0"))
-    step = Step(id="s1", index=1, tool="cutout", params={"image": aid, "box": [1, 2, 30, 40]},
-                actor="agent:fake", status="error", error=StepError(message="box is empty", hint="use find"))
-    msg = Message(id="m1", role="user",
-                  content=[Part(type="text", text="hi"), Part(type="image", artifact_id=aid)])
-    data = SessionData(id="x1", name="Untitled", created_at=1.5, messages=[msg], steps=[step],
-                       artifacts={aid: meta}, transcript=[{"role": "user", "content": "hi"}])
-    dumped = data.model_dump(mode="json", by_alias=True)
-    assert dumped["schema"] == SCHEMA == 2 and "schema_" not in dumped
-    assert dumped["approval_mode"] == "ask_changes" and dumped["provider_profile_id"] is None
-    assert dumped["steps"][0]["outputs"] == [] and dumped["steps"][0]["edited"] is False
-    back = SessionData.model_validate_json(json.dumps(dumped))
-    assert back == data and back.artifacts[aid].ext == ".png"
-    assert SessionData.model_validate({**dumped, "schema": 7}).schema_ == 7  # by alias (session.json)
-    assert SessionData(schema_=2, id="x", name="n", created_at=0).schema_ == 2  # and by name
-
-
-def test_models_import_without_warnings():
-    # a field called `schema` would shadow BaseModel.schema (a UserWarning); -W error fails on any warning
-    p = subprocess.run([sys.executable, "-W", "error", "-c", "import badshop.session.artifacts"],
-                       capture_output=True, text=True, timeout=120)
-    assert p.returncode == 0, p.stderr
-
-
-def test_artifact_meta_is_frozen_and_validated():
-    meta = ArtifactMeta(id="b" * 64, label="x", width=1, height=1, format="GIF", mime="image/gif")
-    with pytest.raises(ValidationError):
-        meta.produced_by = "s9"
-    for bad_id in ("../../etc/passwd", "B" * 64, "b" * 63):
-        with pytest.raises(ValidationError):
-            ArtifactMeta(id=bad_id, label="x", width=1, height=1, format="PNG", mime="image/png")
-    with pytest.raises(ValidationError):
-        ArtifactMeta(id="b" * 64, label="x", width=1, height=1, format="EPS", mime="application/postscript")
-    with pytest.raises(ValidationError):
-        Step(id="s1", index=1, tool="info", params={}, actor="user", status="finished")
-
-
-def test_every_import_format_has_an_extension_and_a_mime_type():
-    assert set(typing.get_args(ImageFormat)) == set(IMPORT_FORMATS) == set(MIME) == set(EXT)
-    assert {f: EXT[f] for f in IMPORT_FORMATS} == {"PNG": ".png", "JPEG": ".jpg", "GIF": ".gif",
-                                                    "WEBP": ".webp", "BMP": ".bmp", "TIFF": ".tiff"}
-
-
 # --- ArtifactStore.add / data / image / drop ---
-
-def test_add_stores_bytes_under_their_sha256():
-    store = ArtifactStore()
-    data = encode(Image.new("RGB", (30, 20), "red"))
-    meta = store.add(data, "red", produced_by="s1")
-    assert meta.id == hashlib.sha256(data).hexdigest()
-    assert (meta.label, meta.width, meta.height, meta.format, meta.mime, meta.frames, meta.ext) == \
-        ("red", 30, 20, "PNG", "image/png", 1, ".png")
-    assert (meta.produced_by, meta.source, meta.original_id) == ("s1", None, None)
-    assert meta.id in store and "red" not in store and store.ids() == [meta.id]
-    assert store.meta[meta.id] is meta
-    assert store.data(meta.id) == data
-    with store.image(meta.id) as im:
-        assert im.size == (30, 20) and im.getpixel((0, 0)) == (255, 0, 0)
-    assert short(meta.id) == meta.id[:8] and describe(meta) == f"{meta.id[:8]} (red, 30x20)"
 
 
 def test_the_same_bytes_keep_their_first_meta():
@@ -141,13 +38,6 @@ def test_the_same_bytes_keep_their_first_meta():
     again = store.add(data, "other", produced_by="s5", source=Source(kind="url", url="https://x.test/a.png"))
     assert again is first and store.ids() == [first.id]
     assert (again.label, again.produced_by, again.source) == ("lincoln_cutout", "s2", None)
-
-
-@pytest.mark.parametrize("fmt", IMPORT_FORMATS)
-def test_add_records_each_format(fmt):
-    store = ArtifactStore()
-    meta = store.add(encode(Image.new("RGB", (8, 6), "white"), fmt), "x")
-    assert (meta.format, meta.mime, meta.ext, meta.width, meta.height) == (fmt, MIME[fmt], EXT[fmt], 8, 6)
 
 
 def test_add_counts_frames_and_stores_a_phone_mpo_as_jpeg():

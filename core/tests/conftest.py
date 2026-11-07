@@ -20,6 +20,26 @@ os.environ.setdefault("BADSHOP_DATA_DIR", str(TEST_CACHE / "data"))
 os.environ.setdefault("REMBG_HOME", str(TEST_CACHE / "rembg"))
 os.environ.setdefault("U2NET_HOME", str(TEST_CACHE / "rembg"))
 
+# Keep whole boundary suites together, including their supporting contract checks.
+# The other modules test components in isolation. Reference parity and downloaded
+# assets remain integration checks even when they share a file with unit tests.
+INTEGRATION_MODULES = set("""
+test_chat test_cli test_cli_live test_cli_provider test_core_operations
+test_document_state test_downloads test_execution test_golden test_harness test_live_provider
+test_macos_images test_manifest test_mcp_proxy test_project test_provider_start test_recipes
+test_replay test_server_app test_server_ws test_smoke test_stdin_watcher test_worker
+""".split())
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        integration = (
+            item.path.stem in INTEGRATION_MODULES
+            or bool({"pair", "reference"}.intersection(item.fixturenames))
+            or any(item.get_closest_marker(name) for name in ("models", "network", "live"))
+        )
+        item.add_marker(pytest.mark.integration if integration else pytest.mark.unit)
+
 
 def cli_env(cwd: Path) -> dict[str, str]:
     env = dict(os.environ)

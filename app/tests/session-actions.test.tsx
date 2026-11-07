@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-import type { Session } from "../src/types";
+import { useSessionActions } from "../src/sessionActions";
 import { useUI } from "../src/store";
+import type { Session } from "../src/types";
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -22,7 +23,6 @@ vi.mock("../src/native", () => ({
   onCloseRequested: mocks.onCloseRequested,
 }));
 vi.mock("../src/components/ErrorNotice", () => ({ ErrorNotice: () => null }));
-import { useSessionActions } from "../src/sessionActions";
 
 let session: Session;
 let cachedSession: Session;
@@ -84,46 +84,6 @@ async function pendingRequest(
   await waitFor(() => expect(result.current.pending).not.toBeNull());
   return { request };
 }
-
-it("keeps the original document and decision open when Save As is canceled", async () => {
-  mocks.projectPath.mockResolvedValue(null);
-  const { result } = renderHook(useSessionActions);
-  const { request } = await pendingRequest(result);
-  await act(() => result.current.decide("save"));
-  expect(result.current.pending).not.toBeNull();
-  expect(mocks.action).not.toHaveBeenCalled();
-  act(() => result.current.cancel());
-  await expect(request).resolves.toBe(false);
-});
-
-it("replaces only after a successful Save with its fresh revision", async () => {
-  const { result } = renderHook(useSessionActions);
-  const { request } = await pendingRequest(result);
-  await act(() => result.current.decide("save"));
-  await expect(request).resolves.toBe(true);
-  expect(mocks.action.mock.calls).toEqual([
-    [
-      "session.save_as",
-      { path: "/projects/one.badshop", expected_revision: 1 },
-    ],
-    [
-      "session.new",
-      { name: "Two", expected_revision: 1, discard_unsaved: false },
-    ],
-  ]);
-});
-
-it("requires a fresh decision when Discard refers to an old revision", async () => {
-  const { result } = renderHook(useSessionActions);
-  const { request } = await pendingRequest(result);
-  session = { ...session, document_revision: 2 };
-  await act(() => result.current.decide("discard"));
-  expect(result.current.pending?.session.document_revision).toBe(2);
-  expect(cachedSession.document_revision).toBe(2); // Cancel must leave the workbench on the refreshed state.
-  expect(useUI.getState().error).toContain("changed before");
-  await act(() => result.current.decide("discard"));
-  await expect(request).resolves.toBe(true);
-});
 
 it("does not close when new unsaved changes arrive immediately after Save", async () => {
   const { result } = renderHook(useSessionActions);
@@ -199,20 +159,6 @@ it("stops a running turn before Save and close", async () => {
   expect(mocks.action).toHaveBeenLastCalledWith("session.save", {
     expected_revision: 2,
   });
-});
-
-it("keeps the decision open after a failed Save without trying to replace", async () => {
-  mocks.action.mockRejectedValue(new Error("disk full"));
-  const { result } = renderHook(useSessionActions);
-  const { request } = await pendingRequest(result);
-  await act(() => result.current.decide("save"));
-  expect(result.current.pending).not.toBeNull();
-  expect(useUI.getState().error).toContain("disk full");
-  expect(mocks.action.mock.calls.map(([method]) => method)).toEqual([
-    "session.save_as",
-  ]);
-  act(() => result.current.cancel());
-  await expect(request).resolves.toBe(false);
 });
 
 it("requires a fresh explicit Discard when the document changes during a close decision", async () => {

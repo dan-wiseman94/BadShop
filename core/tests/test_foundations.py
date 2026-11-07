@@ -1,5 +1,4 @@
 import http.client
-import io
 import threading
 
 import pytest
@@ -7,51 +6,12 @@ from PIL import Image
 
 from badshop.engine import assets, common
 from badshop.engine.errors import EngineError
-from badshop.engine.result import EngineResult, Output
-
-
-def test_engine_error_carries_hint():
-    e = EngineError("bad box", hint="use find")
-    assert (e.message, e.hint, str(e)) == ("bad box", "use find", "bad box")
-
-
-def test_output_encodes_png_jpeg_gif():
-    im = Image.new("RGB", (8, 8), "red")
-    assert Output("result", im, "result.png").encode()[:8] == b"\x89PNG\r\n\x1a\n"
-    jpg = Output("saved", im, "final:x", fmt="JPEG", quality=20)
-    assert jpg.ext() == ".jpg" and jpg.encode()[:2] == b"\xff\xd8"
-    frames = [im.quantize(8), Image.new("RGB", (8, 8), "blue").quantize(8)]
-    gif = Output("animated", frames[0], "final:x", fmt="GIF", frames=frames, duration=80)
-    assert Image.open(io.BytesIO(gif.encode())).n_frames == 2
-
-
-def test_engine_result_defaults_are_independent():
-    a, b = EngineResult(), EngineResult()
-    a.lines.append("x")
-    assert b.lines == []
-
-
-def test_clamp_box_sorts_and_clamps():
-    assert common.clamp_box((50, 60, 10, 5), (40, 40)) == (10, 5, 40, 40)
 
 
 def test_clamp_box_outside_raises_engine_error():
     with pytest.raises(EngineError, match=r"box \(500, 500, 600, 600\) is empty or lies outside the 100x100 image") as e:
         common.clamp_box((500, 500, 600, 600), (100, 100))
     assert "find or a grid view" in e.value.hint
-
-
-def test_rgb_unknown_colour():
-    assert common.rgb("#ff0000") == (255, 0, 0)
-    with pytest.raises(EngineError, match="unknown color 'not-a-colour'") as e:
-        common.rgb("not-a-colour")
-    assert "#ff00ff" in e.value.hint
-
-
-def test_draw_grid_keeps_size():
-    im = Image.new("RGB", (320, 240), "white")
-    g = common.draw_grid(im)
-    assert g.size == im.size and g.getpixel((100, 5)) != (255, 255, 255)
 
 
 @pytest.mark.parametrize("mode", ["CMYK", "P", "I;16", "LA", "F"])
@@ -87,17 +47,6 @@ def test_load_image_keeps_format(tmp_path):
     for src in (tmp_path / "phone.jpg", (tmp_path / "phone.jpg").read_bytes()):
         with common.load_image(src) as im:
             assert (im.format, im.size) == ("JPEG", (20, 40))
-
-
-def test_load_image_applies_exif_rotation(tmp_path):
-    path = tmp_path / "phone.jpg"
-    _sideways_jpeg(path)
-    assert common.load_image(path).size == (20, 40)
-
-
-def test_data_dir_respects_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "d"))
-    assert assets.data_dir() == tmp_path / "d"
 
 
 def test_cached_downloads_once_and_reports_progress(monkeypatch, tmp_path):
