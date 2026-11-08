@@ -148,3 +148,152 @@ test("opening a damaged project preserves the current document, draft, image and
   expect(await readFile(project)).toEqual(savedFile);
   expect((await exported(page)).bytes).toEqual(picture);
 });
+
+test("replaying a selected output refreshes the canvas and exported bytes", async ({ page, core }) => {
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await connect(page, core);
+  await deepfry(page);
+  const before = (await snapshot(core)).steps[0].outputs[0];
+  const detail = page.locator(".step-detail");
+  await detail.locator(".provenance .artifact-thumb").click();
+  const oldBytes = await expectImage(page, core, before);
+
+  await detail.getByLabel("Seed", { exact: false }).fill("19");
+  await detail.getByRole("button", { name: "Apply & replay" }).click();
+  await expect.poll(async () => {
+    const step = (await snapshot(core)).steps[0];
+    return step.status === "done" && step.outputs[0] !== before;
+  }).toBe(true);
+  const after = (await snapshot(core)).steps[0];
+  expect(after.status).toBe("done");
+  const newBytes = await expectImage(page, core, after.outputs[0]);
+  expect(newBytes).not.toEqual(oldBytes);
+  expect((await exported(page)).bytes).toEqual(newBytes);
+});
+
+test("branch counts and previews follow timeline edits and survive reopening", async ({ page, core }) => {
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await connect(page, core);
+  await deepfry(page);
+  const first = (await snapshot(core)).steps[0];
+  const studio = page.getByRole("button", { name: "Images & directions", exact: true });
+  const closeStudio = page.getByRole("button", { name: "Close images and directions" });
+  const branches = page.getByRole("button", { name: "Branches", exact: true });
+  const take = page.locator(".studio-card").filter({ hasText: "Fried version" });
+
+  await studio.click();
+  await branches.click();
+  await page.getByLabel("New branch name").fill("Fried version");
+  await page.getByRole("button", { name: "Create & switch" }).click();
+  await expect(take).toContainText("1 steps");
+  await expect(take.locator("img")).toHaveAttribute("src", /^data:image/);
+  const oldPreview = (await take.locator("img").getAttribute("src"))!;
+  await closeStudio.click();
+
+  await deepfry(page);
+  const second = (await snapshot(core)).steps[1];
+  const expectedBytes = await expectImage(page, core, second.outputs[0]);
+  await studio.click();
+  await branches.click();
+  await expect(take).toContainText("2 steps");
+  await expect(take.locator("img")).toHaveAttribute("src", /^data:image/);
+  await expect(take.locator("img")).not.toHaveAttribute("src", oldPreview);
+  await page.locator(".studio-card").filter({ hasText: "Original" })
+    .getByRole("button", { name: "Switch to this take" }).click();
+  await closeStudio.click();
+  await expect(page.locator(".step")).toHaveCount(1);
+  await expectImage(page, core, first.outputs[0]);
+  expect((await snapshot(core)).artifacts[second.outputs[0]]).toBeUndefined();
+
+  const filename = path.join(core.folder, "two-takes.badshop");
+  await save(page, core, filename);
+  await page.locator(".step").first().click();
+  const detail = page.locator(".step-detail");
+  await expect(detail).toBeVisible();
+  await page.locator(".session-name").click();
+  page.once("dialog", dialog => dialog.accept(filename));
+  await page.getByRole("button", { name: /^Open session/ }).click();
+  await expect(detail).toHaveCount(0);
+  await studio.click();
+  await branches.click();
+  await take.getByRole("button", { name: "Switch to this take" }).click();
+  await closeStudio.click();
+  await expect(page.locator(".step")).toHaveCount(2);
+  expect((await snapshot(core)).steps).toEqual([first, second]);
+  expect(await expectImage(page, core, second.outputs[0])).toEqual(expectedBytes);
+});
+
+test("a failed crop can be saved, reopened and repaired without losing its dependent output", async ({ page, core }) => {
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await connect(page, core);
+  await page.getByRole("button", { name: "Run tool", exact: true }).click();
+  await page.getByLabel("Search tools").fill("cutout");
+  await page.getByRole("button", { name: /^cutout crop/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Run a tool" });
+  await dialog.getByLabel(/^No Ai/i).check();
+  await dialog.getByLabel("Box X2", { exact: true }).fill("90");
+  await dialog.getByLabel("Box Y2", { exact: true }).fill("90");
+  await dialog.getByRole("button", { name: "Run tool", exact: true }).click();
+  await expect(page.locator(".step").first()).toContainText("done");
+  await deepfry(page);
+  const before = await snapshot(core);
+  const [crop, fried] = before.steps;
+  const image = before.artifacts[String(crop.params.image)];
+  expect(fried.params.image).toBe(crop.outputs[0]);
+  const original = await expectImage(page, core, fried.outputs[0]);
+  const detail = page.locator(".step-detail");
+  await page.locator(".step").first().click();
+  await detail.getByLabel("Box X1", { exact: true }).fill(String(image.width + 1));
+  await detail.getByLabel("Box X2", { exact: true }).fill(String(image.width + 20));
+  await detail.getByRole("button", { name: "Apply & replay" }).click();
+  await expect(detail.locator(".inline-error")).toContainText("empty or lies outside");
+  await expect(page.locator(".step").last()).toContainText("stale");
+  const failed = (await snapshot(core)).steps;
+  expect(failed[0].outputs).toEqual([]);
+  expect(failed[1].params.image).toBe(crop.outputs[0]);
+  expect(failed[1].outputs).toEqual(fried.outputs);
+
+  const filename = path.join(core.folder, "failed-crop.badshop");
+  await save(page, core, filename);
+  await page.locator(".session-name").click();
+  page.once("dialog", dialog => dialog.accept(filename));
+  await page.getByRole("button", { name: /^Open session/ }).click();
+  await expect(detail).toHaveCount(0);
+  expect((await snapshot(core)).steps).toEqual(failed);
+  await page.locator(".step").first().click();
+  await expect(detail.locator(".inline-error")).toContainText("empty or lies outside");
+  await detail.getByLabel("Box X1", { exact: true }).fill("0");
+  await detail.getByLabel("Box X2", { exact: true }).fill("120");
+  await detail.getByRole("button", { name: "Apply & replay" }).click();
+  await expect.poll(async () => (await snapshot(core)).steps.map(step => step.status)).toEqual(["done", "done"]);
+  const [repaired, replayed] = (await snapshot(core)).steps;
+  expect(repaired.outputs[0]).not.toBe(crop.outputs[0]);
+  expect(replayed.params.image).toBe(repaired.outputs[0]);
+  await page.locator(".step").last().click();
+  const corrected = await expectImage(page, core, replayed.outputs[0]);
+  expect(corrected).not.toEqual(original);
+  expect((await exported(page)).bytes).toEqual(corrected);
+});
+
+test("a later sprite output stays selected when replay changes every cell", async ({ page, core }) => {
+  const image = Object.values((await snapshot(core)).artifacts).find(artifact => artifact.label.includes("work"))!;
+  // Seed the completed sheet. Selecting the cell, editing its grid and exporting all use the UI.
+  await core.call("tools.run", { tool: "slice_sheet", params: { image: image.id, rows: 1, columns: 2 } });
+  const before = (await snapshot(core)).steps[0];
+  expect(before.outputs).toHaveLength(2);
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await connect(page, core);
+  await page.locator(".step").first().click();
+  const detail = page.locator(".step-detail");
+  await detail.locator(".provenance .artifact-thumb").nth(1).click();
+  await expectImage(page, core, before.outputs[1]);
+
+  await detail.getByLabel(/^Rows/).press("ArrowRight");
+  await detail.getByRole("button", { name: "Apply & replay" }).click();
+  await expect(detail.locator(".provenance")).toHaveCount(4);
+  const after = (await snapshot(core)).steps[0];
+  expect(after.params.rows).toBe(2);
+  expect(after.outputs[1]).not.toBe(before.outputs[1]);
+  const selected = await expectImage(page, core, after.outputs[1]);
+  expect((await exported(page)).bytes).toEqual(selected);
+});

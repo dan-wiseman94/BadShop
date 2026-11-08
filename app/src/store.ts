@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { Step } from "./types";
 import { readPreference, validTheme, type Density, type Motion } from "./appearance";
 export type PickRequest = {
   kind: "point" | "box" | "segment";
@@ -10,7 +11,7 @@ interface UIState {
   status: "starting" | "connecting" | "ready" | "disconnected" | "failed";
   logPath?: string;
   selectedStep: string | null;
-  selectedArtifact: string | null;
+  selectedArtifact: string | { stepId: string; outputIndex: number } | null;
   documentGeneration: number;
   settingsOpen: boolean;
   paletteOpen: boolean;
@@ -41,6 +42,14 @@ export const useUI = create<UIState>()((set) => ({
   motion: ["reduced", "full"].includes(readPreference("motion", "system")) ? readPreference("motion", "system") as Motion : "system",
   set: (patch) => set(patch),
 }));
+// A timeline output follows its slot when replay replaces the underlying bytes.
+export function useSelectedArtifact(steps: Step[] | undefined) {
+  return useUI(({ selectedArtifact }) => {
+    if (!selectedArtifact || typeof selectedArtifact === "string") return selectedArtifact;
+    const outputs = steps?.find((step) => step.id === selectedArtifact.stepId)?.outputs;
+    return outputs?.[selectedArtifact.outputIndex] ?? outputs?.[0] ?? null;
+  });
+}
 export function showError(
   error: unknown,
   errorAction: "retry-turn" | null = null,
