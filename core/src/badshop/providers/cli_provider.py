@@ -19,26 +19,48 @@ from pathlib import Path
 
 from badshop.agent.context import SYSTEM_PROMPT
 from badshop.agent.provider import ProviderError
+from badshop.files import expand_user_path
 from badshop.providers.profiles import Profile
 
 CLIS = ("claude", "codex", "gemini")
 MAX_LINE = 8 * 2**20
 
 
-def find_executable(cli: str, executable: str | None = None) -> str | None:
-    if executable:
-        path = Path(executable).expanduser()
-        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
-    found = shutil.which(cli)
-    if found:
-        return found
+def _cli_folders() -> list[Path]:
     # Desktop launchers can inherit a PATH without user-installed CLI tools.
     folders = [Path.home() / ".local/bin", Path.home() / ".npm-global/bin"]
-    windows = sys.platform == "win32"
-    if windows:
+    if sys.platform == "win32":
         folders.append(Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")) / "npm")
-    else:
-        folders.extend((Path("/opt/homebrew/bin"), Path("/usr/local/bin")))
+        if program_files := os.environ.get("ProgramFiles"):
+            folders.append(Path(program_files) / "nodejs")
+    elif sys.platform == "darwin":
+        folders.append(Path("/opt/homebrew/bin"))
+    elif sys.platform == "linux":
+        folders.append(Path("/home/linuxbrew/.linuxbrew/bin"))
+    if sys.platform != "win32":
+        folders.append(Path("/usr/local/bin"))
+    return folders
+
+
+def find_executable(cli: str, executable: str | None = None) -> str | None:
+    windows = sys.platform == "win32"
+    if executable:
+        try:
+            path = expand_user_path(executable, allow_quotes=True)
+            return str(path.absolute()) if path.is_file() and os.access(path, os.X_OK) else None
+        except (OSError, RuntimeError, ValueError):
+            return None
+    found = shutil.which(cli)
+    if found:
+        return os.path.abspath(found)
+    folders = _cli_folders()
+    if sys.platform == "darwin" and cli == "codex":
+        for applications in (Path.home() / "Applications", Path("/Applications")):
+            folders.extend(applications / bundle for bundle in (
+                "ChatGPT.app/Contents/Resources/codex-cli/bin",
+                "ChatGPT.app/Contents/Resources",
+                "Codex.app/Contents/Resources",
+            ))
     for folder in folders:
         for suffix in ((".exe", ".cmd", ".bat") if windows else ("",)):
             path = folder / (cli + suffix)
@@ -59,9 +81,56 @@ def find_executable(cli: str, executable: str | None = None) -> str | None:
     return None
 
 
-def _inspect(executable: str, *args: str) -> str:
+def _cli_env(executable: str) -> dict[str, str]:
+    env = dict(os.environ)
+    # Launch scripts can depend on a sibling runtime or Homebrew Node even when
+    # the executable itself was found by absolute path. Keep the user's PATH first.
+    folders = [Path(executable).parent, *_cli_folders()]
+    paths = [*os.get_exec_path(env), *(str(folder) for folder in folders if folder.is_absolute())]
+    env["PATH"] = os.pathsep.join(dict.fromkeys(paths))
+    return env
+
+
+def _launch_args(cli: str, executable: str, env: dict[str, str]) -> list[str]:
+    path = Path(executable)
+    # Win32 can ignore trailing spaces and dots when opening the wrapper.
+    launcher = Path(path.name.rstrip(" ."))
+    if sys.platform != "win32" or launcher.suffix.lower() not in (".cmd", ".bat"):
+        return [executable]
+    # Windows can run batch wrappers through cmd.exe even with shell=False.
+    # Resolve the npm entry point so prompt/config arguments reach it verbatim.
+    package = path.parent / "node_modules" / {
+        "claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "gemini": "@google/gemini-cli",
+    }[cli]
     try:
-        result = subprocess.run([executable, *args], capture_output=True, text=True,
+        entry = json.loads((package / "package.json").read_text(encoding="utf-8"))["bin"]
+        if isinstance(entry, dict):
+            entry = entry[cli]
+        target = (package / entry).resolve()
+        if launcher.stem.lower() != cli or not target.is_relative_to(package.resolve()) or not target.is_file():
+            raise ValueError("invalid npm entry point")
+    except (OSError, KeyError, RuntimeError, TypeError, ValueError):
+        raise ProviderError(
+            f"{path.name} is not a supported npm launcher. Reinstall {cli} or choose its .exe."
+        ) from None
+    if target.suffix.lower() == ".exe":
+        return [str(target)]
+    sibling = path.with_name("node.exe")
+    node = str(sibling) if sibling.is_file() else shutil.which("node.exe", path=env["PATH"])
+    if not node:
+        raise ProviderError(f"{cli} needs Node.js. Install Node.js or add it to PATH.")
+    return [os.path.abspath(node), str(target)]
+
+
+def _toml_path(value: str | list[str]) -> str:
+    # TOML rejects surrogate pairs and unescaped DEL. JSON's other escapes apply.
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+
+
+def _inspect(cli: str, executable: str, *args: str) -> str:
+    env = _cli_env(executable)
+    try:
+        result = subprocess.run([*_launch_args(cli, executable, env), *args], env=env, capture_output=True, text=True,
                                 encoding="utf-8", errors="replace", timeout=12)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise ProviderError(f"can't inspect {Path(executable).name}: {e}") from None
@@ -77,9 +146,9 @@ def inspect_cli(cli: str, executable: str | None = None) -> dict:
     if not path:
         return {**info, "error": f"{cli} was not found; install it or choose its executable"}
     try:
-        version = _inspect(path, "--version").strip().splitlines()
+        version = _inspect(cli, path, "--version").strip().splitlines()
         info["version"] = version[0] if version else "unknown"
-        help_text = _inspect(path, "exec", "--help") if cli == "codex" else _inspect(path, "--help")
+        help_text = _inspect(cli, path, *(("exec", "--help") if cli == "codex" else ("--help",)))
         required = {"claude": ("--input-format", "--output-format", "--strict-mcp-config", "--tools"),
                     "codex": ("--json", "--sandbox", "--skip-git-repo-check"),
                     "gemini": ("--output-format", "--resume", "--allowed-mcp-server-names", "--policy",
@@ -172,7 +241,7 @@ class CLIProvider:
         self.executable = self.info["executable"]
         self._folder = tempfile.TemporaryDirectory(prefix="badshop-cli-")
         self.cwd = Path(self._folder.name)
-        self.env = dict(os.environ)
+        self.env = _cli_env(self.executable)
         self.process = None
         self.session_id: str | None = None
         self._stderr_task: asyncio.Task | None = None
@@ -225,20 +294,20 @@ class CLIProvider:
             self.env["CODEX_HOME"] = str(private)
             # Built-in apply_patch is independently controlled by model metadata, not shell_tool.
             # Read the bundled, offline catalog and remove pixel/file bypass tools for every model.
-            catalog = json.loads(_inspect(self.executable, "debug", "models", "--bundled"))
+            catalog = json.loads(_inspect(self.cli, self.executable, "debug", "models", "--bundled"))
             for model in catalog["models"]:
                 model.update(shell_type="disabled", apply_patch_tool_type=None, experimental_supported_tools=[],
                              supports_search_tool=False, tool_mode="direct", multi_agent_version=None)
             catalog_path = self._write("codex/models.json", json.dumps(catalog))
             config = ('sandbox_mode = "read-only"\napproval_policy = "never"\nweb_search = "disabled"\n'
-                      f'model_catalog_json = {json.dumps(str(catalog_path))}\n'
+                      f'model_catalog_json = {_toml_path(str(catalog_path))}\n'
                       '[tools.update_plan]\nenabled = false\n'
                       '[tools.experimental_request_user_input]\nenabled = false\n'
                       '[features]\nshell_tool = false\nview_image = false\nimage_generation = false\n'
                       'multi_agent = false\ncollab = false\napps = false\nplugins = false\n'
                       'code_mode = false\nrequest_permissions_tool = false\n'
                       '[mcp_servers.badshop]\n'
-                      f'command = {json.dumps(mcp["command"])}\nargs = {json.dumps(mcp["args"])}\n'
+                      f'command = {_toml_path(mcp["command"])}\nargs = {_toml_path(mcp["args"])}\n'
                       'tool_timeout_sec = 3600\ndefault_tools_approval_mode = "approve"\n')
             self._write("codex/config.toml", config)
             self._write("AGENTS.md", SYSTEM_PROMPT)
@@ -296,6 +365,8 @@ class CLIProvider:
         if self.process is not None:
             await self.stop()
         self._stderr.clear()
+        executable, *args = self.command(prompt)
+        command = [*_launch_args(self.cli, executable, self.env), *args]
         launch = {"start_new_session": True}
         if os.name == "nt":
             from badshop.providers.windows_job import Job
@@ -303,7 +374,7 @@ class CLIProvider:
             launch = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004}  # CREATE_SUSPENDED
         try:
             self.process = await asyncio.create_subprocess_exec(
-                *self.command(prompt), cwd=self.cwd, env=self.env,
+                *command, cwd=self.cwd, env=self.env,
                 stdin=asyncio.subprocess.PIPE if self.cli == "claude" else asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=MAX_LINE, **launch)
             if self._job:

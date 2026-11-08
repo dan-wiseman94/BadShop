@@ -49,6 +49,8 @@ def test_discovery_preserves_explicit_and_path_priority(windows_install, monkeyp
     monkeypatch.setattr(cli_provider.shutil, "which", lambda _: on_path)
     assert cli_provider.find_executable("codex") == on_path
     assert cli_provider.find_executable("codex", desktop) == desktop
+    if os.name == "nt":
+        assert cli_provider.find_executable("codex", f'"{desktop}"') == desktop
     assert cli_provider.find_executable("codex", desktop + ".missing") is None
 
 
@@ -65,3 +67,10 @@ def test_unix_gui_discovery_keeps_user_bin(windows_install, monkeypatch, platfor
     native = windows_install("home/.local/bin/codex")
     windows_install("Local/OpenAI/Codex/bin/current/codex.exe")
     assert cli_provider.find_executable("codex") == native
+
+
+@pytest.mark.parametrize("app", ["ChatGPT.app/Contents/Resources/codex-cli/bin", "Codex.app/Contents/Resources"])
+def test_macos_codex_desktop_discovery_without_path(windows_install, monkeypatch, app):
+    monkeypatch.setattr(cli_provider.sys, "platform", "darwin")
+    bundled = windows_install(f"home/Applications/{app}/codex")
+    assert cli_provider.find_executable("codex") == bundled

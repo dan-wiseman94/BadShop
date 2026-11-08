@@ -8,7 +8,9 @@ from platformdirs import user_pictures_path
 from badshop.engine.errors import EngineError
 
 
-def expand_user_path(value: str) -> Path:
+def expand_user_path(value: str, *, allow_quotes: bool = False) -> Path:
+    if allow_quotes and os.name == "nt" and len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]  # File Explorer's "Copy as path" includes surrounding quotes.
     path = Path(value)
     if os.name == "nt" and path.parts and path.parts[0].startswith("~") and path.parts[0] != "~":
         # Windows expanduser guesses a sibling profile directory, even for a nonexistent user.

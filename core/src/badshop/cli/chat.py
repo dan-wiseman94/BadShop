@@ -18,10 +18,8 @@ HELP = ("Type a request, or /import PATH, /save [PATH], /open PATH, /restore, /r
 
 
 def user_path(value: str) -> str:
-    if os.name == "nt" and len(value) >= 2 and value[0] == value[-1] == '"':
-        value = value[1:-1]  # File Explorer's "Copy as path" includes surrounding quotes.
     try:
-        return str(expand_user_path(value).resolve())
+        return str(expand_user_path(value, allow_quotes=True).resolve())
     except (OSError, RuntimeError, ValueError):
         raise EngineError("can't resolve that path",
                           hint="use a valid local path; check home-directory names and symbolic links") from None

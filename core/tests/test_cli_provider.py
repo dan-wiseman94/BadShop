@@ -3,9 +3,11 @@
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import signal
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -89,7 +91,70 @@ def test_detection_and_streamed_multiturn_subprocess(fake, cli):
     asyncio.run(body())
 
 
+def test_desktop_path_launches_discovered_cli(fake, tmp_path, monkeypatch):
+    home = tmp_path / "CLI home 🖼"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    prompt = 'literal %BADSHOP_CLI_TEST% & "quoted" | text'
+    monkeypatch.setenv("BADSHOP_CLI_TEST", "expanded")
+    if os.name == "nt":
+        node = shutil.which("node.exe")
+        assert node, "Node is required for the Windows npm launch regression"
+        other = tmp_path / "earlier on PATH"
+        other.mkdir()
+        (other / "node.exe").write_text("invalid fixture")
+        monkeypatch.setenv("PATH", str(other))
+        folder = home / "npm"
+        monkeypatch.setenv("APPDATA", str(home))
+        monkeypatch.setenv("LOCALAPPDATA", str(home))
+        package = folder / "node_modules/@google/gemini-cli"
+        package.mkdir(parents=True)
+        try:
+            os.link(node, folder / "node.exe")
+        except OSError:
+            shutil.copyfile(node, folder / "node.exe")
+        (folder / "gemini.cmd").write_text("@exit /b 42\n")
+        (package / "package.json").write_text('{"bin":{"gemini":"cli.js"}}')
+        (package / "cli.js").write_text(
+            'const args = process.argv.slice(2);\n'
+            'if (args.includes("--version")) console.log("fake-1.0");\n'
+            'else if (args.includes("--help")) console.log("--output-format --resume '
+            '--allowed-mcp-server-names --policy --skip-trust");\n'
+            'else {\n'
+            '  console.log(JSON.stringify({type:"message", role:"assistant", content:args.at(-1)}));\n'
+            '  console.log(JSON.stringify({type:"result", status:"success"}));\n'
+            '}\n'
+        )
+    else:
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+        folder = home / ".local/bin"
+        folder.mkdir(parents=True)
+        (folder / "badshop-python").symlink_to(sys.executable)
+        script = Path(fake["gemini"]).read_text().split("\n", 1)[1]
+        (folder / "gemini").write_text("#!/usr/bin/env badshop-python\n" + script)
+        (folder / "gemini").chmod(0o700)
+
+    async def body():
+        info = inspect_cli("gemini")
+        assert info["supported"] and info["version"] == "fake-1.0", info
+        # Win32 accepts the pasted trailing space when opening the file.
+        executable = f'"{info["executable"]} "' if os.name == "nt" else None
+        p = Profile(kind="cli", cli="gemini", label="desktop", executable=executable)
+        provider = CLIProvider(p, "ws://127.0.0.1:1234", "test-secret")
+        cwd = provider.cwd
+        try:
+            answer = await provider.turn(prompt, lambda _: None, lambda _: None)
+            assert answer == (prompt if os.name == "nt" else "Made the meme.")
+        finally:
+            await provider.close()
+        assert not cwd.exists()
+
+    asyncio.run(body())
+
+
 def test_cli_scoped_configs_preserve_auth(fake, tmp_path, monkeypatch):
+    temp_dir = tmp_path / ("scratch 🖼" if os.name == "nt" else "scratch 🖼\x7f")
+    temp_dir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp_dir))
     user = tmp_path / "user-codex"
     user.mkdir()
     auth = user / "auth.json"
@@ -112,7 +177,8 @@ def test_cli_scoped_configs_preserve_auth(fake, tmp_path, monkeypatch):
                     private = Path(provider.env["CODEX_HOME"])
                     assert (private / "auth.json").samefile(auth)  # symlink or Windows hard-link fallback
                     assert (private / "auth.json").read_bytes() == auth.read_bytes()
-                    config = tomllib.loads((private / "config.toml").read_text())
+                    config = tomllib.loads((private / "config.toml").read_text(encoding="utf-8"))
+                    assert Path(config["model_catalog_json"]) == private / "models.json"
                     assert set(config["mcp_servers"]) == {"badshop"}
                     assert config["sandbox_mode"] == "read-only" and config["web_search"] == "disabled"
                     model = json.loads((private / "models.json").read_text())["models"][0]

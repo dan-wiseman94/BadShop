@@ -49,6 +49,15 @@ const icons = {
   openai_compatible: Globe,
   cli: Terminal,
 };
+const cloudProviders = [
+  { label: "OpenAI", model: "openai/gpt-4.1-mini", keyEnv: "OPENAI_API_KEY" },
+  { label: "Anthropic", model: "anthropic/claude-sonnet-4-6", keyEnv: "ANTHROPIC_API_KEY" },
+  { label: "Google Gemini", model: "gemini/gemini-3.8-flash", keyEnv: "GEMINI_API_KEY" },
+  { label: "OpenRouter", model: "openrouter/anthropic/claude-sonnet-4.6", keyEnv: "OPENROUTER_API_KEY" },
+  { label: "Mistral AI", model: "mistral/mistral-medium-3-5", keyEnv: "MISTRAL_API_KEY" },
+  { label: "xAI", model: "xai/grok-4.3", keyEnv: "XAI_API_KEY" },
+  { label: "Together AI", model: "together_ai/Qwen/Qwen3.5-9B", keyEnv: "TOGETHER_API_KEY" },
+];
 export function ProfileEditor({
   initial,
   kind,
@@ -70,8 +79,25 @@ export function ProfileEditor({
   const [keyMode, setKeyMode] = useState(initial?.api_key_env ? "environment" : "keychain");
   const [busy, setBusy] = useState(false);
   const [cliStatus, setCLIStatus] = useState("");
+  const [presetLabel, setPresetLabel] = useState("");
   const update = (patch: Partial<Profile>) => setProfile({ ...profile, ...patch });
   const isCLI = profile.kind === "cli";
+  const cloudPreset = profile.kind === "api" && !profile.id
+    ? cloudProviders.find(({ label }) => label === presetLabel)
+    : undefined;
+  const applyCloudPreset = (preset: typeof cloudPreset, model = preset?.model ?? "", kind = profile.kind) => {
+    setPresetLabel(preset?.label ?? "");
+    update({
+      kind,
+      label: !profile.label || profile.label === cloudPreset?.label ? (preset?.label ?? "") : profile.label,
+      model,
+      api_base: null,
+      allow_insecure_http: false,
+      api_key_env: keyMode === "environment" ? preset?.keyEnv : undefined,
+      capability_overrides: {},
+    });
+    setKey("");
+  };
   return (
     <form
       className="profile-editor"
@@ -111,10 +137,22 @@ export function ProfileEditor({
       <SelectField
         label="Provider type"
         value={profile.kind}
-        onChange={(event) => update({ kind: event.target.value as Profile["kind"] })}
+        onChange={(event) => {
+          const kind = event.target.value as Profile["kind"];
+          if (cloudPreset) applyCloudPreset(undefined, "", kind);
+          else update({ kind });
+        }}
         options={Object.entries(kindNames).map(([value, label]) => [value, label] as const)}
       />
       <p className="muted">{kindHints[profile.kind ?? "api"]}</p>
+      {profile.kind === "api" && !profile.id && (
+        <SelectField
+          label="Cloud provider preset"
+          value={cloudPreset?.label ?? ""}
+          onChange={(event) => applyCloudPreset(cloudProviders.find(({ label }) => label === event.target.value))}
+          options={[["", "Enter a model manually"], ...cloudProviders.map(({ label }) => [label, label] as const)]}
+        />
+      )}
       <InputField
         label="Profile name"
         required
@@ -175,7 +213,12 @@ export function ProfileEditor({
             required
             value={profile.model ?? ""}
             placeholder={profile.kind === "local" ? "ollama_chat/llava" : "openai/gpt-4.1"}
-            onChange={(e) => update({ model: e.target.value })}
+            onChange={(e) => {
+              const model = e.target.value;
+              if (cloudPreset && model.split("/")[0] !== cloudPreset.model.split("/")[0])
+                applyCloudPreset(undefined, model);
+              else update({ model });
+            }}
           />
           <label>
             API base URL {profile.kind === "api" ? "(optional)" : ""}
@@ -194,7 +237,12 @@ export function ProfileEditor({
             </label>}
           <SelectField
             label="Credential storage"
-            bind={[keyMode, setKeyMode]}
+            value={keyMode}
+            onChange={(event) => {
+              setKeyMode(event.target.value);
+              if (event.target.value === "environment" && !profile.api_key_env && !profile.api_base && cloudPreset)
+                update({ api_key_env: cloudPreset.keyEnv });
+            }}
             options={[["keychain", "OS keychain"] as const, ["environment", "Environment variable"] as const]}
           />
           {keyMode === "keychain" ? (
@@ -214,7 +262,7 @@ export function ProfileEditor({
               label="Environment variable name"
               required
               pattern="[A-Za-z_][A-Za-z0-9_]*"
-              placeholder="OPENAI_API_KEY"
+              placeholder={cloudPreset?.keyEnv ?? "OPENAI_API_KEY"}
               value={profile.api_key_env ?? ""}
               onChange={(e) => update({ api_key_env: e.target.value })}
             />

@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import os
@@ -163,7 +164,9 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 if keychain:
                     from smoke_keychain import exercise_keychain
                     await exercise_keychain(rpc)
-                image = await rpc('artifacts.import', path=str(ROOT / 'core/tests/fixtures/lincoln.png'))
+                source = Path(folder) / 'input 🖼.png'
+                shutil.copyfile(ROOT / 'core/tests/fixtures/lincoln.png', source)
+                image = await rpc('artifacts.import', path=str(source))
                 # Haar requires no network and still verifies bundled OpenCV data and spawned worker.
                 observer = (asyncio.create_task(observe_startup(proc.pid))
                             if env.get('BADSHOP_SMOKE_TRACE') == '1' else None)
@@ -194,7 +197,7 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                           expected_error='unsaved changes')
                 assert (await rpc('session.get'))['id'] == snapshot['id']
                 await rpc('session.set_approval_mode', mode='ask_all')
-                destination = Path(folder) / 'smoke.badshop'
+                destination = Path(folder) / 'saved 🖼.badshop'
                 await rpc('session.save_as', path=str(destination), expected_revision=revision,
                           expected_error='session changed')
                 assert not destination.exists()
@@ -215,6 +218,8 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 opened = await rpc('session.open', path=str(destination),
                                    expected_revision=fresh['document_revision'])
                 assert opened['id'] == snapshot['id'] and not opened['unsaved_changes']
+                restored = await rpc('artifacts.get', id=image['working']['id'])
+                assert hashlib.sha256(base64.b64decode(restored['data'])).hexdigest() == image['working']['id']
             if crash:
                 proc.kill()
             else:

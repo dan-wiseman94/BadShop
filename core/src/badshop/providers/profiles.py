@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from badshop.engine.errors import EngineError
 from badshop.atomic import write_text
+from badshop.files import expand_user_path
 from badshop.server.settings import config_dir
 
 SERVICE = "badshop.providers"
@@ -40,8 +41,13 @@ class Profile(BaseModel):
                 raise ValueError("CLI profiles use the CLI's own subscription login")
         elif not self.model.strip() or self.cli or self.executable:
             raise ValueError("API profiles require a model; CLI settings require kind=cli")
-        if self.executable and not Path(self.executable).expanduser().is_absolute():
-            raise ValueError("choose an absolute executable path")
+        if self.executable:
+            try:
+                absolute = expand_user_path(self.executable, allow_quotes=True).is_absolute()
+            except (OSError, RuntimeError, ValueError):
+                absolute = False
+            if not absolute:
+                raise ValueError("choose an absolute executable path")
         return self
 
     @field_validator("api_base")

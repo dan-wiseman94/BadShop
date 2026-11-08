@@ -34,6 +34,14 @@ JPEG flattens it. Resize/format conversion creates a separate History result. Re
 in the 320-pixel preview before sharing. Credits export records available source metadata;
 it does not grant rights to an image.
 
+## Cloud providers
+
+Under Settings → Providers → Add provider, Cloud API presets fill in a model
+for OpenAI, Anthropic, Google Gemini, OpenRouter, Mistral AI, xAI, and Together AI.
+The model remains editable. Supply a key from the selected provider, using the
+system keychain or an environment variable. Check setup inspects model capabilities
+without a completion. Test connection sends a request to the provider.
+
 ## Platform promises
 
 Build targets are Windows x86-64, Linux x86-64, and macOS 14+ on Apple Silicon and Intel.
@@ -47,6 +55,12 @@ Claude Code and Codex use their own login and processes. Gemini CLI remains expe
 Provider capabilities and image delivery vary; a configuration check is distinct from the
 optional test request and from a successful creative task. Pin tested provider versions in
 release notes, and report newer untested versions as such.
+
+Settings can discover subscription CLIs on PATH, in common user install folders,
+and inside standard ChatGPT or Codex app installations on macOS. For a custom
+installation, enter its path in the Executable path field. On Windows, enter the
+path to the native executable or the official npm launcher. The npm versions of
+Codex and Gemini CLI need Node.js.
 
 ## Project compatibility and recovery
 

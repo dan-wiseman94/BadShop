@@ -1,5 +1,5 @@
 import { test, expect, python, root } from "./fixtures";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "../src/types";
 
@@ -159,6 +159,49 @@ test("imports files, opens settings, saves a local profile, and selects it", asy
   await expect(page.getByLabel("Active provider")).toContainText(
     "My local vision",
   );
+});
+
+test("cloud provider presets save an editable model and the selected key environment", async ({ page, core }) => {
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Add provider" }).click();
+  const preset = page.getByLabel("Cloud provider preset");
+  const model = page.getByLabel("Model", { exact: true });
+  await preset.selectOption("Together AI");
+  await expect(model).toHaveValue("together_ai/Qwen/Qwen3.5-9B");
+  await page.getByLabel("Credential storage").selectOption("environment");
+  const keyEnv = page.getByLabel("Environment variable name");
+  const apiBase = page.getByLabel("API base URL");
+  await expect(keyEnv).toHaveValue("TOGETHER_API_KEY");
+  await apiBase.fill("https://example.invalid/v1");
+  await model.fill("openrouter/google/gemini-3.8-flash");
+  await expect(preset).toHaveValue("");
+  await expect(keyEnv).toHaveValue("");
+  await expect(apiBase).toHaveValue("");
+  await preset.selectOption("Together AI");
+  await apiBase.fill("https://example.invalid/v1");
+  await preset.selectOption("OpenRouter");
+  await expect(model).toHaveValue("openrouter/anthropic/claude-sonnet-4.6");
+  await expect(keyEnv).toHaveValue("OPENROUTER_API_KEY");
+  await expect(apiBase).toHaveValue("");
+  await page.getByLabel("Profile name").fill("My OpenRouter");
+  await model.fill("openrouter/google/gemini-3.8-flash");
+  await page.getByRole("button", { name: "Save provider" }).click();
+  await expect(page.getByText("My OpenRouter", { exact: true })).toBeVisible();
+
+  const profiles = JSON.parse(await readFile(path.join(core.folder, "config/providers.json"), "utf8"));
+  expect(profiles).toEqual([expect.objectContaining({
+    kind: "api",
+    label: "My OpenRouter",
+    model: "openrouter/google/gemini-3.8-flash",
+    api_key_env: "OPENROUTER_API_KEY",
+    api_key_ref: null,
+    api_base: null,
+  })]);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(model).toHaveValue("openrouter/google/gemini-3.8-flash");
+  await expect(keyEnv).toHaveValue("OPENROUTER_API_KEY");
 });
 
 test("first run reaches manual tools and Stop settles a waiting approval", async ({
