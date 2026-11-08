@@ -51,7 +51,10 @@ def _error_text(e: EngineError) -> str:
 
 def _openai_call(call: ToolCallRequest) -> dict:
     args = call.arguments if isinstance(call.arguments, str) else json.dumps(call.arguments)
-    return {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": args}}
+    entry = {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": args}}
+    if call.thought_signature:
+        entry["thought_signature"] = call.thought_signature
+    return entry
 
 
 # The functions below run through `blocking` (a worker thread), like every other session call.
@@ -230,7 +233,8 @@ class _Turn:
         tools = tool_definitions()
         while True:
             messages = await self.call(build_messages, self.session,
-                                       getattr(self.provider, "full_image_ids", False))
+                                       getattr(self.provider, "full_image_ids", False),
+                                       getattr(self.provider, "thought_signatures", False))
             try:
                 if self.cfg.before_request is not None:
                     self.cfg.before_request()

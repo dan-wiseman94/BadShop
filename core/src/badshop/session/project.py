@@ -300,8 +300,12 @@ def _imported_transcript(path: Path, entries: list[dict]) -> list[dict]:
                 if not isinstance(name, str) or not 1 <= len(name) <= 128 or not isinstance(arguments, str):
                     raise invalid()
                 pending.add(call_id)
-                normalized.append({"id": call_id, "type": "function",
-                                   "function": {"name": name, "arguments": arguments}})
+                normalized_call = {"id": call_id, "type": "function",
+                                   "function": {"name": name, "arguments": arguments}}
+                signature = call.get("thought_signature")
+                if isinstance(signature, str) and 1 <= len(signature) <= 65536:
+                    normalized_call["thought_signature"] = signature
+                normalized.append(normalized_call)
             message["tool_calls"] = normalized
         result.append(message)
     return result

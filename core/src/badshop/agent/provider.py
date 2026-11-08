@@ -13,6 +13,7 @@ class ToolCallRequest:
     id: str
     name: str
     arguments: dict | str  # a str when the model sent JSON that doesn't parse
+    thought_signature: str | None = None  # opaque continuation data from Responses APIs
 
 
 @dataclass

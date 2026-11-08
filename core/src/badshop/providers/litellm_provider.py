@@ -44,10 +44,10 @@ def _get(obj: Any, name: str, default=None):
     return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
 
 
-def _safe_error(exc: Exception) -> str:
+def safe_error(exc: Exception) -> str:
     """Class/status only; never interpolate an SDK exception or its response body."""
     kind = type(exc).__name__
-    status = getattr(exc, "status_code", None)
+    status = getattr(getattr(exc, "response", None), "status_code", getattr(exc, "status_code", None))
     if kind == "AuthenticationError" or status == 401:
         return "model authentication failed; check the provider's API key"
     if kind == "PermissionDeniedError" or status == 403:
@@ -58,9 +58,9 @@ def _safe_error(exc: Exception) -> str:
         return "the model's rate limit or quota was reached; wait or check your provider account"
     if kind == "ContextWindowExceededError":
         return "the conversation exceeds the model's context window; start a new session or choose a larger model"
-    if isinstance(exc, TimeoutError) or kind in ("Timeout", "APITimeoutError"):
+    if isinstance(exc, TimeoutError) or kind in ("Timeout", "APITimeoutError", "ConnectTimeout", "ReadTimeout"):
         return "the model request timed out; check the connection and try again"
-    if kind in ("APIConnectionError", "ServiceUnavailableError"):
+    if kind in ("APIConnectionError", "ServiceUnavailableError", "ConnectError"):
         return "can't reach the model provider; check its endpoint and your connection"
     if kind in ("BadRequestError", "UnsupportedParamsError") or status == 400:
         return ("the provider refused the request; check the model's image and tool support "
@@ -170,7 +170,7 @@ class LiteLLMProvider:
         self.timeout_s = timeout_s
         self._capabilities: dict[str, bool] | None = None
 
-    def check_capabilities(self) -> dict[str, bool]:
+    def check_capabilities(self, *, catalog_model: str | None = None) -> dict[str, bool]:
         """Check local metadata, with explicit overrides for custom/local models.
 
         Models without native tools use a strict JSON envelope. Calls still return to
@@ -183,7 +183,7 @@ class LiteLLMProvider:
             else:
                 sdk = _load_sdk()
                 try:
-                    caps[key] = bool(getattr(sdk, name)(model=self.model))
+                    caps[key] = bool(getattr(sdk, name)(model=catalog_model or self.model))
                 except Exception:
                     caps[key] = False  # unknown metadata needs a deliberate profile override
         if not caps["vision"]:
@@ -298,7 +298,7 @@ class LiteLLMProvider:
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(_safe_error(exc)) from None
+            raise ProviderError(safe_error(exc)) from None
         finally:
             if stream is not None:
                 await _close_stream(stream)

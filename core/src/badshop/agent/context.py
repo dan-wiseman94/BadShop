@@ -232,7 +232,7 @@ def _add_images(session: Session, messages: list[dict], *, full_ids: bool = Fals
     messages[user_index]["content"] = parts
 
 
-def build_messages(session: Session, full_ids: bool = False) -> list[dict]:
+def build_messages(session: Session, full_ids: bool = False, thought_signatures: bool = False) -> list[dict]:
     """Build a disposable provider request. Stored history has ids and text only, never base64.
 
     The most recent user message starts the image budget: older turn references stay placeholders.
@@ -240,6 +240,10 @@ def build_messages(session: Session, full_ids: bool = False) -> list[dict]:
     """
     summary = session.summary()
     messages = [{"role": "system", "content": SYSTEM_PROMPT}, *copy.deepcopy(_answered(session.data.transcript))]
+    if not thought_signatures:
+        for message in messages:
+            for call in message.get("tool_calls") or []:
+                call.pop("thought_signature", None)
     _mark_web_results(messages)
     _add_images(session, messages, full_ids=full_ids)
     # Project errors, labels and actors can contain arbitrary imported text. They

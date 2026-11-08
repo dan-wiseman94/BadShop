@@ -57,6 +57,7 @@ const cloudProviders = [
   { label: "Mistral AI", model: "mistral/mistral-medium-3-5", keyEnv: "MISTRAL_API_KEY" },
   { label: "xAI", model: "xai/grok-4.3", keyEnv: "XAI_API_KEY" },
   { label: "Together AI", model: "together_ai/Qwen/Qwen3.5-9B", keyEnv: "TOGETHER_API_KEY" },
+  { label: "Perplexity", model: "perplexity_agent/openai/gpt-5.6-sol", keyEnv: "PERPLEXITY_API_KEY" },
 ];
 export function ProfileEditor({
   initial,

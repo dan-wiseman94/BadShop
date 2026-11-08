@@ -27,6 +27,7 @@ from badshop.agent.fake import ScriptedProvider
 from badshop.agent.provider import Provider, ProviderError
 from badshop.providers import local_vision, profiles
 from badshop.providers.litellm_provider import LiteLLMProvider, close_clients
+from badshop.providers.perplexity_provider import MODEL_PREFIX as PERPLEXITY_PREFIX, PerplexityProvider
 from badshop.providers.cli_provider import CLIProvider, discover_clis, inspect_cli
 from badshop.providers.cli_turn import run_cli_turn
 from badshop.agent.loop import TurnConfig, _to_the_end, run_turn
@@ -476,9 +477,14 @@ class CoreApp:
                 self._retired_clis.append(cached)
             self._cli_providers[key] = provider
             return provider
-        return LiteLLMProvider(profile.model, api_base=profile.api_base,
-                              api_key=profiles.resolve_key(profile), actor=f"agent:{profile.id}",
-                              capability_overrides=profile.capability_overrides)
+        provider = LiteLLMProvider
+        model = profile.model
+        if profile.kind == "api" and model.startswith(PERPLEXITY_PREFIX):
+            provider = PerplexityProvider
+            model = model.removeprefix(PERPLEXITY_PREFIX)
+        return provider(model, api_base=profile.api_base,
+                        api_key=profiles.resolve_key(profile), actor=f"agent:{profile.id}",
+                        capability_overrides=profile.capability_overrides)
 
     # --- the agent turn -------------------------------------------------------------------------
 
