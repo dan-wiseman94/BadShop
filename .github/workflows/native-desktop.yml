@@ -66,6 +66,12 @@ jobs:
           echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
           echo "MACOSX_DEPLOYMENT_TARGET=14.0" >> "$GITHUB_ENV"
       - run: uv sync --project core --locked --group build
+      - name: CLI discovery and launch from desktop paths
+        run: >-
+          uv run --project core --locked pytest -q
+          core/tests/test_cli_discovery.py
+          core/tests/test_cli_provider.py::test_desktop_path_launches_discovered_cli
+          core/tests/test_cli_provider.py::test_cli_scoped_configs_preserve_auth
       - name: Intel Mac image engine
         if: matrix.label == 'macos-x64'
         run: uv run --project core pytest core/tests/test_cutout_paste.py core/tests/test_manifest.py core/tests/test_text.py core/tests/test_macos_images.py -q
