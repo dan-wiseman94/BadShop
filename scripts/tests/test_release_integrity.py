@@ -10,9 +10,14 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packaging"))
 from release_checksums import checksums
 from check_version import check_versions
+from release_inventory import command
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
+    def test_inventory_decodes_utf8_package_metadata_on_every_host(self):
+        value = command(sys.executable, "-c", "import sys; sys.stdout.buffer.write(bytes.fromhex('7b226e616d65223a2022e69687e5ad97227d'))")
+        self.assertEqual(value, {"name": "\u6587\u5b57"})
+
     def test_version_gate_rejects_wrong_tag_or_platform_metadata(self):
         root = Path(__file__).resolve().parents[2]
         version = check_versions(root)

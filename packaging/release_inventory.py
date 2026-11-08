@@ -22,7 +22,8 @@ def command(*args):
     binary = shutil.which(args[0])
     if not binary:
         raise RuntimeError(f"missing inventory prerequisite: {args[0]}")
-    return json.loads(subprocess.check_output([binary, *args[1:]], cwd=ROOT, text=True))
+    # pnpm and Cargo emit UTF-8 JSON, independent of the Windows ANSI code page.
+    return json.loads(subprocess.check_output([binary, *args[1:]], cwd=ROOT))
 
 
 def package_notices(root, extra=None):

@@ -7,7 +7,9 @@ no application changes were inherited. This report covers the subsequent impleme
 
 ## Decision and current status
 
-The intended release is **free**. “Would someone pay for this?” is a benchmark for professional
+The intended release is **free**, with desktop downloads only for now. PyPI publication is
+disabled until its trusted publisher is configured and the maintainer opts in.
+“Would someone pay for this?” is a benchmark for professional
 quality and user value, not a monetization plan. Billing, pricing experiments and paid conversion
 are not release requirements. First-use success, useful outputs, repeat use and trust still matter.
 
@@ -136,6 +138,22 @@ transitive dependencies. Source-graph reachability review and version-exact exce
 The 21 licensing review entries include Apple SDK-derived binding notices and an MPL release-source
 availability check. Notice collection does not settle legal compatibility or redistribution
 obligations; review each actual platform payload before public distribution.
+
+### Candidate CI follow-ups
+
+The first PR run included model-backed tests excluded from the offline local suite. Linux and
+Intel macOS found the same U2-Net golden difference. A controlled comparison held rembg fixed
+while switching Pillow 12.3/13.0, then held Pillow 13.0 fixed while switching rembg 2.0.85/2.0.87:
+only the Pillow upgrade changed the result. Exactly 41 of 173,460 alpha pixels moved; source RGB
+pixels, dimensions, binary alpha, reported coverage and reference-engine parity were preserved.
+Regenerating every golden changed only that case. Its reviewed hashes now reflect the patched
+dependency, and the focused golden/reference pair passes. Saved artifacts retain their bytes;
+re-running background removal across dependency versions can change boundary pixels.
+
+Windows packaging also exposed locale-dependent decoding of pnpm's UTF-8 license JSON. The
+collector now parses UTF-8 bytes directly. A subprocess regression reproduced the corrupted
+metadata on Windows before the fix; all four release-integrity tests pass on Windows and Linux
+afterward. Neither fix weakens the security or installer gates.
 
 ## Remaining gates for a professional free release
 

@@ -127,8 +127,10 @@ Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to bui
 and test each supported installer before attaching it to a draft GitHub release.
 Both publishing jobs require the core and frontend checks and the native bundle matrix
 to pass on the tagged revision. The PyPI job uses the protected
-`pypi` GitHub environment and trusted publishing. Configure the repository/environment as
-a trusted PyPI publisher before its first release. Match the tag to Python, frontend and
+`pypi` GitHub environment and trusted publishing, and is disabled unless the repository
+variable `BADSHOP_PYPI_PUBLISH` is `true`. Current releases are desktop downloads only.
+Configure the repository/environment as a trusted PyPI publisher before enabling it.
+Match the tag to Python, frontend and
 Tauri package versions before tagging. Release tags and external publication are explicit
 maintainer actions, not part of ordinary development.
 
@@ -159,11 +161,12 @@ steps; a local source run does not prove a published attestation. Verify the dow
 bytes against the checksums and use `gh attestation verify <asset> --repo dan-wiseman94/BadShop`
 for provenance after the release workflow has actually run.
 
-PyPI publication now waits for successful draft installer creation. A draft is still a
-candidate. If PyPI or any release gate fails, retain the draft and failed-run evidence;
+Optional PyPI publication waits for successful draft installer creation. A draft is still a
+candidate. If a required desktop release gate fails, retain the draft and failed-run evidence;
 do not label it released. Before making the draft public, verify all platform assets,
-signatures, checksums, inventory, update feed, PyPI version, release notes and support links
-refer to the same tag. Never overwrite an already published version with different bytes.
+signatures, checksums, inventory, update feed, release notes and support links refer to the
+same tag. If Python publishing is enabled, verify its version separately and report any failure
+explicitly. Never overwrite an already published version with different bytes.
 
 ### Signing and acceptance handoff
 
