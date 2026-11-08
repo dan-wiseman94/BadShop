@@ -16,8 +16,6 @@ from badshop.server.settings import Settings
 from badshop.session import project
 from test_server_app import Client, env as env, idle, imported, run
 
-pytestmark = pytest.mark.integration
-
 MODEL = "openai/gpt-5.6-sol"
 KEY = "synthetic-perplexity-key"
 SIGNATURE = "dGhvdWdodA=="

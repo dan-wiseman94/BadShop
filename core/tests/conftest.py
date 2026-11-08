@@ -26,7 +26,7 @@ os.environ.setdefault("U2NET_HOME", str(TEST_CACHE / "rembg"))
 INTEGRATION_MODULES = set("""
 test_chat test_cli test_cli_live test_cli_provider test_core_operations
 test_document_state test_downloads test_execution test_golden test_harness test_live_provider
-test_macos_images test_manifest test_mcp_proxy test_project test_provider_start test_recipes
+test_macos_images test_manifest test_mcp_proxy test_perplexity_provider test_project test_provider_start test_recipes
 test_replay test_server_app test_server_ws test_smoke test_stdin_watcher test_worker
 test_runtime_lease test_project_boundaries
 """.split())
