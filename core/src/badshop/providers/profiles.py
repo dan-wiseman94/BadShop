@@ -26,6 +26,7 @@ class Profile(BaseModel):
     cli: Literal["claude", "codex", "gemini"] | None = None
     executable: str | None = None
     api_base: str | None = None
+    allow_insecure_http: bool = False
     api_key_ref: str | None = None
     api_key_env: str | None = Field(None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     capability_overrides: dict[Literal["vision", "tool_calls"], bool] = Field(default_factory=dict)
@@ -58,6 +59,14 @@ class Profile(BaseModel):
         if not valid:
             raise ValueError("use an http(s) base URL without credentials, query or fragment")
         return value.rstrip("/")
+
+
+def require_secure_transport(profile: Profile) -> None:
+    url = urlsplit(profile.api_base or "")
+    if (url.scheme == "http" and url.hostname not in ("localhost", "127.0.0.1", "::1")
+            and not profile.allow_insecure_http):
+        raise EngineError("this provider would send images, prompts and credentials over unencrypted HTTP",
+                          hint="use HTTPS, or explicitly allow unencrypted HTTP in this provider's settings")
 
 
 def profiles_path() -> Path:

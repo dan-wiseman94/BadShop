@@ -1,6 +1,7 @@
 #[cfg(target_os = "macos")]
 mod macos_quit;
 mod supervisor;
+mod update_policy;
 mod updates;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,6 +26,7 @@ fn renderer_ready(
     welcome: bool,
     close_pending: bool,
     tool_count: usize,
+    clipboard_pixels: bool,
 ) -> Result<(), String> {
     // Only the isolated native harness supplies this path. No connection token
     // or project contents are exported; ordinary startup performs no probe I/O.
@@ -34,8 +36,11 @@ fn renderer_ready(
             let _ = std::fs::remove_file(path);
             return Ok(());
         }
-        if session_id.is_empty() || tool_count == 0 {
-            return Err("Renderer readiness requires a session and tool catalog".into());
+        if session_id.is_empty() || tool_count == 0 || !clipboard_pixels {
+            return Err(
+                "Renderer readiness requires a session, tool catalog and clipboard pixel check"
+                    .into(),
+            );
         }
         let Some(connection) = core.0.current_connection() else {
             let _ = std::fs::remove_file(path);
@@ -44,6 +49,7 @@ fn renderer_ready(
         let state = serde_json::json!({
             "nonce": std::env::var("BADSHOP_SMOKE_NONCE").map_err(|e| e.to_string())?,
             "tool_count": tool_count,
+            "clipboard_pixels": clipboard_pixels,
             "shell_pid": std::process::id(), "port": connection.port,
             "session_id": session_id, "revision": revision,
             "unsaved": unsaved, "welcome": welcome, "close_pending": close_pending,
@@ -157,6 +163,7 @@ pub fn run() {
             smoke_probe_enabled,
             updates::update_check,
             updates::update_download,
+            updates::update_cancel,
             updates::update_install,
             diagnostics
         ])

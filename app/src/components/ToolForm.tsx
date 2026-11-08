@@ -1,7 +1,7 @@
 import { Button } from "./Button";
 import { useEffect, useId, useRef, useState } from "react";
 import Form from "@rjsf/core";
-import { customizeValidator } from "@rjsf/validator-ajv8";
+import { customizeValidator } from "@rjsf/validator-cfworker";
 import type { RJSFSchema, UiSchema, WidgetProps, FieldProps, IconButtonProps } from "@rjsf/utils";
 import { Crosshair, FolderOpen, Shuffle, Plus, Trash2, ArrowUp, ArrowDown, Copy, X } from "lucide-react";
 import type { Params, Tool, Artifact } from "../types";
@@ -10,7 +10,7 @@ import { native, pickImages } from "../native";
 import { useUI } from "../store";
 import { BIREFNET_MEMORY_NOTE } from "../constants";
 const validator = customizeValidator({
-  ajvOptionsOverrides: { strict: false },
+  draft: "7", // normalizeSchema converts Pydantic tuples to draft-7 items for RJSF.
   customFormats: {
     "badshop-image": () => true,
     "badshop-point": () => true,

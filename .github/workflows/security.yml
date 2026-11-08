@@ -1,0 +1,51 @@
+name: locked dependency security
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 8 * * 1'
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-directories: ~/.cargo/bin
+          key: cargo-audit-0.22.2
+      - name: Scan the exact Python lock, including optional and build groups
+        run: |
+          mkdir -p artifacts/security/python
+          uv export --project core --locked --all-groups --no-emit-project --format pylock.toml -o artifacts/security/python/pylock.toml > artifacts/security/python/export.log
+          uvx pip-audit==2.10.1 --locked artifacts/security/python --strict --format json --output artifacts/security/python.json
+      - name: Scan all JavaScript dependencies
+        if: ${{ !cancelled() }}
+        run: |
+          pnpm --dir app install --frozen-lockfile --ignore-scripts
+          pnpm --dir app audit --json > artifacts/security/javascript.json
+      - name: Scan the exact Rust lock
+        if: ${{ !cancelled() }}
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --file app/src-tauri/Cargo.lock --json > artifacts/security/rust.json
+          python scripts/check_rust_advisories.py artifacts/security/rust.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: locked-security-reports
+          path: artifacts/security/
+          if-no-files-found: error

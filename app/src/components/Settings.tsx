@@ -185,9 +185,14 @@ export function ProfileEditor({
               required={profile.kind === "openai_compatible"}
               value={profile.api_base ?? ""}
               placeholder={profile.kind === "local" ? "http://localhost:11434" : "https://api.example.com/v1"}
-              onChange={(e) => update({ api_base: e.target.value || null })}
+              onChange={(e) => update({ api_base: e.target.value || null, allow_insecure_http: false })}
             />
           </label>
+          {profile.api_base?.startsWith("http://") && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(profile.api_base) &&
+            <label className="checkbox-row"><input type="checkbox" checked={profile.allow_insecure_http ?? false}
+              onChange={e => update({ allow_insecure_http: e.target.checked })} />
+              Allow unencrypted HTTP for this address. Images, prompts and credentials may be visible to others on the network.
+            </label>}
           <SelectField
             label="Credential storage"
             bind={[keyMode, setKeyMode]}
@@ -805,7 +810,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                     appearance.set({ textScale: Number(e.target.value) });
                   }}
                 >
-                  {[100, 115, 130, 150].map((value) => (
+                  {[100, 115, 130, 150, 175, 200].map((value) => (
                     <option key={value} value={value}>
                       {value}%
                     </option>
@@ -857,7 +862,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
     </div>
   );
 }
-export function Welcome({ onClose }: { onClose: () => void }) {
+export function Welcome({ onClose, onManual = onClose }: { onClose: () => void; onManual?: () => void }) {
   const [step, setStep] = useState(1);
   const [kind, setKind] = useState<Profile["kind"]>("api");
   const { data: assets } = useCoreQuery("assets.status");
@@ -896,14 +901,14 @@ export function Welcome({ onClose }: { onClose: () => void }) {
         </div>
         <h2>
           {step === 1
-            ? "How would you like to edit?"
+            ? "Make your first shitpost."
             : step === 2
               ? "Make the connection."
               : "Bring your own bad taste."}
         </h2>
         <p>
           {step === 1
-            ? "Choose your own effects, or connect an AI model and describe the edit you want."
+            ? "Start with a quick idea and a free sample. Add your own punchline, then copy it straight into the group chat."
             : step === 2
               ? "The model makes the decisions. badshop does the pixel work."
               : "Download the essentials now, or let badshop fetch them when needed."}
@@ -911,7 +916,8 @@ export function Welcome({ onClose }: { onClose: () => void }) {
         <ErrorNotice />
         {step === 1 ? (
           <>
-            <button className="primary" onClick={onClose}>
+            <button className="primary" onClick={onClose}>Start with a quick idea<ArrowRight size={16} /></button>
+            <button onClick={onManual}>
               Edit a photo without AI
               <ArrowRight size={16} />
             </button>
@@ -978,7 +984,7 @@ export function Welcome({ onClose }: { onClose: () => void }) {
             </button>
           </>
         )}
-        {step === 2 && <Button className="back-link" onClick={onClose} label="Edit a photo without AI" />}
+        {step === 2 && <Button className="back-link" onClick={onManual} label="Edit a photo without AI" />}
       </section>
     </div>
   );

@@ -44,12 +44,14 @@ async function expectImage(page: Page, core: Core, id: string) {
 
 async function exported(page: Page, previous = "") {
   await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Save image file", exact: true }).click();
   let filename = "";
   await expect.poll(async () => {
     const message = await page.getByRole("status").innerText();
     filename = message.startsWith("Exported to ") ? message.slice("Exported to ".length).trim() : "";
     return filename !== "" && filename !== previous;
   }).toBe(true);
+  await page.getByRole("button", { name: "Close export" }).click();
   return { filename, bytes: await readFile(filename) };
 }
 

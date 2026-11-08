@@ -61,7 +61,7 @@
   right: 4px;
   top: 4px;
   background: var(--panel);
-  font-size: 18px;
+  font-size: 1.3846rem;
 }
 .palette-swatches {
   display: flex;
@@ -89,7 +89,7 @@
 .retro-inputs label {
   display: grid;
   width: 100px;
-  font-size: 11px;
+  font-size: 0.9231rem;
   overflow-wrap: anywhere;
 }
 .retro-inputs img {

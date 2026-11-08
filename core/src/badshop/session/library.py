@@ -43,7 +43,8 @@ class LibraryEntry(BaseModel):
 
 
 class AssetLibrary:
-    def __init__(self, root: Path | None = None):
+    def __init__(self, root: Path | None = None, decoder=None):
+        self.decoder = decoder
         self.root = root if root is not None else assets.data_dir() / "library"
 
     def _path(self, id: str) -> Path:
@@ -156,7 +157,7 @@ class AssetLibrary:
         shared image bytes remain available to existing entries. Callers need no library paths or
         knowledge of temporary files, record identities, or rollback.
         """
-        checked = ArtifactStore()
+        checked = ArtifactStore(decoder=self.decoder)
         for entry in entries:
             self._tags(entry.tags)
             if entry.artifact.original_id and (entry.original is None or
@@ -225,13 +226,14 @@ class AssetLibrary:
     def restore(self, session, id: str) -> dict:
         entry = self.get(id)
         # Decode all files before mutating the session, so a corrupt original leaves it untouched.
-        checked = ArtifactStore()
+        checked = ArtifactStore(decoder=self.decoder)
         for meta in (entry.original, entry.artifact):
             if meta is not None:
                 checked.add(self._blob(meta), meta.label, source=meta.source, original_id=meta.original_id)
-        for aid, meta in checked.meta.items():
-            session.artifacts.add(checked.data(aid), meta.label, source=meta.source,
-                                  original_id=meta.original_id)
+        with session.artifacts.atomic():
+            for aid, meta in checked.meta.items():
+                session.artifacts.add(checked.data(aid), meta.label, source=meta.source,
+                                      original_id=meta.original_id)
         working = session.artifacts.meta[entry.artifact.id]
         if session.data.active_branch_id:
             branch = session.data.branches[session.data.active_branch_id]
@@ -248,7 +250,7 @@ class AssetLibrary:
 
     def thumbnail(self, id: str, max_px: int = 256) -> dict:
         entry = self.get(id)
-        store = ArtifactStore()
+        store = ArtifactStore(decoder=self.decoder)
         meta = store.add(self._blob(entry.artifact), entry.name)
         im, _ = fit(store.image(meta.id), max_px)
         buf = io.BytesIO()

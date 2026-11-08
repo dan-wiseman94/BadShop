@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 import threading
 
 import pytest
@@ -164,8 +165,10 @@ def test_retry_announces_intervening_manual_changes_without_repeating_prompt(tmp
         assert await run_turn(session, provider, gate, "original request", [], cfg, lambda *_: None) == "provider_error"
         manual = session.run_tool("filter", {"image": image, "names": ["invert"]}, "user")
         assert await run_turn(session, provider, gate, "", [], cfg, lambda *_: None, retry=True) == "done"
-        notes = [e["content"] for e in provider.received[-1] if e["role"] == "system"]
-        assert any("the user ran step 1" in note for note in notes)
+        notes = [e["content"] for e in provider.received[-1] if e["role"] == "user"]
+        assert any("the user ran step 1" in json.dumps(note) for note in notes)
+        assert all("the user ran step 1" not in json.dumps(e["content"])
+                   for e in provider.received[-1] if e["role"] == "system")
         assert len([m for m in session.data.messages if m.role == "user"]) == 1
         assert session.data.steps == [manual] and not session.changes
 

@@ -24,7 +24,7 @@ INTERNAL_ERROR = -32603
 ENGINE_ERROR = -32000  # an EngineError; data {"hint": ...}
 FORBIDDEN = -32001  # this actor may not call this method
 
-ACTORS = ("user", "any")
+ACTORS = ("user", "any", "updater")
 
 log = logging.getLogger("badshop.server")
 
@@ -116,6 +116,8 @@ class Dispatcher:
         if entry is None:
             raise RpcError(METHOD_NOT_FOUND, f"method not found: {method}")
         fn, model, actors = entry
+        if (actor == "updater" and actors != "updater") or (actors == "updater" and actor not in ("updater", "user")):
+            raise RpcError(FORBIDDEN, f"{actor} may not call {method}")
         if actors == "user" and not is_trusted(actor):
             raise RpcError(FORBIDDEN, f"{actor} may not call {method}",
                            {"hint": "only the user can manage sessions, files and settings"})

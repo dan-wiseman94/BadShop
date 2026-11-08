@@ -39,23 +39,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - uses: astral-sh/setup-uv@v10.2.0
-      - uses: actions/setup-node@v5
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Verify application version agreement
+        run: uv run --no-project --python 3.12 python packaging/check_version.py
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: app/src-tauri
           cache-on-failure: true
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 flatpak-builder libtbb12 xvfb xdotool imagemagick gnome-keyring dbus-x11
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 flatpak-builder libtbb12 xvfb xdotool xclip imagemagick gnome-keyring dbus-x11
       - name: Intel Mac cryptography build dependencies
         if: matrix.label == 'macos-x64'
         run: |
@@ -86,6 +88,8 @@ jobs:
         if: matrix.label == 'macos-x64'
         run: uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/badshop-core --background-removal
       - run: pnpm --dir app install --frozen-lockfile
+      - name: Bundle dependency inventory and license notices
+        run: uv run --project core --locked --group build python packaging/release_inventory.py --label ${{ matrix.label }}
       - name: Configure signed release updates
         if: startsWith(inputs.source_ref || github.ref, 'refs/tags/v')
         shell: python
@@ -166,7 +170,7 @@ jobs:
             flatpak install --user -y packaging/badshop.flatpak
             xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_desktop.py --screenshot packaging/flatpak-smoke.png -- flatpak run io.github.danwiseman94.badshop
           '
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
           name: desktop-evidence-${{ matrix.label }}
@@ -176,7 +180,7 @@ jobs:
             packaging/*smoke.log
             artifacts/verification/installed-windows/
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: failure()
         with:
           name: desktop-failure-${{ matrix.label }}
@@ -188,7 +192,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
           compression-level: 0
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: badshop-${{ matrix.label }}
           path: |
@@ -197,6 +201,7 @@ jobs:
             app/src-tauri/target/release/bundle/**/*.exe
             app/src-tauri/target/release/bundle/**/*.dmg
             packaging/*.flatpak
+            packaging/*.sbom.json
             app/src-tauri/target/release/bundle/**/*.app.tar.gz
             app/src-tauri/target/release/bundle/**/*.sig
           if-no-files-found: error

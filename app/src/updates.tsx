@@ -5,7 +5,7 @@ import { native, openLink } from "./native";
 import { readPreference, savePreference } from "./appearance";
 
 type UpdateInfo = { currentVersion: string; version: string | null; notes: string | null; unavailable: string | null };
-export function useUpdates(confirmInstall: () => Promise<boolean>) {
+export function useUpdates(confirmInstall: () => Promise<boolean>, localOnly = false) {
   const [automatic, setAutomatic] = useState(() => readPreference("automaticUpdates", "true") === "true");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [phase, setPhase] = useState<"idle" | "checking" | "downloading" | "confirming" | "installing">("idle");
@@ -21,12 +21,12 @@ export function useUpdates(confirmInstall: () => Promise<boolean>) {
     finally { working.current = false; setPhase("idle"); }
   }, []);
   useEffect(() => {
-    if (!automatic || !native) return;
+    if (!automatic || !native || localOnly) return;
     // Delay also prevents duplicate startup checks under React StrictMode.
     const startup = setTimeout(() => void check(), 5000);
     const interval = setInterval(() => void check(), 6 * 60 * 60 * 1000);
     return () => { clearTimeout(startup); clearInterval(interval); };
-  }, [automatic, check]);
+  }, [automatic, check, localOnly]);
   const install = async () => {
     if (!info?.version || working.current) return;
     working.current = true; setError(""); setProgress(null); setPhase("downloading");
@@ -41,7 +41,11 @@ export function useUpdates(confirmInstall: () => Promise<boolean>) {
     } catch (e) { setError(`Could not install update: ${String(e)}. You can retry.`); }
     finally { off?.(); working.current = false; setPhase("idle"); }
   };
-  return { automatic, info, phase, error, progress, check, install,
+  const cancel = async () => {
+    try { await invoke("update_cancel"); }
+    catch (e) { setError(`Could not cancel update: ${String(e)}`); }
+  };
+  return { automatic, info, phase, error, progress, check, install, cancel, localOnly,
     setAutomatic(value: boolean) { savePreference("automaticUpdates", String(value)); setAutomatic(value); },
   };
 }
@@ -52,15 +56,17 @@ export function UpdateSettings({ updates: u }: { updates: ReturnType<typeof useU
     {u.info && <p>Installed version: {u.info.currentVersion}</p>}
     <label><input type="checkbox" checked={u.automatic} disabled={!native}
       onChange={e => u.setAutomatic(e.target.checked)} /> Automatically check for updates</label>
-    <p className="muted">Checks on launch and every six hours. Updates install only when you choose.</p>
-    <button disabled={!native || u.phase !== "idle"} onClick={() => void u.check()}>
+    <p className="muted">Checks on launch and every six hours when Local only is off. Updates install only when you choose.</p>
+    {u.localOnly && <p>Local only is on. Turn it off to check for or download updates.</p>}
+    <button disabled={!native || u.localOnly || u.phase !== "idle"} onClick={() => void u.check()}>
       {u.phase === "checking" ? "Checking…" : "Check for updates"}
     </button>
+    {u.phase === "checking" && <button onClick={() => void u.cancel()}>Cancel update check</button>}
     <div role="status">
       {!native ? <p>Update checks are available in the desktop app.</p> : u.info?.unavailable ? <p>{u.info.unavailable}</p> : u.info?.version ? <>
         <p>Version {u.info.version} is available.</p>
         {u.info.notes && <p style={{ whiteSpace: "pre-wrap" }}>{u.info.notes}</p>}
-        <button disabled={u.phase !== "idle"} onClick={() => void u.install()}>Download &amp; install update</button>
+        <button disabled={u.localOnly || u.phase !== "idle"} onClick={() => void u.install()}>Download &amp; install update</button>
         <p className="muted">You’ll be asked to save unsaved work. badshop will restart to finish updating.</p>
       </> : u.info && <p>You’re up to date.</p>}
     </div>
@@ -75,5 +81,6 @@ export function UpdateProgress({ updates: u }: { updates: ReturnType<typeof useU
     <h2>{u.phase === "downloading" ? "Downloading update…" : "Installing update…"}</h2>
     <progress value={u.progress?.total ? u.progress.downloaded : undefined} max={u.progress?.total || undefined} />
     <p>Keep badshop open until this finishes.</p>
+    {u.phase === "downloading" && <button onClick={() => void u.cancel()}>Cancel download</button>}
   </section></div>;
 }

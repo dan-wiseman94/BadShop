@@ -27,8 +27,10 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   const [editing, setEditing] = useState<CollectionEntry | null>(null);
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
+  const [extracting, setExtracting] = useState(false);
 
   const { data: collections = [] } = useCoreQuery("collections.list");
+  const { data: readiness } = useCoreQuery("media.status");
   const { data: session } = useSession();
   const ready = useUI((state) => state.status === "ready");
   const disabled = busy || !ready || !!session?.turn_running;
@@ -73,6 +75,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
           ? "Index a folder you choose. Images stay on disk until selected; filenames, tags, descriptions, and thumbnails stay in a local index."
           : "Preview a source you choose, then import only the frames or page region you need. Selected pixels and source details are saved with the project."}
       </p>
+      <p className="muted">GIFs and image scans work without extra tools. Video: {readiness?.video ? "ready" : "needs FFmpeg (ffmpeg and ffprobe)"}. PDFs: {readiness?.pdf ? "ready" : "need Poppler (pdftoppm)"}. Files are limited to 200 MB. Cancel a slow preview and try a shorter clip or an image.</p>
+      {extracting && <Button label="Cancel preview or indexing" onClick={() => void action("media.cancel").catch(() => setNotice("Could not cancel yet. The operation still has a time limit."))} />}
       {error && (
         <p className="error-banner" role="alert">
           {error}
@@ -84,6 +88,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
         onSubmit={(e) => {
           e.preventDefault();
           void perform(async () => {
+            setExtracting(true);
+            try {
             if (mode === "folder") {
               const result = await action("collections.index", { path });
               setCollection(result.id);
@@ -102,6 +108,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
               setSelected([]);
               setCrop(null);
             }
+            } finally { setExtracting(false); }
           });
         }}
       >

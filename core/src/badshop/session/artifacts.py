@@ -3,7 +3,8 @@
 import hashlib
 import io
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from pathlib import PurePath
 
 from PIL import Image, UnidentifiedImageError
@@ -16,6 +17,7 @@ from badshop.session.models import ArtifactMeta, Source
 # The decoders an import may use: never EPS (it runs Ghostscript) or Pillow's rarer plugins (SEC-S1).
 IMPORT_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF")
 MAX_IMPORT_PIXELS = 100_000_000  # the most pixels any artifact may have; refused before decoding
+MAX_STORED_BYTES = 2 * 2**30  # same payload ceiling as project archives; originals count too
 WORKING_MAX = 1000  # an import's working copy: longest side in px, as `prep` makes
 MIME: dict[str, str] = {"PNG": "image/png", "JPEG": "image/jpeg", "GIF": "image/gif", "WEBP": "image/webp",
                         "BMP": "image/bmp", "TIFF": "image/tiff"}
@@ -44,6 +46,9 @@ def _label(name: str) -> str:
 
 
 def _refused(name: str, e: Exception) -> EngineError:
+    if PurePath(name).suffix.lower() in (".heic", ".heif", ".avif") and isinstance(e, UnidentifiedImageError):
+        return EngineError(f"{name} uses a phone image format badshop cannot open yet",
+                           hint="export a PNG or JPEG copy from your photo app, then import that copy")
     if isinstance(e, Image.DecompressionBombError):  # ours (over MAX_IMPORT_PIXELS) or Pillow's own limit
         return EngineError(f"{name} is too big ({e})", hint="use a smaller copy of the image "
                            f"(the limit is {MAX_IMPORT_PIXELS // 1_000_000} megapixels)")
@@ -85,15 +90,46 @@ def _working_copy(im: Image.Image, name: str) -> bytes:
 class ArtifactStore:
     """Artifact bytes and metadata. An id is always the sha256 of the bytes, computed here, never trusted."""
 
-    def __init__(self):
+    def __init__(self, decoder: Callable[[bytes, str, int], Image.Image] | None = None):
         self.meta: dict[str, ArtifactMeta] = {}
         self._data: dict[str, bytes] = {}
+        self.decoder = decoder
+
+    def _open(self, data: bytes, name: str, frame: int = 0) -> Image.Image:
+        if self.decoder is not None:
+            return self.decoder(data, name, frame)
+        image = _decode(data, name)
+        try:
+            if frame:
+                image.seek(frame)
+                image.load()
+            return image
+        except Exception as error:
+            image.close()
+            raise _refused(name, error) from None
 
     def __contains__(self, id: object) -> bool:
         return id in self.meta
 
     def ids(self) -> list[str]:
         return list(self.meta)
+
+    def _capacity(self, *blobs: bytes) -> None:
+        incoming = {hashlib.sha256(blob).hexdigest(): len(blob) for blob in blobs}
+        total = sum(map(len, self._data.values())) + sum(size for aid, size in incoming.items() if aid not in self._data)
+        if total > MAX_STORED_BYTES:
+            raise EngineError("this project has reached its 2 GB image storage limit",
+                              hint="save this project and start another, or remove unused images")
+
+    @contextmanager
+    def atomic(self):
+        """A serialized session mutation installs its whole batch or none of it."""
+        before = set(self.meta)
+        try:
+            yield
+        except BaseException:
+            self.drop(set(self.meta) - before)
+            raise
 
     def add(self, data: bytes, label: str, *, produced_by: str | None = None, source: Source | None = None,
             original_id: str | None = None) -> ArtifactMeta:
@@ -102,7 +138,8 @@ class ArtifactStore:
         id = hashlib.sha256(data).hexdigest()
         if id in self.meta:
             return self.meta[id]
-        with _decode(data, label) as im:  # only images that open are stored, so image() never fails later
+        self._capacity(data)
+        with self._open(data, label) as im:  # only images that open are stored, so image() never fails later
             fmt = FORMAT_ALIASES.get(im.format, im.format)
             meta = ArtifactMeta(id=id, label=label, width=im.width, height=im.height, format=fmt,
                                 mime=MIME[fmt], frames=_frames(im, label), produced_by=produced_by,
@@ -117,9 +154,9 @@ class ArtifactStore:
         except KeyError:
             raise EngineError(f"no such artifact: {id}", hint=REF_HINT) from None
 
-    def image(self, id: str) -> Image.Image:
+    def image(self, id: str, frame: int = 0) -> Image.Image:
         """A fresh decoded copy (upright; an animation is at its first frame)."""
-        return _decode(self.data(id), self.meta[id].label)
+        return self._open(self.data(id), self.meta[id].label, frame)
 
     def resolve(self, ref: str) -> str:
         """A full id, or a unique prefix of at least 6 hex characters (any case), as the full id.
@@ -153,12 +190,14 @@ class ArtifactStore:
         `produced_by` is the step that brought the picture in (a source tool's step), on every artifact
         this stores; None for the user's own import."""
         name, shown = _label(label), label or "the pasted data"
-        with _decode(data, shown) as im:
+        with self._open(data, shown) as im:
             work_bytes = _working_copy(im, shown)
+        self._capacity(data, work_bytes)  # refuse before storing either half of an import
         if work_bytes == data:  # a small upright PNG from badshop is its own working copy: stored once
             meta = self.add(data, f"{name}_work", produced_by=produced_by, source=source)
             return meta, meta
-        original = self.add(data, name, produced_by=produced_by, source=source)
-        working = self.add(work_bytes, f"{name}_work", produced_by=produced_by, source=source,
-                           original_id=original.id)
+        with self.atomic():
+            original = self.add(data, name, produced_by=produced_by, source=source)
+            working = self.add(work_bytes, f"{name}_work", produced_by=produced_by, source=source,
+                               original_id=original.id)
         return working, original

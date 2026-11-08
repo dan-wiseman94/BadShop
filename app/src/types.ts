@@ -19,6 +19,7 @@ export interface Artifact {
     page?: string;
     license?: string;
     creator?: string;
+    title?: string;
   };
 }
 export interface Step {
@@ -97,6 +98,7 @@ export interface Profile {
   label: string;
   model: string;
   api_base?: string | null;
+  allow_insecure_http?: boolean;
   api_key_ref?: string | null;
   api_key_env?: string | null;
   cli?: "claude" | "codex" | "gemini";
@@ -168,6 +170,7 @@ export interface MethodMap {
       configured: boolean;
       requires_key: boolean;
       env_var: string | null;
+      health?: { status: "failed" | "responded" | "not checked"; results?: number; step_id?: string };
     }[],
   ];
   "novelty.recent": [
@@ -197,6 +200,8 @@ export interface MethodMap {
     },
     MediaPreview,
   ];
+  "media.status": [undefined, { video: boolean; pdf: boolean }];
+  "media.cancel": [undefined, { cancelled: boolean }];
   "media.import": [
     {
       preview_id: string;
@@ -304,7 +309,7 @@ export interface MethodMap {
   ];
   "artifacts.get": [{ id: string; max_px?: number }, ArtifactPayload];
   "artifacts.import": [
-    { path?: string; data?: string; name?: string },
+    { path?: string; data?: string; name?: string; source?: Artifact["source"] },
     { working: Artifact; original: Artifact },
   ];
   export: [{ artifact_id: string; name?: string }, { path: string }];

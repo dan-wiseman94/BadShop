@@ -1,0 +1,433 @@
+[
+  {
+    "purl": "pkg:cargo/alloc-stdlib@0.3.0",
+    "notices": [
+      {
+        "file": "license-notices/cd496ba72eb37e83a44958358d1f89a8a28cbc15.txt",
+        "source": "https://github.com/dropbox/rust-alloc-no-stdlib/blob/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/block2@0.6.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/clipboard-win@5.4.3",
+    "notices": [
+      {
+        "file": "license-notices/36b7cd93cdfbac762f5be4c6ce276df2ea6305c2.txt",
+        "source": "https://github.com/DoumanAsh/clipboard-win/blob/ed27008ae5d1f10cfbb266de039f0fb35fd05a56/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/dispatch2@0.3.1",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/dlopen2@0.8.2",
+    "notices": [
+      {
+        "file": "license-notices/d38093a7a564c64ad15e459f2e0a1f86a443c8b3.txt",
+        "source": "https://github.com/OpenByteDev/dlopen2/blob/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/dlopen2_derive@0.4.3",
+    "notices": [
+      {
+        "file": "license-notices/d38093a7a564c64ad15e459f2e0a1f86a443c8b3.txt",
+        "source": "https://github.com/OpenByteDev/dlopen2/blob/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/jni@0.21.1",
+    "notices": [
+      {
+        "file": "license-notices/74323882c4eeb6ce9f75f1f3269d212038f394d2.txt",
+        "source": "https://github.com/jni-rs/jni-rs/blob/09a5911358ffa846b5c85451c050a0e64669e863/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/jni@0.22.4",
+    "notices": [
+      {
+        "file": "license-notices/74323882c4eeb6ce9f75f1f3269d212038f394d2.txt",
+        "source": "https://github.com/jni-rs/jni-rs/blob/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/jni-macros@0.22.4",
+    "notices": [
+      {
+        "file": "license-notices/74323882c4eeb6ce9f75f1f3269d212038f394d2.txt",
+        "source": "https://github.com/jni-rs/jni-rs/blob/33045a124105c939d1e2cbdcb5a39e5d868ffa03/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/jni-sys-macros@0.4.1",
+    "notices": [
+      {
+        "file": "license-notices/2008402b8a1299cf118ea38e02116bfcc72e53c3.txt",
+        "source": "https://github.com/jni-rs/jni-sys/blob/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/ndk@0.9.0",
+    "notices": [
+      {
+        "file": "license-notices/9cf106272ac3b56b0c4c80218e8fc10a664ca5f4.txt",
+        "source": "https://github.com/rust-mobile/ndk/blob/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/ndk-sys@0.6.0%2B11769913",
+    "notices": [
+      {
+        "file": "license-notices/9cf106272ac3b56b0c4c80218e8fc10a664ca5f4.txt",
+        "source": "https://github.com/rust-mobile/ndk/blob/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/objc2@0.6.5",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-app-kit@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-cloud-kit@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-core-data@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-core-foundation@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-core-graphics@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-core-image@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-core-location@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-core-text@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-encode@4.1.0",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-exception-helper@0.1.1",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-foundation@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-io-surface@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-osa-kit@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-quartz-core@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-ui-kit@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-user-notifications@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/objc2-web-kit@0.3.2",
+    "notices": [
+      {
+        "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      }
+    ],
+    "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
+  },
+  {
+    "purl": "pkg:cargo/rustls-platform-verifier-android@0.2.0",
+    "notices": [
+      {
+        "file": "license-notices/9964122648c6348a3c8e61d6d46a87d5942d036c.txt",
+        "source": "https://github.com/rustls/rustls-platform-verifier/blob/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/tauri-plugin@2.7.2",
+    "notices": [
+      {
+        "file": "license-notices/b08530d59433b3060f4fad8751ac2610c0b0aff3.txt",
+        "source": "https://github.com/tauri-apps/tauri/blob/59b63ab500da9859f12d8888c3298bc29bba0b92/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/webview2-com@0.39.1",
+    "notices": [
+      {
+        "file": "license-notices/de9a7e660e173136b351982a34f715af424ff812.txt",
+        "source": "https://github.com/wravery/webview2-rs/blob/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/webview2-com-macros@0.8.1",
+    "notices": [
+      {
+        "file": "license-notices/de9a7e660e173136b351982a34f715af424ff812.txt",
+        "source": "https://github.com/wravery/webview2-rs/blob/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/webview2-com-sys@0.39.1",
+    "notices": [
+      {
+        "file": "license-notices/de9a7e660e173136b351982a34f715af424ff812.txt",
+        "source": "https://github.com/wravery/webview2-rs/blob/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:pypi/flatbuffers@25.12.19",
+    "notices": [
+      {
+        "file": "license-notices/d645695673349e3947e8e5ae42332d0ac3164cd7.txt",
+        "source": "https://github.com/google/flatbuffers/blob/7e163021e59cca4f8e1e35a7c828b5c6b7915953/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:pypi/tokenizers@0.23.3",
+    "notices": [
+      {
+        "file": "license-notices/261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64.txt",
+        "source": "https://github.com/huggingface/tokenizers/blob/301277072263fb3830eb66eec7e47adadf76f1dc/LICENSE"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/winapi-i686-pc-windows-gnu@0.4.0",
+    "notices": [
+      {
+        "file": "license-notices/6f1b4c850cd2bd0d165f122c0274afc95e10a851.txt",
+        "source": "https://github.com/retep998/winapi-rs/blob/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/winapi-x86_64-pc-windows-gnu@0.4.0",
+    "notices": [
+      {
+        "file": "license-notices/6f1b4c850cd2bd0d165f122c0274afc95e10a851.txt",
+        "source": "https://github.com/retep998/winapi-rs/blob/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/ndk-context@0.1.1",
+    "notices": [
+      {
+        "file": "license-notices/9cf106272ac3b56b0c4c80218e8fc10a664ca5f4.txt",
+        "source": "https://github.com/rust-mobile/ndk/blob/10f2ba388fca20f7349996ebae26ccda7a6fda5c/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/libappindicator-sys@0.9.0",
+    "notices": [
+      {
+        "file": "license-notices/libappindicator-0.9.0-MIT.txt",
+        "source": "https://docs.rs/crate/libappindicator/0.9.0/source/LICENSE-MIT"
+      }
+    ],
+    "review_required": null
+  },
+  {
+    "purl": "pkg:cargo/selectors@0.38.0",
+    "notices": [
+      {
+        "file": "license-notices/MPL-2.0.txt",
+        "source": "https://github.com/spdx/license-list-data/blob/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/MPL-2.0.txt"
+      }
+    ],
+    "review_required": "MPL covered-source notice: unmodified selectors 0.38.0 source is available at https://crates.io/api/v1/crates/selectors/0.38.0/download and https://github.com/servo/stylo/tree/572ecba2d1600e7c3d490586692a209faf703baa/selectors. Verify source availability with the release."
+  },
+  {
+    "purl": "pkg:npm/%40cfworker/json-schema@4.1.6",
+    "notices": [{
+      "file": "license-notices/cfworker-4.1.6-MIT.txt",
+      "source": "https://github.com/cfworker/cfworker/blob/1a0aa37471850c28a4673e12e871e010ea6c26e0/LICENSE.md"
+    }, {
+      "file": "license-notices/cfworker-4.1.6-THIRD_PARTY_NOTICES.txt",
+      "source": "https://github.com/cfworker/cfworker/blob/1a0aa37471850c28a4673e12e871e010ea6c26e0/THIRD_PARTY_NOTICES.md"
+    }],
+    "review_required": null
+  }
+]

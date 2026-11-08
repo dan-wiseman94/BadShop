@@ -1,0 +1,6 @@
+The geometric pigeon in pigeon.png and its BadShop layout previews are original
+project artwork dedicated to the public domain under CC0 1.0 Universal.
+You may copy, edit and share these samples, including commercially, without credit.
+License: https://creativecommons.org/publicdomain/zero/1.0/
+Source: scripts/build_starter_samples.py in the BadShop repository.
+No image generation model or third-party photograph was used.

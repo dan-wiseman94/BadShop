@@ -182,13 +182,14 @@ def main() -> None:
     parser.add_argument("manifest", type=Path, nargs="?", help="JSON list of saved outputs")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--cases", action="store_true", help="print the six fixed briefs")
+    modes.add_argument("--all-cases", action="store_true", help="print all 36 release and creative briefs")
     modes.add_argument("--scorecard", action="store_true", help="write deterministic checks as JSON")
     modes.add_argument("--demo", type=Path, help="create a new directory with a complete offline example")
     parser.add_argument("--out", type=Path, help="output path")
     parser.add_argument("--force", action="store_true", help="replace an existing report")
     args = parser.parse_args()
-    if args.cases:
-        print(json.dumps(FIXED_CASES, indent=2))
+    if args.cases or args.all_cases:
+        print(json.dumps(CASES if args.all_cases else FIXED_CASES, indent=2))
         return
     try:
         if args.demo:

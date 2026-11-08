@@ -151,7 +151,9 @@ def test_turn_runs_tools_and_reports_back(tmp_path):
     assert step.outputs[0][:8] in answer["content"] and "drew 1 shape" in answer["content"]  # + tool lines
     assert final == {"role": "assistant", "content": "Done: a red circle."}
     second = provider.received[1]
-    assert session.summary() in second[0]["content"] and second[-1] == answer
+    assert session.summary() not in second[0]["content"] and second[-1] == answer
+    assert any(part.get("text", "").endswith(json.dumps(session.summary(), ensure_ascii=True))
+               for part in second[1]["content"])
 
 
 def test_attachments_are_resolved_and_shown_as_images(tmp_path):
@@ -181,7 +183,7 @@ def test_user_changes_open_the_turn_as_a_system_note(tmp_path):
     turn(session, provider, ev, text="now what")
     note = session.data.messages[0]
     assert note.role == "system_note" and all(c in note.content[0].text for c in changes)
-    assert session.data.transcript[0] == {"role": "system", "content": note.content[0].text}
+    assert session.data.transcript[0] == {"role": "user", "content": note.content[0].text}
     assert session.data.transcript[1] == {"role": "user", "content": "now what"}
     assert provider.received[0][1] == session.data.transcript[0]
     assert session.changes == []
@@ -203,7 +205,7 @@ def test_an_image_the_user_adds_is_news_to_the_agent(tmp_path):
     [added] = [line for line in note.content[0].text.splitlines() if lincoln.id[:8] in line]
     assert f"{lincoln.id[:8]} (lincoln_work)" in added  # the id the model can call tools with, and its label
     sent = provider.received[0]
-    assert sent[1] == session.data.transcript[0] == {"role": "system", "content": note.content[0].text}
+    assert sent[1] == session.data.transcript[0] == {"role": "user", "content": note.content[0].text}
     assert sent[2]["role"] == "user"
     assert sent[2]["content"][0] == {"type": "text", "text": "what have we got?"}
     assert any(p["type"] == "image_url" for p in sent[2]["content"])  # newly imported image
@@ -213,7 +215,7 @@ def test_an_image_the_user_adds_is_news_to_the_agent(tmp_path):
     notes = [m.content[0].text for m in session.data.messages if m.role == "system_note"]
     assert len(notes) == 2 and f"{trump.id[:8]} (trump_work)" in notes[1]
     assert lincoln.id[:8] not in notes[1]
-    assert provider.received[1][-2] == {"role": "system", "content": notes[1]}
+    assert provider.received[1][-2] == {"role": "user", "content": notes[1]}
     assert provider.received[1][-1]["content"][0] == {"type": "text", "text": "and now?"}
     assert sum(p["type"] == "image_url" for p in provider.received[1][-1]["content"]) == 1
     assert session.changes == []
@@ -735,7 +737,7 @@ def test_a_stop_as_the_turn_opens_never_loses_the_users_changes(tmp_path):
     assert ev.of("turn.finished") == [{"reason": "stopped"}] and provider.received == []
     nxt = ScriptedProvider([Reply(text="ok")])
     assert turn(session, nxt, ev, text="again")[0] == "done"
-    heard = [m["content"] for m in nxt.received[0][1:] if m["role"] == "system"]
+    heard = [m["content"] for m in nxt.received[0][1:] if m["role"] == "user" and isinstance(m["content"], str) and m["content"].startswith("Since your last turn")]
     assert sum(f"{lincoln.id[:8]} (lincoln_work)" in note for note in heard) == 1  # heard, and once
     notes = [m.content[0].text for m in session.data.messages if m.role == "system_note"]
     assert heard == notes  # the chat shows what the model heard

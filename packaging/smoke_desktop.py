@@ -3,7 +3,7 @@
 xvfb-run -a uv run --project core python packaging/smoke_desktop.py \
     --screenshot /tmp/badshop.png -- /path/to/installed/badshop-desktop
 
-Linux needs Xvfb, xdotool, libX11 and ImageMagick; macOS needs PyObjC Cocoa/Quartz.
+Linux needs Xvfb, xdotool, xclip, libX11 and ImageMagick; macOS needs PyObjC Cocoa/Quartz.
 Requires a visible window, a renderer/core socket, a nonblank content screenshot,
 and normal window close/application quit without surviving child processes.
 """
@@ -105,6 +105,7 @@ def renderer_is_ready(path: Path, nonce: str, ports: list[int] | None = None) ->
         return (isinstance(state, dict) and state.get('nonce') == nonce
                 and isinstance(state.get('session_id'), str) and bool(state['session_id'])
                 and type(state.get('tool_count')) is int and state['tool_count'] > 0
+                and state.get('clipboard_pixels') is True
                 and (ports is None or (state.get('port') in ports
                      and type(state.get('revision')) is int and state['revision'] >= 0)))
     except (OSError, ValueError):  # a probe write can overlap this read
@@ -215,13 +216,28 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if exercise_close:
                     state = wait_renderer(proc, ready_path, ports, nonce)
                     if state['welcome']:
-                        native_keys(window, 'Return')  # Welcome: Edit a photo without AI
+                        native_keys(window, 'Return')  # Welcome: Start with a quick idea
                         wait_renderer(proc, ready_path, ports, nonce, welcome=False)
-                    # Fixed default native geometry (1440x940); assert the resulting
-                    # state, so a moved control cannot silently turn this into a pass.
-                    subprocess.run(['xdotool', 'mousemove', '--window', str(window), '1000', '35',
-                                    'click', '1', 'key', 'Home', 'Return'], check=True, timeout=5)
-                    state = wait_renderer(proc, ready_path, ports, nonce, unsaved=True)
+                    # Exercise native paste on this private display without relying
+                    # on screen coordinates that change with the workspace layout.
+                    pasted = root / 'clipboard.png'
+                    Image.new('RGBA', (40, 30), (30, 160, 240, 255)).save(pasted)
+                    clipboard = subprocess.Popen(['xclip', '-selection', 'clipboard', '-t', 'image/png',
+                                                  '-i', str(pasted), '-quiet'], stdout=log, stderr=log)
+                    try:
+                        clipboard_deadline = time.monotonic() + 5
+                        while True:
+                            observed = subprocess.run(['xclip', '-selection', 'clipboard', '-o', '-t', 'image/png'],
+                                                      capture_output=True, timeout=5)
+                            if observed.returncode == 0 and observed.stdout == pasted.read_bytes():
+                                break
+                            assert time.monotonic() < clipboard_deadline, 'Private clipboard was not ready'
+                            time.sleep(.05)
+                        native_keys(window, 'ctrl+v')
+                        state = wait_renderer(proc, ready_path, ports, nonce, unsaved=True)
+                    finally:
+                        clipboard.terminate()
+                        clipboard.wait(timeout=5)
                     session_id = state['session_id']
                 if restart_core:
                     old_pid = core.pid

@@ -1,7 +1,6 @@
 """Plan 1's parked residuals: the image budget floor, the GIF still limit, the offline font retry window."""
 
 import io
-import struct
 
 import pytest
 from PIL import Image
@@ -76,7 +75,7 @@ def test_gif_writer_limit_is_the_one_animate_checks():
     data = Output("a", f, "x", fmt="GIF", frames=[f] * fits, duration=10_000).encode()
     with Image.open(io.BytesIO(data)) as im:
         assert (im.n_frames, im.info["duration"]) == (1, 650_000)
-    with pytest.raises(struct.error):
+    with pytest.raises(OverflowError):  # Pillow 13 uses int.to_bytes for the same 16-bit limit
         Output("a", f, "x", fmt="GIF", frames=[f] * (fits + 1), duration=10_000).encode()
 
 
@@ -86,7 +85,7 @@ def test_gif_writer_rounds_a_still_down_to_hundredths():
     data = Output("a", f, "x", fmt="GIF", frames=[f] * 78, duration=8402).encode()  # 655_356 ms
     with Image.open(io.BytesIO(data)) as im:
         assert (im.n_frames, im.info["duration"]) == (1, 655_350)
-    with pytest.raises(struct.error):
+    with pytest.raises(OverflowError):
         Output("a", f, "x", fmt="GIF", frames=[f] * 80, duration=8192).encode()  # 655_360 ms
 
 
@@ -108,7 +107,7 @@ def test_longest_still_merges_like_the_gif_writer_across_palettes():
     unused_differ.putpalette(red.getpalette()[:3] + [7] * 765)  # only unused entries change
     frames = [red] * 33 + [unused_differ] * 33
     assert finish._longest_still(frames) == 66
-    with pytest.raises(struct.error):
+    with pytest.raises(OverflowError):
         Output("a", red, "x", fmt="GIF", frames=frames, duration=10_000).encode()
 
 

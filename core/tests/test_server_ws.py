@@ -17,7 +17,7 @@ import psutil
 import pytest
 from PIL import Image
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from badshop import __version__
 from badshop.server import app as server_app
@@ -36,6 +36,22 @@ from test_server_app import run
 
 TOKEN = "t0ken-for-tests"
 WAIT_S = 120  # generous: the first tool call also starts the worker process
+
+
+def test_browser_origins_are_checked_before_token_handshake(env):
+    async def body(app):
+        async with await serve(app, TOKEN) as server:
+            url = f"ws://127.0.0.1:{bound_port(server)}"
+            for origin in ("https://attacker.example", "null", "http://localhost.evil:8000"):
+                with pytest.raises(InvalidStatus) as failure:
+                    async with connect(url, origin=origin):
+                        pass
+                assert failure.value.response.status_code == 403
+            for origin in (None, "tauri://localhost", "http://tauri.localhost", "http://127.0.0.1:1420"):
+                async with connect(url, origin=origin) as ws:
+                    await ws.send(json.dumps({"type": "hello", "token": TOKEN, "actor": "user"}))
+                    assert json.loads(await ws.recv())["type"] == "welcome"
+    run(body)
 
 
 # ---- a JSON-RPC client over one connection -------------------------------------------------------------

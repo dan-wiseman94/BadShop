@@ -128,7 +128,7 @@ class Checks:
 def doctor(checks: Checks) -> bool:
     required = ['uv', 'node', 'npm', 'cargo', 'rustc']
     if sys.platform == 'linux':
-        required += ['pkg-config', 'Xvfb', 'xvfb-run', 'xauth', 'xdotool', 'import', 'dbus-run-session']
+        required += ['pkg-config', 'Xvfb', 'xvfb-run', 'xauth', 'xdotool', 'xclip', 'import', 'dbus-run-session']
     paths = {name: shutil.which(name) for name in required}
     try:
         manager = package_manager()

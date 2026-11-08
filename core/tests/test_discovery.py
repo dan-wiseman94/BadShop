@@ -57,11 +57,65 @@ def test_discovery_only_imports_sheet_and_removes_recompressed_duplicate(monkeyp
     assert len(result.data["candidates"]) == 2
     assert result.data["duplicates_removed"] == 1
     assert result.data["sources"] == [None]
+    assert result.data["source_health"] == {"commons": {"status": "responded", "results": 3}}
     for candidate in result.data["candidates"]:
         assert candidate["thumbnail_data_url"].startswith("data:image/jpeg;base64,")
         assert candidate["source"]["creator"] == "Artist"
         assert candidate["number"] in (1, 2)
 
+
+def test_description_relevance_wins_over_framing_and_material_chooses_sources(monkeypatch):
+    queries = []
+    monkeypatch.setattr(discovery, "source_status", lambda: [
+        {"id": name, "configured": True} for name in ("commons", "met", "openverse")])
+    relevant = hit("https://example.org/cat", "angry cat")
+    irrelevant = hit("https://example.org/vase", "ancient vase")
+    def commons(query, n):
+        queries.append("commons")
+        return [irrelevant, relevant]
+    def unavailable(query, n):
+        queries.append("openverse")
+        raise OSError("unavailable")
+    monkeypatch.setitem(discovery.SEARCHERS, "commons", commons)
+    monkeypatch.setitem(discovery.SEARCHERS, "openverse", unavailable)
+    monkeypatch.setitem(discovery.SEARCHERS, "met", lambda *args: pytest.fail("museum queried for photos"))
+    fixture_web(monkeypatch, {"/cat/thumb": encoded(picture()), "/vase/thumb": encoded(picture("blue", 30))})
+    monkeypatch.setattr(discovery, "_rank", lambda h, image, p: (999 if h["title"] == "ancient vase" else 0, []))
+    result = discovery.discover(discovery.DiscoverParams(query="angry cat", material="photo", n=1))
+    assert result.data["candidates"][0]["title"] == "angry cat"
+    assert set(queries) == {"commons", "openverse"}
+    assert result.data["source_health"]["openverse"]["status"] == "failed"
+    assert "openverse" in result.data["warnings"][0]
+
+
+def test_source_health_tracks_latest_failure_and_empty_response(tmp_path, monkeypatch):
+    import asyncio
+    async def scenario():
+        from badshop.server.app import CoreApp
+        from badshop.session.execution import InProcessExecutor
+        for name, folder in (("BADSHOP_DATA_DIR", "data"), ("BADSHOP_CONFIG_DIR", "config"), ("BADSHOP_OUT", "out")):
+            monkeypatch.setenv(name, str(tmp_path / folder))
+        app = CoreApp(executor_factory=lambda **_: InProcessExecutor())
+        try:
+            monkeypatch.setitem(discovery.SEARCHERS, "commons", lambda q, n: [hit("https://example.org/cat")])
+            fixture_web(monkeypatch, {"/cat/thumb": encoded(picture())})
+            first = app.session.run_tool("discover", {"query": "cat", "source": "commons"}, "user")
+            assert first.status == "done"
+            def fail(q, n):
+                raise OSError("offline")
+            monkeypatch.setitem(discovery.SEARCHERS, "commons", fail)
+            failed = app.session.run_tool("discover", {"query": "cat", "source": "commons"}, "user")
+            assert failed.status == "error"
+            health = next(item for item in await app._sources_status("user") if item["id"] == "commons")["health"]
+            assert health == {"status": "failed", "results": 0, "step_id": failed.id}
+            monkeypatch.setitem(discovery.SEARCHERS, "commons", lambda q, n: [])
+            empty = app.session.run_tool("discover", {"query": "cat", "source": "commons"}, "user")
+            health = next(item for item in await app._sources_status("user") if item["id"] == "commons")["health"]
+            assert health == {"status": "responded", "results": 0, "step_id": empty.id}
+        finally:
+            await app.close()
+
+    asyncio.run(scenario())
 
 def test_subject_category_uses_exact_entity_not_related_articles(monkeypatch):
     requests = fixture_web(monkeypatch, {

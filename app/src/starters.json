@@ -1,0 +1,8 @@
+[
+  {"template":"desktop-error","name":"An error with no solution","title":"Task failed successfully","caption":"Your pigeon has stopped responding.","description":"Turn a minor inconvenience into a system failure."},
+  {"template":"trading-card","name":"A deeply useless trading card","title":"Middle Management Pigeon","caption":"Special ability: schedules another meeting.","description":"Give your friend, pet or nemesis terrible stats."},
+  {"template":"achievement","name":"An achievement nobody wanted","title":"Achievement unlocked","caption":"Opened the fridge again. Nothing changed.","description":"Celebrate the smallest possible accomplishment."},
+  {"template":"tabloid-cover","name":"Breaking, extremely fake news","title":"BIRD KNOWS TOO MUCH","caption":"Local pigeon refuses to elaborate.","description":"Make the group chat's next front page."},
+  {"template":"comic","name":"Two panels, one bad decision","title":"The plan / the consequences","caption":"This will definitely work.","secondCaption":"It did not work.","description":"Set up the joke, then let the second panel ruin it."},
+  {"template":"certificate","name":"Certified unqualified","title":"Certificate of Questionable Excellence","caption":"Awarded for being present in the general area.","description":"Give someone a completely undeserved honour."}
+]

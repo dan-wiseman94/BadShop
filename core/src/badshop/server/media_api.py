@@ -1,5 +1,7 @@
 """User-only media and collection endpoints, registered by CoreApp after initialization."""
 from typing import Annotated, Literal
+import shutil
+import threading
 
 from pydantic import Field
 
@@ -16,10 +18,28 @@ Tags = Annotated[list[Annotated[str, Field(max_length=80)]], Field(max_length=50
 
 def register(app):
     media, collections = MediaSources(), LocalCollections()
+    pending: set[threading.Event] = set()
+
+    async def status(actor: str):
+        return {"video": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
+                "pdf": bool(shutil.which("pdftoppm"))}
+
+    async def cancel(actor: str):
+        for signal in pending:
+            signal.set()
+        return {"cancelled": bool(pending)}
+
+    async def extract(operation, root, **params):
+        signal = threading.Event()
+        pending.add(signal)
+        try:
+            return await app._blocking(app._decoder.media, operation, str(root), cancel=signal, **params)
+        finally:
+            pending.discard(signal)
 
     async def preview(actor: str, path: PathText, kind: Literal["video", "document"],
                       start: Time = 0, end: Time | None = None, count: Count = 8, page: Page = 1):
-        return await app._blocking(media.preview, path, kind, start, end, count, page)
+        return await extract("preview", media.root, path=path, kind=kind, start=start, end=end, count=count, page=page)
 
     async def import_media(actor: str, preview_id: Identifier,
                            candidate_ids: Annotated[list[Identifier], Field(min_length=1, max_length=12)],
@@ -31,7 +51,7 @@ def register(app):
         return await app._blocking(apply)
 
     async def index(actor: str, path: PathText, max_files: Annotated[int, Field(ge=1, le=2000)] = 500):
-        return await app._blocking(collections.index, path, max_files)
+        return await extract("index", collections.root, path=path, max_files=max_files)
 
     async def listing(actor: str):
         return await app._blocking(collections.list)
@@ -53,7 +73,7 @@ def register(app):
     async def remove(actor: str, id: Identifier):
         return await app._blocking(collections.remove, id)
 
-    for method, handler in (("media.preview", preview), ("media.import", import_media),
+    for method, handler in (("media.status", status), ("media.cancel", cancel), ("media.preview", preview), ("media.import", import_media),
         ("collections.index", index), ("collections.list", listing), ("collections.search", search),
         ("collections.update", update), ("collections.import", import_collection), ("collections.remove", remove)):
         app.dispatcher.method(method, actors="user")(handler)

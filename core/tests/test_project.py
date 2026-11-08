@@ -38,7 +38,7 @@ RICH = {
     "layout": {"template": "comic", "images": ["a.png"], "image_slots": [1], "title": "A story", "captions": ["one", "two"], "slots": [[30, 120, 470, 480], [520, 120, 960, 480]], "fit": "stretch", "background": "red", "accent": "blue"},
     "pair_images": {"donors": ["a.png"], "backgrounds": ["b.png"], "role": "head", "side": "left", "target_box": [10, 20, 100, 140], "n": 2},
     "slice_sheet": {"image": "a.png", "rows": 2, "columns": 3, "margins": [1, 2, 3, 4], "gap": [2, 3], "cells": [0, 4]},
-    "discover": {"query": "Lincoln", "source": "commons", "n": 4, "purpose": "head", "pose": "facing left", "expression": "smiling", "same_subject": True, "similar_to": "a.png", "reference_url": "https://example.org/thumb", "variation": "different", "exclude_urls": ["https://example.org/old"], 'allow_sources':['commons'], 'rights':'known', 'orientation':'portrait'},
+    "discover": {"query": "Lincoln", "source": "commons", "n": 4, "purpose": "head", "pose": "facing left", "expression": "smiling", "same_subject": True, "similar_to": "a.png", "reference_url": "https://example.org/thumb", "variation": "different", "exclude_urls": ["https://example.org/old"], 'allow_sources':['commons'], 'rights':'known', 'orientation':'portrait', 'material': 'photo'},
     "acquire": {"url": "https://example.org/image", "source_kind": "commons", "page": "https://example.org/page", "title": "Portrait", "license": "CC0", "creator": "Painter"},
     "fetch": {"query": "-dog sitting", "source": "openverse", "n": 3, "clipboard": True},
     "wiki": {"title": "Abraham Lincoln", "n": 2, "lang": "de"},
