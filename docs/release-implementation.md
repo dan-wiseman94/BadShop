@@ -79,8 +79,8 @@ are not evidence of current live-source relevance.
 **Accessibility:** scalable units and 200% text, larger small-control targets, wrapping headers
 and toolbars, measured contrast corrections, and an export dialog with keyboard focus, Escape
 close and focus restoration. Final theme checks exposed a wrapped heading overlapping starter
-content; a `flex-shrink: 0` correction and regression journey were added but remain unverified
-because of the filesystem failure. Automated checks do not establish screen-reader quality or
+content; a `flex-shrink: 0` correction and regression journey passed in the final browser and
+eight-theme checks after storage recovery. Automated checks do not establish screen-reader quality or
 WCAG conformance.
 
 The frontend production bundle measured 858.74 kB / 272.57 kB gzip after the validator change,
