@@ -192,18 +192,20 @@ def test_dispatcher_results():
     # a notification (no id) runs but gets no reply, even when it fails
     assert _ask(d, {"jsonrpc": "2.0", "method": "echo", "params": {"text": "x"}}) is None
     assert _ask(d, {"jsonrpc": "2.0", "method": "engine"}) is None
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="echo.*already registered"):
         d.method("echo")  # registering a name twice
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="actors.*agents"):
         d.method("other", actors="agents")
 
 
-def test_dispatcher_errors():
+def test_dispatcher_errors(caplog):
     d = _dispatcher()
 
     def error(msg, actor="user") -> dict:
         reply = _ask(d, msg, actor)
         assert set(reply) == {"jsonrpc", "id", "error"}
+        message = reply["error"]["message"]
+        assert isinstance(message, str) and message.strip()
         return reply["error"] | {"id": reply["id"]}
 
     assert error("{nope")["code"] == rpc.PARSE_ERROR
@@ -212,7 +214,9 @@ def test_dispatcher_errors():
     for deep in ("[" * 100_000, "[" * 100_000 + "]" * 100_000):
         assert error(deep) == {"code": rpc.PARSE_ERROR, "id": None,
                                "message": "parse error: the JSON is nested too deeply"}
-    assert error("[]")["code"] == rpc.INVALID_REQUEST  # batches are refused
+    batch = error("[]")
+    assert batch["code"] == rpc.INVALID_REQUEST
+    assert "one json-rpc 2.0 request object per message" in batch["data"]["hint"].lower()
     assert error({"jsonrpc": "2.0", "id": [1], "method": "echo"})["code"] == rpc.INVALID_REQUEST
     assert error({"id": 3, "method": "echo"}) == {
         "code": rpc.INVALID_REQUEST, "message": "invalid request", "id": 3,
@@ -221,6 +225,7 @@ def test_dispatcher_errors():
     assert error(_req("nope"))["code"] == rpc.METHOD_NOT_FOUND
     forbidden = error(_req("secret"), "cli:claude")
     assert forbidden["code"] == rpc.FORBIDDEN and forbidden["message"] == "cli:claude may not call secret"
+    assert "only the user" in forbidden["data"]["hint"].lower()
     for params in ({}, {"text": 5}, {"text": "a", "bogus": 1}, {"text": "a", "actor": "user"}, ["a"]):
         e = error(_req("echo", params))
         assert e["code"] == rpc.INVALID_PARAMS, params
@@ -231,7 +236,49 @@ def test_dispatcher_errors():
                                      "id": 1}
     bug = error(_req("bug"))
     assert bug["code"] == rpc.INTERNAL_ERROR and "ZeroDivisionError: oops" in bug["message"]
-    assert error(_req("unencodable"))["code"] == rpc.INTERNAL_ERROR
+    assert "session is unaffected" in bug["data"]["hint"].lower()
+    unencodable = error(_req("unencodable", id="serialization-failed"))
+    assert unencodable["code"] == rpc.INTERNAL_ERROR and unencodable["id"] == "serialization-failed"
+    bug_log, serialization_log = [
+        record for record in caplog.records if record.name == "badshop.server" and record.levelname == "ERROR"
+    ]
+    assert "bug" in bug_log.getMessage()
+    assert isinstance(bug_log.exc_info[1], ZeroDivisionError)
+    assert "unencodable" in serialization_log.getMessage()
+    assert isinstance(serialization_log.exc_info[1], TypeError)
+
+
+@pytest.mark.parametrize("number", ["NaN", "Infinity", "-Infinity", "1e309"])
+def test_dispatcher_rejects_nonfinite_params_before_calling_the_handler(number):
+    d = Dispatcher()
+    readings = []
+
+    @d.method("reading.set")
+    async def set_reading(actor: str, value: float):
+        readings.append(value)
+        return value
+
+    request = '{"jsonrpc":"2.0","id":1,"method":"reading.set","params":{"value":%s}}'
+    rejected = _ask(d, request % number)
+    assert rejected["id"] == 1
+    assert rejected["error"]["code"] == rpc.INVALID_PARAMS
+    assert "finite" in rejected["error"]["data"]["hint"]
+    assert readings == []
+
+    accepted = _ask(d, request % "1.25")
+    assert accepted == {"jsonrpc": "2.0", "id": 1, "result": 1.25}
+    assert readings == [1.25]
+
+
+def test_failed_notification_is_silent_and_logs_the_method(caplog):
+    d = _dispatcher()
+
+    assert _ask(d, {"jsonrpc": "2.0", "method": "engine"}) is None
+    [record] = [record for record in caplog.records if record.name == "badshop.server"]
+    assert record.levelname == "WARNING"
+    assert "engine" in record.getMessage()
+    assert "no such artifact: abc123" in record.getMessage()
+    assert _ask(d, _req("echo", {"text": "still connected"}))["result"]["text"] == "still connected"
 
 
 def test_notification_frame():

@@ -105,6 +105,44 @@ use a worktree-derived port and retain strict binding.
 A port conflict is a failure,
 not a reason to kill an unrelated process.
 
+## Fuzz and mutation tests
+
+The ordinary Python suite runs bounded, deterministic Hypothesis tests against
+JSON-RPC dispatch and project ZIP loading. The project tests generate archives
+near the preflight limits and corrupt a saved project containing a real PNG.
+All cases run offline and use in-memory data or temporary files.
+
+From the repository root, run just these tests with retained evidence:
+
+```sh
+./verify.sh python --python-test core/tests/test_fuzz_rpc.py --python-test core/tests/test_fuzz_projects.py
+```
+
+To explore a different set of inputs, run the same files with
+`uv run --project core --locked pytest core/tests/test_fuzz_rpc.py core/tests/test_fuzz_projects.py --hypothesis-seed=42`.
+When a property fails, pytest reports the minimized example. Preserve it with an
+explicit Hypothesis example or a targeted regression test.
+
+Mutation testing is opt-in. Mutmut copies the Python source into
+`core/mutants/` and changes one expression at a time in the RPC dispatcher and
+ZIP preflight module. It runs the targeted properties and existing dispatcher
+contract tests against those changes. From the repository root on Linux or
+macOS (use the private Arch WSL launcher on Windows):
+
+```sh
+cd core
+uv sync --locked --group mutation
+uv run --locked --group mutation mutmut run --max-children 2
+uv run --locked --group mutation mutmut results
+uv run --locked --group mutation mutmut export-cicd-stats
+```
+
+Use `mutmut show <mutant-id>` to inspect a surviving change and
+`mutmut run <mutant-id>` to retest it. A survivor can reveal a missing
+assertion or an equivalent change. Review survivors, uncovered mutants, and
+timeouts separately. The manual **Core mutation testing** Actions workflow
+uploads the run log, per-mutant results, and JSON summary without a score gate.
+
 ## A private desktop for automation
 
 No login-session DISPLAY is required on Linux. The native runner starts `Xvfb` with a

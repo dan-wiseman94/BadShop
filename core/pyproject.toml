@@ -33,7 +33,8 @@ build = [
     "pyinstaller>=6,<7",
 ]
 # jsonschema is used to validate the registry's generated schemas.
-dev = ["pytest>=8", "pytest-xdist>=3,<4", "ruff>=0.6", "jsonschema>=4"]
+dev = ["pytest>=8", "pytest-xdist>=3,<4", "ruff>=0.6", "jsonschema>=4", "hypothesis>=6,<7"]
+mutation = ["mutmut>=3.8,<4; sys_platform != 'win32'"]
 quality = [
     "import-linter>=2.16",
     "lizard>=1.25.1",
@@ -82,3 +83,19 @@ ignore = ["E741"]  # the verbatim-ported reference code and the plan's tests use
 "**/tests/*.py" = ["TID251"]
 "**/src/badshop/session/*.py" = ["TID251"]
 "**/src/badshop/cli/main.py" = ["TID251"]
+
+[tool.mutmut]
+source_paths = ["src"]
+only_mutate = ["src/badshop/archives.py", "src/badshop/server/rpc.py"]
+pytest_add_cli_args_test_selection = [
+    "tests/test_fuzz_rpc.py",
+    "tests/test_fuzz_projects.py::test_zip_preflight_enforces_all_three_limits",
+    "tests/test_server_app.py::test_dispatcher_results",
+    "tests/test_server_app.py::test_dispatcher_errors",
+    "tests/test_project_boundaries.py::test_archive_size_limit_includes_ignored_members",
+    "tests/test_project_boundaries.py::test_zip_directory_is_bounded_before_zipfile_allocates_it",
+    "tests/test_server_app.py::test_dispatcher_rejects_nonfinite_params_before_calling_the_handler",
+    "tests/test_server_app.py::test_failed_notification_is_silent_and_logs_the_method",
+    "tests/test_server_app.py::test_methods_are_the_protocol",
+    "tests/test_server_app.py::test_notification_frame",
+]

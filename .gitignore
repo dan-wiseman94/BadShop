@@ -32,3 +32,6 @@ packaging/*.sbom.json
 artifacts/verification/
 .worktrees/
 .tooling/
+
+# Mutation testing scratch checkout
+/core/mutants/
