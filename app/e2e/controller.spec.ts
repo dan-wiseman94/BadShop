@@ -168,9 +168,12 @@ test("cloud provider presets save an editable model and the selected key environ
   await page.getByRole("button", { name: "Add provider" }).click();
   const preset = page.getByLabel("Cloud provider preset");
   const model = page.getByLabel("Model", { exact: true });
+  await preset.selectOption("Perplexity");
+  await expect(model).toHaveValue("perplexity_agent/openai/gpt-5.6-sol");
+  await page.getByLabel("Credential storage").selectOption("environment");
+  await expect(page.getByLabel("Environment variable name")).toHaveValue("PERPLEXITY_API_KEY");
   await preset.selectOption("Together AI");
   await expect(model).toHaveValue("together_ai/Qwen/Qwen3.5-9B");
-  await page.getByLabel("Credential storage").selectOption("environment");
   const keyEnv = page.getByLabel("Environment variable name");
   const apiBase = page.getByLabel("API base URL");
   await expect(keyEnv).toHaveValue("TOGETHER_API_KEY");

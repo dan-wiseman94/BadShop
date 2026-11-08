@@ -37,10 +37,17 @@ it does not grant rights to an image.
 ## Cloud providers
 
 Under Settings → Providers → Add provider, Cloud API presets fill in a model
-for OpenAI, Anthropic, Google Gemini, OpenRouter, Mistral AI, xAI, and Together AI.
+for OpenAI, Anthropic, Google Gemini, OpenRouter, Mistral AI, xAI, Together AI, and
+Perplexity.
 The model remains editable. Supply a key from the selected provider, using the
 system keychain or an environment variable. Check setup inspects model capabilities
 without a completion. Test connection sends a request to the provider.
+
+The Perplexity preset uses the [Agent API](https://docs.perplexity.ai/docs/agent-api/quickstart)
+with an image-capable model that can call functions. Its API key can be stored in
+the keychain or read from `PERPLEXITY_API_KEY`. BadShop sends its own editing
+tools and applies the session's approval mode before running them. Leave the API
+base URL blank for this preset.
 
 ## Platform promises
 
