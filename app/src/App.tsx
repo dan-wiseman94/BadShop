@@ -1,12 +1,9 @@
 import { Button } from "./components/Button";
+import { ThemeIcon } from "./components/ThemeIcon";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
-  FolderOpen,
-  Save,
   Plus,
-  Download,
-  Settings2,
   AlertTriangle,
   X,
   Copy,
@@ -399,7 +396,7 @@ export default function App() {
                   run(documents.open);
                 }}
               >
-                <FolderOpen size={15} />
+                <ThemeIcon name="open" size={16} />
                 Open session<kbd>Ctrl O</kbd>
               </button>
               <button
@@ -409,7 +406,7 @@ export default function App() {
                   save();
                 }}
               >
-                <Save size={15} />
+                <ThemeIcon name="save" size={16} />
                 Save session<kbd>Ctrl S</kbd>
               </button>
               <Button
@@ -419,7 +416,7 @@ export default function App() {
                   save(true);
                 }}
                 label="Save as…"
-                icon={Save}
+                icon="save"
                 iconSize={15}
               />
               <Button
@@ -522,6 +519,7 @@ export default function App() {
             disabled={ui.status !== "ready"}
             onClick={() => setStudioOpen(true)}
           >
+            <ThemeIcon name="images" size={18} />
             <span className="studio-launch-full">Images & directions</span>
             <span className="studio-launch-short">Images</span>
           </button>
@@ -532,7 +530,7 @@ export default function App() {
             disabled={ui.status !== "ready"}
             onClick={() => save()}
           >
-            <Save size={17} />
+            <ThemeIcon name="save" size={18} />
           </button>
           <button
             className="quiet"
@@ -540,7 +538,7 @@ export default function App() {
             aria-label="Settings"
             onClick={() => ui.set({ settingsOpen: true })}
           >
-            <Settings2 size={18} />
+            <ThemeIcon name="settings" size={18} />
           </button>
           <Button
             className="export"
@@ -549,7 +547,7 @@ export default function App() {
             title="Export the image shown on the canvas"
             disabled={ui.status !== "ready" || !Object.keys(session?.artifacts ?? {}).length}
             label="Export"
-            icon={Download}
+            icon="export"
             iconSize={15}
           />
         </div>

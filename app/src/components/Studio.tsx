@@ -1,9 +1,9 @@
 import { Button } from "./Button";
+import { ThemeIcon } from "./ThemeIcon";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
 import { action, imageUrl, run, useCoreQuery, useSession } from "../data";
 import { rpc } from "../rpc";
 import { useUI } from "../store";
@@ -150,7 +150,7 @@ export function Studio({
             <p>Find material, keep your favorites, and try another take.</p>
           </div>
           <button aria-label="Close images and directions" onClick={onClose}>
-            <X size={18} />
+            <ThemeIcon name="close" size={18} />
           </button>
         </div>
         <nav className="studio-tabs" aria-label="Images and directions">

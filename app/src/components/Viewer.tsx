@@ -1,6 +1,7 @@
 import { Button } from "./Button";
+import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
-import { Grid2X2, ScanFace, Maximize, ImagePlus, MousePointer2, ChevronDown, Download } from "lucide-react";
+import { Grid2X2, ScanFace, Maximize, ChevronDown } from "lucide-react";
 import { imageUrl, useArtifact, useSession, run } from "../data";
 import { useUI } from "../store";
 import { useReducedMotion } from "../appearance";
@@ -113,7 +114,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
     <section className="viewer pane" aria-label="Image viewer">
       <div className="pane-heading">
         <span className="flex items-center gap-2">
-          <MousePointer2 size={15} />
+          <ThemeIcon name="canvas" size={16} />
           Canvas
         </span>
         <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
@@ -270,7 +271,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         ) : (
           <div className="empty-stage">
             <div className="cut-paper">
-              <ImagePlus size={36} strokeWidth={1.3} />
+              <ThemeIcon name="images" size={32} />
               <span>
                 Your next terrible idea
                 <br />
@@ -278,7 +279,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
               </span>
             </div>
             <p>Drop an image, paste one, or let your agent find it.</p>
-            <Button onClick={onImport} label="Add images" icon={ImagePlus} iconSize={16} />
+            <Button onClick={onImport} label="Add images" icon="images" iconSize={16} />
             {error && <p className="error-text">{error.message}</p>}
           </div>
         )}
@@ -361,7 +362,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         </div>
         {id && (
           <button type="submit" title="Export image">
-            <Download size={16} />
+            <ThemeIcon name="export" size={16} />
           </button>
         )}
       </form>

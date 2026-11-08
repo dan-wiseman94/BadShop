@@ -1,12 +1,11 @@
 import { Button } from "./Button";
+import { ThemeIcon } from "./ThemeIcon";
 import { InputField, SelectField } from "./Fields";
 import { useEffect, useState } from "react";
 import {
-  X,
   Plus,
   Trash2,
   Check,
-  FolderOpen,
   Download,
   RefreshCw,
   Terminal,
@@ -521,7 +520,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
             <p>Your art director. Your rules.</p>
           </div>
           <button aria-label="Close settings" onClick={() => useUI.getState().set({ settingsOpen: false })}>
-            <X size={20} />
+            <ThemeIcon name="close" size={20} />
           </button>
         </div>
         <ErrorNotice />
@@ -756,7 +755,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                         })
                       }
                     >
-                      <FolderOpen size={16} />
+                      <ThemeIcon name="open" size={16} />
                     </button>
                   </div>
                 </label>
@@ -783,10 +782,17 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                           appearance.set({ theme: item.id });
                         }}
                       >
-                        <span className="theme-colors" aria-hidden="true">
-                          {item.colors.map((color) => (
-                            <span key={color} style={{ background: color }} />
-                          ))}
+                        <span className="theme-preview" data-skin={item.id} aria-hidden="true">
+                          <span className="theme-preview-title">badshop <span>×</span></span>
+                          <span className="theme-preview-body">
+                            <span className="theme-preview-menu">
+                              <i><ThemeIcon name="save" size={12} theme={item.id} /></i>
+                              <i><ThemeIcon name="settings" size={12} theme={item.id} /></i>
+                              <i><ThemeIcon name="images" size={12} theme={item.id} /></i>
+                            </span>
+                            <span className="theme-preview-canvas">Aa<span>✦</span></span>
+                          </span>
+                          <span className="theme-preview-status">{item.era}</span>
                         </span>
                         <strong>{item.name}</strong>
                         <small>{item.description}</small>
