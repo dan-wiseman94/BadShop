@@ -1,0 +1,36 @@
+name: Core mutation testing
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: uv sync --locked --group mutation
+      - name: Run and report mutations
+        run: |
+          mkdir -p ../artifacts/verification/mutation
+          report=../artifacts/verification/mutation
+          uv run --locked --group mutation mutmut run --max-children 2 2>&1 | tee "$report/run.log"
+          uv run --locked --group mutation mutmut results --all true > "$report/results.txt"
+          uv run --locked --group mutation mutmut export-cicd-stats
+          cp mutants/mutmut-cicd-stats.json "$report/summary.json"
+          {
+            echo '### Core mutation results'
+            echo '```json'
+            cat "$report/summary.json"
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: core-mutation-results
+          path: artifacts/verification/mutation
