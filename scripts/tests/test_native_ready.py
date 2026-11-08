@@ -24,8 +24,8 @@ class RendererReadyTests(unittest.TestCase):
                           json.dumps({'port': 12345, 'session_id': 's', 'revision': True})]:
                 path.write_text(value)
                 self.assertFalse(renderer_is_ready(path, 'this-run', [12345]))
-            good = {'port': 12345, 'session_id': 's', 'revision': 0, 'nonce': 'this-run', 'tool_count': 20}
-            for change in ({'port': 12344}, {'revision': True}, {'nonce': 'old-run'}, {'tool_count': True}):
+            good = {'port': 12345, 'session_id': 's', 'revision': 0, 'nonce': 'this-run', 'tool_count': 20, 'clipboard_pixels': True}
+            for change in ({'port': 12344}, {'revision': True}, {'nonce': 'old-run'}, {'tool_count': True}, {'clipboard_pixels': False}):
                 path.write_text(json.dumps(good | change))
                 self.assertFalse(renderer_is_ready(path, 'this-run', [12345]))
             path.write_text(json.dumps(good))

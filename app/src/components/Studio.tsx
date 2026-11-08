@@ -58,6 +58,7 @@ export function Studio({
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [purpose, setPurpose] = useState("subject");
+  const [material, setMaterial] = useState("photo");
   const [pose, setPose] = useState("");
   const [expression, setExpression] = useState("");
   const [sameSubject, setSameSubject] = useState(false);
@@ -119,6 +120,7 @@ export function Studio({
         query: query || candidate?.title,
         source: sources.some((item) => item.id === source && item.configured) ? source : "all",
         purpose,
+        material,
         n: 8,
         ...(candidate ? { reference_url: candidate.thumbnail || candidate.url } : {}),
         ...(pose.trim() ? { pose: pose.trim() } : {}),
@@ -196,8 +198,8 @@ export function Studio({
             <details className="collection-status">
               <summary>Collection availability</summary>
               <p>
-                Ready means the required configuration is present; it does not test the service or validate
-                its credentials.
+                Configuration and the last search in this project are separate. A previous response does not
+                guarantee current availability or useful pictures. No background test requests are sent.
               </p>
               {sourceError && (
                 <p role="alert">
@@ -209,6 +211,7 @@ export function Studio({
                   <tr>
                     <th>Collection</th>
                     <th>Status</th>
+                    <th>Last search in project</th>
                     <th>Setup</th>
                   </tr>
                 </thead>
@@ -216,7 +219,9 @@ export function Studio({
                   {sources.map((item) => (
                     <tr key={item.id}>
                       <td>{item.name}</td>
-                      <td>{item.configured ? "Ready" : "Needs configuration"}</td>
+                      <td>{item.configured ? "Configured" : "Needs configuration"}</td>
+                      <td>{item.health?.status === "responded" ? `Responded · ${item.health.results} results (${item.health.step_id})`
+                        : item.health?.status === "failed" ? `Failed (${item.health.step_id})` : "Not checked"}</td>
                       <td>{item.env_var ? <code>{item.env_var}</code> : "No key needed"}</td>
                     </tr>
                   ))}
@@ -250,6 +255,9 @@ export function Studio({
                   </option>
                 ))}
               </SelectField>
+              <SelectField label="Kind of picture" bind={[material, setMaterial]}
+                options={[["photo", "Photos"], ["illustration", "Illustrations & icons"], ["object", "Museum objects"], ["any", "Any"]]} />
+              <p className="muted">Picture kind chooses collections when searching all sources. Check the previews; it does not classify every image.</p>
               <SelectField
                 label="Needed for"
                 bind={[purpose, setPurpose]}

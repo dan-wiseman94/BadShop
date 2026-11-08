@@ -11,6 +11,7 @@ from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps, ImageSequence
 from pydantic import Field, model_validator
 
 from badshop.engine.errors import EngineError
+from badshop.engine.common import has_alpha
 from badshop.engine.result import EngineResult, Output
 from badshop.engine.types import Color, ImageRef, Params, Seed
 
@@ -668,7 +669,8 @@ class ExportProfileParams(Params):
 
 def export_profile(p, im):
     size = EXPORTS[p.profile] or im.size
-    out = Image.new("RGB", size, "#000000")
+    out = (Image.new("RGBA", size, (0, 0, 0, 0)) if p.format != "JPEG" and has_alpha(im)
+           else Image.new("RGB", size, "#000000"))
     paste(out, im, (0, 0, *size), p.fit)
     qualities = range(p.quality, 0, -1) if p.max_bytes and p.format == "JPEG" else [p.quality]
     for q in qualities:

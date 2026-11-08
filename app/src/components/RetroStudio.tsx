@@ -6,6 +6,7 @@ import { action, run, useCoreQuery, useSession } from "../data";
 import { useUI } from "../store";
 import { openLink } from "../native";
 import { ArtifactThumb } from "./Viewer";
+import { ShareImage } from "./ShareImage";
 import type { Params, Recipe, Step } from "../types";
 import "../retro.css";
 
@@ -42,13 +43,10 @@ export function RetroStudio({
   const [recipeText, setRecipeText] = useState("");
   const [batchInputs, setBatchInputs] = useState<string[]>([]);
   const [role, setRole] = useState("subject");
-  const [profile, setProfile] = useState(prefs?.export_profile ?? "original");
   const [cleanBase, setCleanBase] = useState("");
   const [fryLevel, setFryLevel] = useState(2);
   const [jpegQuality, setJpegQuality] = useState(35);
   const [jpegPasses, setJpegPasses] = useState(2);
-  const [format, setFormat] = useState("PNG");
-  const [maxBytes, setMaxBytes] = useState("");
   const [comparison, setComparison] = useState<string[]>([]);
   const chosen = useUI((s) => s.selectedArtifact);
   const selectedStep = useUI((s) => s.selectedStep);
@@ -586,58 +584,7 @@ export function RetroStudio({
           </div>
         </>
       )}
-      {section === "export" && (
-        <>
-          <p>
-            Prepare exact dimensions, then export the selected result with a credits sidecar tracing every
-            source image.
-          </p>
-          <form
-            className="retro-controls"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void perform(async () => {
-                await tool("export_profile", {
-                  image,
-                  profile,
-                  format,
-                  ...(maxBytes ? { max_bytes: Number(maxBytes) } : {}),
-                });
-              });
-            }}
-          >
-            <SelectField
-              label="Output preset"
-              value={profile}
-              onChange={(e) => {
-                setProfile(e.target.value);
-                change({ export_profile: e.target.value });
-              }}
-              options={["original", "web-button", "blinkie", "forum-signature", "avatar", "wallpaper"]}
-            />
-            <SelectField label="Format" bind={[format, setFormat]} options={["PNG", "JPEG", "GIF"]} />
-            <InputField
-              label="Maximum bytes (optional)"
-              type="number"
-              min={100}
-              bind={[maxBytes, setMaxBytes]}
-            />
-            <Button disabled={!image || disabled} label="Prepare output" />
-          </form>
-          <Button
-            disabled={!image || disabled}
-            onClick={() =>
-              void perform(async () => {
-                const r = await action("credits.export", {
-                  artifact_id: image!,
-                });
-                setMessage(`Saved ${r.path} and ${r.credits}`);
-              })
-            }
-            label="Export selected image + credits"
-          />
-        </>
-      )}
+      {section === "export" && (image ? <ShareImage key={image} id={image} /> : <p>Select an image on the canvas to share it.</p>)}
     </div>
   );
 }

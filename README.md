@@ -9,8 +9,8 @@ model what you want. Every edit appears in a timeline you can change and replay.
 **[Download the latest badshop release](https://github.com/dan-wiseman94/BadShop/releases/latest)**
 
 Open the downloaded setup file, follow the prompts, then launch **badshop** from
-Start. The installer includes the image tools. Choose **Edit a photo without AI**
-to get started.
+Start. The installer includes the image tools. In the release candidate, choose
+**Start with a quick idea** for a ready-made shitpost without AI setup.
 
 [Mac installation help](docs/macos.md) · [All downloads](https://github.com/dan-wiseman94/BadShop/releases/latest) · [Windows installation help](docs/windows.md)
 
@@ -18,20 +18,25 @@ to get started.
 
 ## Make your first edit
 
-1. On the welcome screen, choose **Edit a photo without AI**. Earlier builds call this
-   **Set up later / use tools manually**. You can connect a model in **Settings** anytime.
-2. Choose **Add images** and open a photo, or drag it from File Explorer onto the canvas.
-3. Choose **Run tool** on the right, search for **deepfry**, select it, and click **Run tool**
-   in the form. The canvas shows the result. Select the step and click **Before** or **After**
-   to compare. To change the effect, adjust **Level** in the step and choose **Apply & replay**.
-4. To share the picture, show the version you want and click **Export**. The desktop app
-   opens its location in File Explorer. The default is the **badshop** folder inside **Pictures**.
+1. Choose **Start with a quick idea**, pick a card, and edit the headline and punchline.
+   Use the bundled public-domain pigeon or **Add my own image**. Click **Make this shitpost**.
+2. Use **Change caption only** to fix the joke. **Keep this take & make a variant** keeps
+   the original available under **Saved takes**. **Art director / All tools** opens the full editor.
+3. For manual effects, choose **Run tool**, select **deepfry**, and run it. In History,
+   select the step to compare Before/After or change its parameters and replay.
+4. Use **Copy image** to paste into a chat, or **Export → Save image file**. Export shows
+   a chat-sized preview and can save a separate credits file. The default export folder is
+   **badshop** inside **Pictures**.
    To choose another folder, open **Settings → Preferences → Output folder**.
 5. To keep editing later, press **Ctrl+S** and save a `.badshop` project. Reopen it with
    **Ctrl+O**. **Ctrl+Shift+S** saves a separate copy. On macOS use **Cmd** in place of **Ctrl**.
 
 A dot beside the project name marks unsaved changes. If the app closes unexpectedly,
 look for the recovery prompt the next time it opens.
+
+Earlier installers may show **Edit a photo without AI** instead of Quick ideas.
+See the [first-use and compatibility guide](docs/compatibility.md), [privacy](docs/privacy.md),
+[support](docs/support.md), and [security reporting](SECURITY.md).
 
 ## Desktop
 

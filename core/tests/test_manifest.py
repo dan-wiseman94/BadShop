@@ -115,7 +115,7 @@ def test_manifest_lists_every_download_once():
     assert len({asset.name for asset in all_assets}) == len(all_assets)
     for a in all_assets:
         assert a.label and a.size and a.approx_mb == max(1, round(a.size / 2**20)), a.name
-        assert (a.sha256 is None) != (a.md5 is None), a.name  # exactly one pinned hash
+        assert a.sha256 is not None and len(a.sha256) == 64, a.name  # every download has a strong pin
     yunet = manifest.get_asset("face_detection_yunet_2023mar.onnx")
     assert (yunet.url, yunet.sha256, yunet.size) == faces.YUNET
     for file, pin in text.FONT_DOWNLOADS.items():

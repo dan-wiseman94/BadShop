@@ -26,6 +26,7 @@ import multiprocessing.connection
 import os
 import signal
 import threading
+import tempfile
 import time
 import warnings
 from typing import Literal, NoReturn
@@ -38,7 +39,8 @@ from badshop.engine import assets, cutout
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult
 from badshop.engine.types import Params
-from badshop.session.execution import CRASH_HINT, STOPPED, ToolCall, ToolOutcome, execute_call
+from badshop.session.execution import (CRASH_HINT, STOPPED, DecodeCall, MediaCall, ToolCall, ToolOutcome,
+                                       decoded_image, execute_call, execute_decode, execute_media)
 from badshop.tools.registry import ToolSpec, register  # importing badshop.tools registers every tool
 
 TEST_TOOLS_ENV = "BADSHOP_WORKER_TEST_TOOLS"  # "1": the worker also registers the test tools below
@@ -98,7 +100,7 @@ class WorkerExecutor:
         """The worker's process id, or None while there is no worker."""
         return self._pid
 
-    def run(self, call: ToolCall, cancel: threading.Event | None = None) -> ToolOutcome:
+    def run(self, call: ToolCall | DecodeCall | MediaCall, cancel: threading.Event | None = None) -> ToolOutcome:
         """Run one call in the worker. `cancel` is this call's own stop signal: already set when the call's
         turn comes, the call is never sent and the worker is left as it is; set while it runs, the worker
         is killed, as for cancel(). Either way the outcome says "stopped by the user"."""
@@ -110,6 +112,20 @@ class WorkerExecutor:
             if cancel is not None and cancel.is_set():  # stopped before it began: the tool never runs
                 return _failed(STOPPED)
             return self._run(call, cancel)
+
+    def decode(self, data: bytes, name: str, frame: int = 0) -> Image.Image:
+        return decoded_image(self.run(DecodeCall(data, name, frame)))
+
+    def media(self, operation: str, root: str, *, cancel: threading.Event | None = None, **params) -> dict:
+        # The parent owns scratch files: killing a decoder cannot strand a copy
+        # of the user's source in the OS temp folder.
+        with tempfile.TemporaryDirectory(prefix="badshop-media-") as scratch:
+            if operation == "preview":
+                params = {**params, "_scratch": scratch}
+            result = self.run(MediaCall(operation, root, params), cancel=cancel)
+        if not result.ok:
+            raise EngineError(result.error_message or "source could not be decoded", hint=result.error_hint)
+        return result.data
 
     def cancel(self) -> None:
         """Stop the running call; its outcome says "stopped by the user". Does nothing when idle, so it
@@ -131,7 +147,7 @@ class WorkerExecutor:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    def _run(self, call: ToolCall, cancel: threading.Event | None) -> ToolOutcome:
+    def _run(self, call: ToolCall | DecodeCall | MediaCall, cancel: threading.Event | None) -> ToolOutcome:
         try:
             if self._proc is None or not self._proc.is_alive():
                 self._start(cancel)
@@ -254,6 +270,7 @@ class WorkerExecutor:
                     pass
             proc.kill()
             proc.join(STOP_WAIT_S)
+            psutil.wait_procs(kids, timeout=STOP_WAIT_S)  # release child file handles before parent-owned scratch cleanup
         code = proc.exitcode
         conn.close()
         if code is not None:  # Process.close() refuses a process that is somehow still running
@@ -347,7 +364,12 @@ def _worker_main(conn) -> None:
         if message is None:
             return
         call, max_rss_mb = message  # the core's memory limit, as it read it for this call
-        outcome = execute_call(call)
+        if isinstance(call, DecodeCall):
+            outcome = execute_decode(call)
+        elif isinstance(call, MediaCall):
+            outcome = execute_media(call)
+        else:
+            outcome = execute_call(call)
         send.flush()
         send(outcome)
         del message, call, outcome  # count what the worker keeps between calls, not this call's images

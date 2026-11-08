@@ -1,6 +1,6 @@
 {
  "versions": {
-  "pillow": "12.3.0",
+  "pillow": "13.0.0",
   "numpy": "2.5.3",
   "opencv-python-headless": "4.14.0.94",
   "onnxruntime": "1.30.0"
@@ -332,9 +332,9 @@
       354,
       490
      ],
-     "sha256": "cf999a9eba9ddfaa1f338cafadc53edb49e44ee7582b21a16f287b7476fe161f",
+     "sha256": "f9d47b3ac30637c219f6e117aca5b0cc03fa703b99da7a9ea7e47ea6b5ff7895",
      "frames": [
-      "c997b301073e96d2ce30b8892ff8ec84df690c8186b8ec75ee14c5e2ff29794c"
+      "2b4c6bd41cbc15004d9b011faee67afd8b3614d5f60fb1bddfa73c0741490aed"
      ]
     }
    }

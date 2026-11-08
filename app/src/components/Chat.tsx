@@ -85,7 +85,7 @@ export function Chat({
       <div className="pane-heading">
         <span>Art direction</span>
         <span className={`connection-dot ${ready ? "online" : ""}`}>
-          {ready ? "Connected" : "Connecting"}
+          {ready ? "Ready" : "Connecting"}
         </span>
       </div>
       <div

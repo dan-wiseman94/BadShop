@@ -26,7 +26,9 @@ HELLO_TIMEOUT_S = 10.0
 MAX_MESSAGE = 64 * 2**20  # a big photo sent to artifacts.import as base64
 MAX_REQUESTS = 64  # never retain an unbounded number of long-running calls per socket
 MAX_REQUEST_BYTES = 64 * 2**20
-ACTOR = re.compile(r"user|cli:(claude|codex|gemini)")  # agent:* actors live in the core, never on a socket
+ACTOR = re.compile(r"user|updater|cli:(claude|codex|gemini)")  # agent:* actors live in the core, never on a socket
+ORIGINS = [None, "tauri://localhost", "http://tauri.localhost", "https://tauri.localhost",
+           re.compile(r"http://(?:127\.0\.0\.1|localhost|\[::1\]):[0-9]+")]
 
 log = logging.getLogger("badshop.server")
 
@@ -162,7 +164,7 @@ async def serve(app: CoreApp, token: str, host: str = "127.0.0.1", port: int = 0
 
     where = {"sock": sock} if sock is not None else {"host": host, "port": port}
     # compression=None: on loopback deflate only costs CPU, and most payloads are base64 images anyway
-    return await ws_serve(handler, max_size=MAX_MESSAGE, compression=None, **where)
+    return await ws_serve(handler, max_size=MAX_MESSAGE, compression=None, origins=ORIGINS, **where)
 
 
 def bound_port(server: Server) -> int:

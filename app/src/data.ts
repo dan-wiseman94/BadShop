@@ -158,7 +158,7 @@ export async function action<K extends keyof MethodMap>(
     await queries.invalidateQueries({ queryKey: ["providers.list"] });
   if (method.startsWith("settings."))
     await queries.invalidateQueries({ queryKey: ["settings.get"] });
-  if (method.startsWith("sources."))
+  if (method.startsWith("sources.") || method === "tools.run" || method.startsWith("session.") || method.startsWith("branches."))
     await queries.invalidateQueries({ queryKey: ["sources.status"] });
   if (method.startsWith("assets."))
     await queries.invalidateQueries({ queryKey: ["assets.status"] });
@@ -292,6 +292,8 @@ export function applyCoreEvent({ method, params }: CoreEvent) {
   });
   if (method !== "message.done")
     void queries.invalidateQueries({ queryKey: ["session.get"] });
+  if (method === "step.done" || method === "step.deleted")
+    void queries.invalidateQueries({ queryKey: ["sources.status"] });
 }
 export function startCore() {
   let disposed = false;
@@ -410,7 +412,7 @@ export function imageUrl(data: { mime: string; data: string } | undefined) {
 }
 const MAX_PASTE_MIB = 47; // Matches MAX_PASTE_BYTES in the core and leaves room for the RPC envelope.
 
-export async function importBlob(blob: Blob, name = "pasted.png") {
+export async function importBlob(blob: Blob, name = "pasted.png", source?: Artifact["source"]) {
   if (blob.size > MAX_PASTE_MIB * 2 ** 20) {
     throw new Error(
       `This image exceeds the ${MAX_PASTE_MIB} MiB paste limit. Import it from a file or paste a smaller copy.`,
@@ -425,5 +427,5 @@ export async function importBlob(blob: Blob, name = "pasted.png") {
   });
   if (generation !== useUI.getState().documentGeneration)
     throw new Error("The session changed while reading the image. Import it again into the current session.");
-  return action("artifacts.import", { data, name });
+  return action("artifacts.import", { data, name, ...(source ? { source } : {}) });
 }

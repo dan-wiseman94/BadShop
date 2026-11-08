@@ -15,6 +15,13 @@ occlusion, within the existing one-or-two-corrections budget. Rough seams are in
 
 ## Six fixed briefs
 
+The full catalog now has 36 briefs, including 24 release cases focused on shitpost creation,
+chat-size readability, narrow revisions, variants, transparency and offline recovery.
+Use `--all-cases` to print the full catalog; `--cases` keeps the original six fixed fixtures.
+See [product-validation.md](product-validation.md) for the study protocol, provider run matrix,
+scoring, evidence requirements and paid-pilot draft. Additional briefs are prompts to run and rate,
+not claims that models have passed them.
+
 Print the representative prompt set:
 
 ```sh

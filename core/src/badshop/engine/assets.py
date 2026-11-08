@@ -5,6 +5,7 @@ import http.client
 import json
 import re
 import shutil
+import socket
 import os
 import time
 import urllib.error
@@ -28,6 +29,10 @@ MAX_DOWNLOAD = 40 * 2**20  # bytes in any one http_get: a big photo fits, an end
 # Called with the first URL of every request and with every redirect hop; it raises (EngineError, say)
 # to refuse one. The CLI leaves it unset; the app installs a policy that refuses private addresses.
 URL_POLICY: Callable[[str], None] | None = None
+
+# The app's connection boundary returns a socket connected to vetted numeric addresses.
+# Keep the original request host on HTTPConnection for Host headers and TLS verification.
+CONNECT: Callable[..., socket.socket] | None = None
 
 # Called by cached() after every chunk of every download, as (name, bytes so far, total or None), on
 # whichever thread is downloading; it must not raise (that aborts the download). The CLI leaves it
@@ -73,10 +78,38 @@ class _WebOnlyRedirects(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_WebOnlyRedirects)
 
 
+def _guarded_connection(connection_type, request):
+    connector = CONNECT
+    def connection(host, **kwargs):
+        result = connection_type(host, **kwargs)
+        if connector is not None:
+            result._create_connection = lambda address, timeout, source_address=None: connector(
+                request.full_url, address, timeout, source_address)
+        return result
+    return connection
+
+
+class _GuardedHTTP(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_guarded_connection(http.client.HTTPConnection, req), req)
+
+
+class _GuardedHTTPS(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_guarded_connection(http.client.HTTPSConnection, req), req, context=self._context)
+
+
+# A proxy would resolve the destination outside our address policy. Guarded application
+# downloads connect directly; the standalone CLI retains urllib's ordinary proxy behavior.
+_GUARDED_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}), _WebOnlyRedirects, _GuardedHTTP, _GuardedHTTPS)
+
+
 def _open(url: str, timeout: float, headers: dict[str, str] | None = None):
     _check_hop(url)
-    return _OPENER.open(urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})}),
-                        timeout=timeout)
+    opener = _GUARDED_OPENER if CONNECT is not None else _OPENER
+    return opener.open(urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})}),
+                       timeout=timeout)
 
 
 def data_dir() -> Path:

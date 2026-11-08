@@ -1,10 +1,11 @@
 import { Button } from "./Button";
 import { useEffect, useRef, useState } from "react";
 import { Grid2X2, ScanFace, Maximize, ImagePlus, MousePointer2, ChevronDown, Download } from "lucide-react";
-import { imageUrl, useArtifact, useSession, run, action } from "../data";
+import { imageUrl, useArtifact, useSession, run } from "../data";
 import { useUI } from "../store";
 import { useReducedMotion } from "../appearance";
-import { reveal, openLink } from "../native";
+import { openLink } from "../native";
+import { CopyImage, ShareImage } from "./ShareImage";
 import type { Params } from "../types";
 export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
   const { data } = useArtifact(id, true);
@@ -32,6 +33,12 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const [grid, setGrid] = useState(false);
   const [boxes, setBoxes] = useState(false);
   const [before, setBefore] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const shareDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (sharing) shareDialog.current?.showModal();
+    else shareDialog.current?.close();
+  }, [sharing]);
   const [zoom, setZoom] = useState<"fit" | number>("fit");
   const [size, setSize] = useState({ width: 600, height: 500 });
   const stage = useRef<HTMLDivElement>(null);
@@ -112,6 +119,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
       </div>
       <div className="viewer-tools">
+        {id && <CopyImage id={id} frame={paused ? frame : 0} animated={(meta?.frames ?? 1) > 1} />}
         <div className="segmented">
           <Button
             disabled={!inputId}
@@ -325,11 +333,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         onSubmit={(event) => {
           event.preventDefault();
           if (!id) return;
-          run(async () => {
-            const result = await action("export", { artifact_id: id });
-            useUI.getState().set({ notice: `Exported to ${result.path}` });
-            await reveal(result.path);
-          });
+          setSharing(true);
         }}
       >
         <div className="strip-title">
@@ -361,6 +365,10 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </button>
         )}
       </form>
+      <dialog ref={shareDialog} className="share-dialog" aria-label="Export image" onClose={() => setSharing(false)}>
+        <button onClick={() => setSharing(false)} aria-label="Close export">Close</button>
+        {sharing && id && <ShareImage key={id} id={id} />}
+      </dialog>
     </section>
   );
 }

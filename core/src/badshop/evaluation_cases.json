@@ -1,14 +1,400 @@
 [
-  {"id":"dog-boss","fixed":true,"roles":["dog"],"takes":3,"prompt":"Make this dog the boss. Give me three distinct takes.","inputs":"Attach the dog card. Use it in each of three distinct compositions.","focus":["subject recognition","different premises","composition"]},
-  {"id":"head-swap","fixed":true,"roles":["donor","target","distractor"],"ignore_roles":["distractor"],"prompt":"Put the head from the first image on the person in the second. Ignore the third image. Keep the hard seam.","inputs":"Attach donor, target and distractor cards in that order. Record all three roles.","focus":["correct source and target","visible placement","hard seams"]},
-  {"id":"same-person","prompt":"Find three useful pictures of Abraham Lincoln with different poses or framing for a head swap.","inputs":"No attachments. Reuse a recorded candidate set when comparing art direction.","focus":["same subject","pose diversity","duplicate avoidance"]},
-  {"id":"forum-signature","prompt":"Make this pet a 2005 forum signature. The screen name is xX_BiscuitLord_Xx.","inputs":"Attach the same pet photo in each run.","focus":["wide layout","readable name","recognition"]},
-  {"id":"wordart","prompt":"Make a terrible office flyer announcing that this cat is Employee of the Month. Use Office WordArt disaster style.","inputs":"Attach one cat photo.","focus":["typography","readability","intentional clutter"]},
-  {"id":"tabloid","prompt":"Make a tabloid front page claiming this dog ate the moon. Use a big headline and one evidence inset.","inputs":"Attach a dog photo and a moon photo.","focus":["headline fit","inset clarity","visual joke"]},
-  {"id":"bootleg","prompt":"Turn these three people into a bootleg DVD cover for MEETING THAT NEVER ENDS.","inputs":"Attach three fixed portraits and a tall background.","focus":["cast hierarchy","title fit","recognition"]},
-  {"id":"museum","fixed":true,"roles":["painting","duck"],"forbidden_tools":["text","deepfry"],"prompt":"Replace the red vase in this painting with this duck. Use one obvious hard-edged substitution. No caption or finishing effects.","inputs":"Attach the painting and duck cards.","focus":["restraint","one substitution","no caption or frying"]},
-  {"id":"conspiracy","prompt":"Create a conspiracy diagram connecting this cat, a printer, and the missing tuna. Keep the labels short.","inputs":"Attach three fixed object photos and a simple background.","focus":["relationship readability","label placement","distinct evidence"]},
-  {"id":"caption-overflow","fixed":true,"roles":["canvas"],"caption":"THE COMMITTEE HAS REVIEWED YOUR REQUEST AND DECIDED TO SCHEDULE ANOTHER MEETING","prompt":"Caption this image: THE COMMITTEE HAS REVIEWED YOUR REQUEST AND DECIDED TO SCHEDULE ANOTHER MEETING. Keep the whole caption readable.","inputs":"Attach the small landscape card.","focus":["caption fit","readability","bounded correction"]},
-  {"id":"preserve-concept","fixed":true,"roles":["canvas"],"caption":"THIS IS FINE","prompt":"Keep the composition and source pictures exactly as they are, but change the headline to THIS IS FINE.","inputs":"Start from the saved headline project. Record its uncaptioned canvas and mark the existing headline step as start_after.","focus":["same caption base","minimal changes","caption fit"]},
-  {"id":"fried-recognition","fixed":true,"roles":["composite"],"max_fry_level":2,"prompt":"Lightly deep fry this head swap, level 2 at most. Keep the person and punchline recognizable.","inputs":"Attach the same captioned composite card.","focus":["recognition after finish","punchline readability","restraint"]}
+  {
+    "id": "dog-boss",
+    "fixed": true,
+    "roles": [
+      "dog"
+    ],
+    "takes": 3,
+    "prompt": "Make this dog the boss. Give me three distinct takes.",
+    "inputs": "Attach the dog card. Use it in each of three distinct compositions.",
+    "focus": [
+      "subject recognition",
+      "different premises",
+      "composition"
+    ]
+  },
+  {
+    "id": "head-swap",
+    "fixed": true,
+    "roles": [
+      "donor",
+      "target",
+      "distractor"
+    ],
+    "ignore_roles": [
+      "distractor"
+    ],
+    "prompt": "Put the head from the first image on the person in the second. Ignore the third image. Keep the hard seam.",
+    "inputs": "Attach donor, target and distractor cards in that order. Record all three roles.",
+    "focus": [
+      "correct source and target",
+      "visible placement",
+      "hard seams"
+    ]
+  },
+  {
+    "id": "same-person",
+    "prompt": "Find three useful pictures of Abraham Lincoln with different poses or framing for a head swap.",
+    "inputs": "No attachments. Reuse a recorded candidate set when comparing art direction.",
+    "focus": [
+      "same subject",
+      "pose diversity",
+      "duplicate avoidance"
+    ]
+  },
+  {
+    "id": "forum-signature",
+    "prompt": "Make this pet a 2005 forum signature. The screen name is xX_BiscuitLord_Xx.",
+    "inputs": "Attach the same pet photo in each run.",
+    "focus": [
+      "wide layout",
+      "readable name",
+      "recognition"
+    ]
+  },
+  {
+    "id": "wordart",
+    "prompt": "Make a terrible office flyer announcing that this cat is Employee of the Month. Use Office WordArt disaster style.",
+    "inputs": "Attach one cat photo.",
+    "focus": [
+      "typography",
+      "readability",
+      "intentional clutter"
+    ]
+  },
+  {
+    "id": "tabloid",
+    "prompt": "Make a tabloid front page claiming this dog ate the moon. Use a big headline and one evidence inset.",
+    "inputs": "Attach a dog photo and a moon photo.",
+    "focus": [
+      "headline fit",
+      "inset clarity",
+      "visual joke"
+    ]
+  },
+  {
+    "id": "bootleg",
+    "prompt": "Turn these three people into a bootleg DVD cover for MEETING THAT NEVER ENDS.",
+    "inputs": "Attach three fixed portraits and a tall background.",
+    "focus": [
+      "cast hierarchy",
+      "title fit",
+      "recognition"
+    ]
+  },
+  {
+    "id": "museum",
+    "fixed": true,
+    "roles": [
+      "painting",
+      "duck"
+    ],
+    "forbidden_tools": [
+      "text",
+      "deepfry"
+    ],
+    "prompt": "Replace the red vase in this painting with this duck. Use one obvious hard-edged substitution. No caption or finishing effects.",
+    "inputs": "Attach the painting and duck cards.",
+    "focus": [
+      "restraint",
+      "one substitution",
+      "no caption or frying"
+    ]
+  },
+  {
+    "id": "conspiracy",
+    "prompt": "Create a conspiracy diagram connecting this cat, a printer, and the missing tuna. Keep the labels short.",
+    "inputs": "Attach three fixed object photos and a simple background.",
+    "focus": [
+      "relationship readability",
+      "label placement",
+      "distinct evidence"
+    ]
+  },
+  {
+    "id": "caption-overflow",
+    "fixed": true,
+    "roles": [
+      "canvas"
+    ],
+    "caption": "THE COMMITTEE HAS REVIEWED YOUR REQUEST AND DECIDED TO SCHEDULE ANOTHER MEETING",
+    "prompt": "Caption this image: THE COMMITTEE HAS REVIEWED YOUR REQUEST AND DECIDED TO SCHEDULE ANOTHER MEETING. Keep the whole caption readable.",
+    "inputs": "Attach the small landscape card.",
+    "focus": [
+      "caption fit",
+      "readability",
+      "bounded correction"
+    ]
+  },
+  {
+    "id": "preserve-concept",
+    "fixed": true,
+    "roles": [
+      "canvas"
+    ],
+    "caption": "THIS IS FINE",
+    "prompt": "Keep the composition and source pictures exactly as they are, but change the headline to THIS IS FINE.",
+    "inputs": "Start from the saved headline project. Record its uncaptioned canvas and mark the existing headline step as start_after.",
+    "focus": [
+      "same caption base",
+      "minimal changes",
+      "caption fit"
+    ]
+  },
+  {
+    "id": "fried-recognition",
+    "fixed": true,
+    "roles": [
+      "composite"
+    ],
+    "max_fry_level": 2,
+    "prompt": "Lightly deep fry this head swap, level 2 at most. Keep the person and punchline recognizable.",
+    "inputs": "Attach the same captioned composite card.",
+    "focus": [
+      "recognition after finish",
+      "punchline readability",
+      "restraint"
+    ]
+  },
+  {
+    "id": "error-pigeon",
+    "prompt": "Make a desktop error about this pigeon being the only employee who understands the printer.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "error layout",
+      "readable punchline"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "trading-pigeon",
+    "prompt": "Make this pigeon a trading card: HEAD OF OPERATIONS, attack 0, meetings 999.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "character recognition",
+      "card hierarchy"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "achievement-laundry",
+    "prompt": "Make an achievement unlocked card for moving laundry from the chair to the other chair.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "one clear joke",
+      "mobile readability"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "certificate-nothing",
+    "prompt": "Award this pigeon a certificate for Outstanding Contribution to Absolutely Nothing.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "certificate layout",
+      "caption fit"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "comic-two-panels",
+    "prompt": "Make a two-panel comic: before coffee / after coffee. Use the same pigeon twice with visibly different treatment.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "sequence clarity",
+      "distinct panels"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "urgent-tabloid",
+    "prompt": "Make a tabloid front page: LOCAL PIGEON REJECTS CLOUD MIGRATION. Include one evidence inset.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "headline hierarchy",
+      "inset relevance"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "tiny-avatar",
+    "prompt": "Make a recognizable 128 by 128 avatar of this pigeon with no words.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "recognition",
+      "correct output size"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "transparent-sticker",
+    "prompt": "Turn this pigeon into a transparent sticker with a hard white border. Preserve empty corners.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "transparency",
+      "hard edges"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "forum-banner-long",
+    "prompt": "Make a wide forum signature reading xX_RegionalAssistantToThePigeonManager_Xx.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "long-text fit",
+      "wide format"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "small-chat-preview",
+    "prompt": "Make a joke about this pigeon answering a message six months late. It must read at 320 pixels wide.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "readability",
+      "short joke"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "emoji-caption",
+    "prompt": "Caption the pigeon: NO THOUGHTS. JUST 🐦. If the font cannot render the symbol, explain and use the word PIGEON.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "missing glyph recovery",
+      "readability"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "accented-caption",
+    "prompt": "Caption the pigeon: café fermé — réunion inutile. Preserve accents and punctuation.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "glyph coverage",
+      "exact wording"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "long-unbroken-word",
+    "prompt": "Use the headline PIGEONPIGEONPIGEONPIGEONPIGEONPIGEON without clipping it.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "overflow recovery",
+      "complete text"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "portrait-photo",
+    "prompt": "Use this tall pigeon image in a landscape error dialog. Do not stretch the subject.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "aspect ratio",
+      "composition"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "wide-photo",
+    "prompt": "Use this wide pigeon image in a square trading card. Keep the head visible.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "crop choice",
+      "subject recognition"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "two-subjects",
+    "prompt": "Make a terrible rivalry poster using both attached pigeons, with readable LEFT and RIGHT labels.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "attachment roles",
+      "both subjects visible"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "no-background-download",
+    "prompt": "With Local only enabled and no background-removal model installed, make a hard rectangle cutout collage.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "offline completion",
+      "truthful limitations"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "offline-caption",
+    "prompt": "With Local only enabled, caption the bundled pigeon without downloading fonts or models.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "first useful result",
+      "offline behavior"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "different-setting",
+    "prompt": "Keep this pigeon and the joke, but move the scene from an office to a courtroom. Retain the original take.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "subject continuity",
+      "saved variant"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "less-ruined",
+    "prompt": "Make the existing result less ruined while keeping the same joke and composition.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "reversibility",
+      "recognition"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "more-ruined",
+    "prompt": "Make the existing result more ruined without making the headline unreadable.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "controlled effects",
+      "readability"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "caption-correction",
+    "prompt": "Correct only the typo PIGEN to PIGEON. Leave every source picture and placement unchanged.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "narrow revision",
+      "no unrelated edits"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "export-transparent",
+    "prompt": "Export this transparent sticker as PNG and preserve transparent corners.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "export bytes",
+      "alpha preservation"
+    ],
+    "cohort": "release-shitpost"
+  },
+  {
+    "id": "three-distinct-premises",
+    "prompt": "Give this pigeon three different jobs in three different visual formats. Save each take separately.",
+    "inputs": "Use the bundled CC0 pigeon (app/public/samples/pigeon.png), or the fixed saved output described by the brief. Record exact input hashes and start_after for revisions.",
+    "focus": [
+      "concept diversity",
+      "separate outputs"
+    ],
+    "cohort": "release-shitpost"
+  }
 ]

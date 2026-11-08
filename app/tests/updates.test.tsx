@@ -1,6 +1,6 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { UpdateSettings, useUpdates } from "../src/updates";
+import { UpdateProgress, UpdateSettings, useUpdates } from "../src/updates";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), off: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
@@ -88,4 +88,36 @@ it("reports installer failure and allows another explicit attempt", async () => 
   await act(() => result.current.install());
   expect(result.current.error).toBe("");
   expect(mocks.invoke.mock.calls.filter(c => c[0] === "update_install")).toHaveLength(2);
+});
+
+it("suppresses automatic network checks while Local only is on", async () => {
+  const { rerender } = renderHook(({ local }) => useUpdates(async () => false, local), { initialProps: { local: true } });
+  await act(() => vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000));
+  expect(mocks.invoke).not.toHaveBeenCalled();
+  rerender({ local: false });
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(mocks.invoke).toHaveBeenCalledWith("update_check");
+});
+
+it("cancels an active download, removes progress, and permits an explicit retry", async () => {
+  let stop: (error: Error) => void;
+  mocks.invoke.mockImplementation(command => {
+    if (command === "update_check") return Promise.resolve(available);
+    if (command === "update_download") return new Promise((_, reject) => { stop = reject; });
+    if (command === "update_cancel") { stop(new Error("Update cancelled")); return Promise.resolve(); }
+  });
+  const confirm = vi.fn();
+  const { result } = renderHook(() => useUpdates(confirm));
+  await act(() => result.current.check());
+  let downloading: Promise<void>;
+  await act(async () => { downloading = result.current.install(); });
+  const panel = render(<UpdateProgress updates={result.current} />);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Cancel download" })));
+  await act(() => downloading!);
+  panel.rerender(<UpdateProgress updates={result.current} />);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(result.current.error).toContain("Update cancelled");
+  expect(confirm).not.toHaveBeenCalled();
+  expect(mocks.off).toHaveBeenCalledTimes(1);
+  expect(result.current.phase).toBe("idle");
 });

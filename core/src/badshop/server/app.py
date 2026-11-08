@@ -40,7 +40,7 @@ from badshop.session import branches, project
 from badshop.session.library import AssetDetails, AssetLibrary
 from badshop.session.novelty import NoveltyMemory, NoveltyMode
 from badshop.session.execution import Executor
-from badshop.session.models import Step
+from badshop.session.models import Source, Step
 from badshop.session.session import RUNNABLE, Session
 from badshop.session.worker import WorkerExecutor
 from badshop.tools import REGISTRY, registry, runner
@@ -55,6 +55,7 @@ MaxPx = Annotated[int, Field(ge=16, le=4096)]
 Verdict = Literal["approve", "reject", "edit"]
 MAX_IMPORT_BYTES = 200 * 2**20  # a picked file bigger than this is refused before it is read
 MAX_PASTE_BYTES = 47 * 2**20  # base64 plus JSON must fit ws.MAX_MESSAGE; see app/src/data.ts
+UPDATE_STOP_TIMEOUT_S = 15.0
 NO_PROVIDER_HINT = "add a profile with providers.save and select it with providers.select, or use badshop chat --model"
 
 
@@ -152,7 +153,14 @@ class CoreApp:
         self._restorable = self._claim_autosave()
         self._executor_factory = executor_factory
         self._executor = self._new_executor()
+        # Reuse worker supervision for decoding, with its own worker so a long
+        # editing tool cannot prevent previews or imports from responding.
+        self._decoder = self._executor_factory(timeout_s=30.0, max_rss_mb=1024)
         self._lock = asyncio.Lock()  # one session call (and so one tool) at a time
+        self._settings_lock = asyncio.Lock()  # serialize policy transition and persisted acknowledgement
+        self._network_transition = False
+        self._update_leases: dict[str, asyncio.Event] = {}
+        self._provider_probes: set[asyncio.Task] = set()
         self._subscribers: dict[asyncio.Queue, asyncio.Task] = {}
         self._tasks: set[asyncio.Task] = set()  # background work (auto replays, cleanups)
         self._turn: asyncio.Task | None = None
@@ -198,7 +206,7 @@ class CoreApp:
         assets.CANCEL = self._download_cancelled
         self.dispatcher = Dispatcher()
         self._register()
-        self.library = AssetLibrary()
+        self.library = AssetLibrary(decoder=getattr(self._decoder, "decode", None))
         self.novelty = NoveltyMemory()
         from badshop.server.media_api import register as register_media
         register_media(self)
@@ -219,7 +227,8 @@ class CoreApp:
 
     def _session_kw(self) -> dict:
         """What every session is made with; `_own` gives it its emit once it exists."""
-        return {"executor": self._executor, "output_dir": self._output_dir(), "on_change": self._changed}
+        return {"executor": self._executor, "output_dir": self._output_dir(), "on_change": self._changed,
+                "decoder": getattr(self._decoder, "decode", None)}
 
     def _own(self, session: Session) -> Session:
         """Forward events and changes only while this is the open session. Step ids start at s1 in every session and
@@ -387,6 +396,8 @@ class CoreApp:
                 "restorable": str(self._restorable) if self._restorable else None}
 
     def _check_idle(self) -> None:
+        if self._network_transition:
+            raise EngineError("network mode is changing", hint="wait for Local only to finish switching")
         if getattr(self, '_recipe_cancel', None) is not None:
             raise EngineError('a recipe batch is running', hint='stop the batch or wait for it to finish')
         if self._closed:
@@ -434,14 +445,20 @@ class CoreApp:
         register_secret(token)
         self._connection = (url, token)
 
-    def _make_provider(self, profile: profiles.Profile) -> LiteLLMProvider | CLIProvider | local_vision.LocalVisionProvider:
+    def _check_provider_network(self, profile: profiles.Profile) -> None:
+        profiles.require_secure_transport(profile)
         if profile.id == local_vision.PROFILE_ID:
-            return self._local_vision
-        if self.settings.no_remote:
+            return
+        if self.settings.no_remote or self._network_transition:
             from urllib.parse import urlsplit
             host = urlsplit(profile.api_base or '').hostname
             if profile.kind != 'local' or host not in ('localhost', '127.0.0.1', '::1'):
                 raise EngineError('Local only requires a local provider at a loopback address')
+
+    def _make_provider(self, profile: profiles.Profile) -> LiteLLMProvider | CLIProvider | local_vision.LocalVisionProvider:
+        self._check_provider_network(profile)
+        if profile.id == local_vision.PROFILE_ID:
+            return self._local_vision
         if profile.kind == "cli":
             if self._connection is None:
                 raise EngineError("the local core connection is not ready")
@@ -546,6 +563,10 @@ class CoreApp:
         if self._closed:
             return
         self._closed = True
+        probes = list(self._provider_probes)
+        for task in probes:
+            task.cancel()
+        await asyncio.gather(*probes, return_exceptions=True)
         if getattr(self, '_recipe_cancel', None) is not None:
             self._recipe_cancel.set()
         downloads = list(self._downloads.values())
@@ -562,9 +583,12 @@ class CoreApp:
         for task in tasks:
             task.cancel()
         self._executor.cancel()  # kill a tool a replay is running; nothing runs on this executor again
+        self._decoder.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         await self._blocking(lambda: None)  # a last autosave, if anything changed
         await asyncio.to_thread(self._executor.close)
+        if self._decoder is not self._executor:
+            await asyncio.to_thread(self._decoder.close)
         pumps = list(self._subscribers.values())
         self._subscribers.clear()
         for pump in pumps:
@@ -626,6 +650,8 @@ class CoreApp:
             ("export", self._export, "user"),
             ("settings.get", self._settings_get, "user"),
             ("settings.set", self._settings_set, "user"),
+            ("updates.begin", self._updates_begin, "updater"),
+            ("updates.end", self._updates_end, "updater"),
             ("assets.status", self._assets_status, "user"),
             ("assets.download", self._assets_download, "user"),
             ("assets.cancel", self._assets_cancel, "user"),
@@ -837,7 +863,16 @@ class CoreApp:
 
     async def _sources_status(self, actor: str) -> list[dict]:
         from badshop.engine.discovery import source_status
-        return source_status()
+        # Derive observations from the existing session history; configuration
+        # alone is never promoted to a health result. Older projects remain unknown.
+        health = {}
+        for step in self.session.data.steps:
+            if step.tool == "discover" and isinstance(step.data, dict):
+                observations = step.data.get("source_health")
+                if isinstance(observations, dict):
+                    health.update({name: {**value, "step_id": step.id} for name, value in observations.items()
+                                   if isinstance(value, dict) and value.get("status") in ("failed", "responded")})
+        return [{**item, "health": health.get(item["id"], {"status": "not checked"})} for item in source_status()]
 
     async def _novelty_clear(self, actor: str) -> dict:
         return await self._blocking(self.novelty.clear)
@@ -893,6 +928,9 @@ class CoreApp:
         session = self.session
         ids = [session.artifacts.resolve(a) for a in attachments or []]  # a bad ref fails now, not mid-turn
         cfg = TurnConfig(approval_mode=session.data.approval_mode, step_budget=self.settings.step_budget)
+        if session.data.provider_profile_id:
+            profile = self._profile(session.data.provider_profile_id)
+            cfg.before_request = lambda: self._check_provider_network(profile)
         self._turn_cfg = cfg
         self._retry_session = None
         self._turn = self._spawn(self._turn_main(session, provider, text, ids, cfg, retry))
@@ -1051,7 +1089,7 @@ class CoreApp:
         return await asyncio.to_thread(_artifact_payload, self.session, id, max_px)
 
     async def _artifacts_import(self, actor: str, path: str | None = None, data: str | None = None,
-                                name: str | None = None) -> dict:
+                                name: str | None = None, source: Source | None = None) -> dict:
         session = self.session
         timeline = session.data.steps
         if (path is None) == (data is None):
@@ -1072,7 +1110,7 @@ class CoreApp:
             if self.session is not session or session.data.steps is not timeline:
                 raise EngineError("the session changed while the image was being read",
                                   hint="import the image again into the current session")
-            working = self.session.import_image(_decode_paste(data) if blob is None else blob, label)
+            working = self.session.import_image(_decode_paste(data) if blob is None else blob, label, source)
             return working, self.session.artifacts.meta.get(working.original_id or "", working)
 
         working, original = await self._blocking(do)
@@ -1099,6 +1137,7 @@ class CoreApp:
             self._check_idle()
             self._check_profiles()
             p = profiles.parse_profile(profile)
+            profiles.require_secure_transport(p)
             if p.id == local_vision.PROFILE_ID:
                 raise EngineError("manage On-device AI in Settings → Assets")
             if p.kind == "cli" and api_key is not None:
@@ -1186,6 +1225,9 @@ class CoreApp:
 
     async def _providers_test(self, actor: str, profile_id: str, probe: bool = False) -> dict:
         # Capability inspection is offline. A paid test completion requires probe=true.
+        task = asyncio.current_task()
+        if probe:
+            self._provider_probes.add(task)
         try:
             profile = self._profile(profile_id)
             if profile.kind == "cli":
@@ -1198,11 +1240,18 @@ class CoreApp:
             provider = await self._blocking(lambda: self._make_provider(self._profile(profile_id)))
             capabilities = await asyncio.to_thread(provider.check_capabilities)
             if probe:
+                self._check_provider_network(profile)
                 await provider.complete([{"role": "user", "content": "Reply with OK."}], [], lambda _: None)
             result = {"profile_id": profile_id, "status": "ready", "capabilities": capabilities,
                       "probed": probe, "warnings": getattr(provider, "warnings", [])}
         except (ProviderError, EngineError) as e:
             result = {"profile_id": profile_id, "status": "error", "error": str(e)}
+        except asyncio.CancelledError:
+            if not self._network_transition:
+                raise
+            result = {"profile_id": profile_id, "status": "error", "error": "Connection test cancelled: Local only is being enabled"}
+        finally:
+            self._provider_probes.discard(task)
         self._emit("provider.status", result)
         return result
 
@@ -1218,8 +1267,60 @@ class CoreApp:
     async def _settings_get(self, actor: str) -> dict:
         return self.settings.model_dump(mode="json")
 
+    async def _updates_begin(self, actor: str) -> dict:
+        # The native updater owns HTTP, but core owns privacy policy. A lease is
+        # released only AFTER the native HTTP future has completed or been dropped.
+        if self.settings.no_remote or self._network_transition:
+            raise EngineError("Local only blocks app update checks and downloads",
+                              hint="turn off Local only in Settings to check for updates")
+        if len(self._update_leases) >= 4:
+            raise EngineError("an update operation is already running")
+        lease = uuid.uuid4().hex
+        self._update_leases[lease] = asyncio.Event()
+        return {"lease": lease}
+
+    async def _updates_end(self, actor: str, lease: str) -> dict:
+        stopped = self._update_leases.pop(lease, None)
+        if stopped is not None:
+            stopped.set()
+        return {"ended": stopped is not None}
+
     async def _settings_set(self, actor: str, values: dict) -> dict:
-        return (await self._blocking(self._apply_settings, values)).model_dump(mode="json")
+        async with self._settings_lock:
+            # Reject invalid input before stopping anything. _apply_settings merges again under
+            # the session lock, preserving changes queued behind an executing tool.
+            try:
+                proposed = Settings.model_validate({**self.settings.model_dump(), **values})
+            except ValidationError as e:
+                raise RpcError(INVALID_PARAMS, "invalid settings", {"hint": runner.explain(e)}) from None
+            self._network_transition = proposed.no_remote and not self.settings.no_remote
+            try:
+                if self._network_transition:
+                    updates = list(self._update_leases.values())
+                    self._emit("updates.cancel", {})
+                    probes = list(self._provider_probes)
+                    for task in probes:
+                        task.cancel()
+                    downloads = list(self._downloads.values())
+                    for signal, _ in downloads:
+                        signal.set()
+                    if getattr(self, '_recipe_cancel', None) is not None:
+                        self._recipe_cancel.set()
+                    self._cancel_approvals("Local only is being enabled")
+                    await self._stop_turn("Local only is being enabled")
+                    await asyncio.gather(*probes, return_exceptions=True)
+                    await asyncio.gather(*(p.close() for p in self._cli_providers.values()))
+                    self._cli_providers.clear()
+                    await asyncio.gather(*(task for _, task in downloads), return_exceptions=True)
+                    try:
+                        async with asyncio.timeout(UPDATE_STOP_TIMEOUT_S):
+                            await asyncio.gather(*(stopped.wait() for stopped in updates))
+                    except TimeoutError:
+                        raise EngineError("could not confirm that the app update stopped",
+                                          hint="Local only has not been enabled. Cancel the update or restart badshop, then try again") from None
+                return (await self._blocking(self._apply_settings, values)).model_dump(mode="json")
+            finally:
+                self._network_transition = False
 
     def _apply_settings(self, values: dict) -> Settings:
         """Runs in a thread under the lock, so no tool is running while the executor is swapped, and the
@@ -1245,7 +1346,7 @@ class CoreApp:
         return await asyncio.to_thread(manifest.status)
 
     async def _assets_download(self, actor: str, name: str) -> dict:
-        if self.settings.no_remote:
+        if self.settings.no_remote or self._network_transition:
             raise EngineError('remote downloads are disabled in Local only mode')
         # Not under the lock: a 170 MB model download must not hold up tools. Progress arrives as
         # asset.progress events through assets.PROGRESS.

@@ -1,7 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readImage, writeImage, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { Image } from "@tauri-apps/api/image";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -100,6 +101,35 @@ export async function packPath(saving: boolean): Promise<string | null> {
 export async function copyText(text: string) {
   if (native) await writeText(text);
   else await navigator.clipboard.writeText(text);
+}
+/** Start browser clipboard.write during the click gesture; image data may arrive later. */
+export async function copyImage(png: Promise<string>) {
+  const bytes = png.then(data => Uint8Array.from(atob(data), c => c.charCodeAt(0)));
+  if (native) {
+    const image = await Image.fromBytes(await bytes);
+    try { await writeImage(image); }
+    finally { await image.close(); }
+  } else {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": bytes.then(data => new Blob([data], { type: "image/png" })) })]);
+  }
+}
+
+/** Used only after the isolated native harness has explicitly enabled its probe. */
+export async function verifyImageClipboard(): Promise<boolean> {
+  const pixels = new Uint8ClampedArray([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 0]);
+  const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+  canvas.getContext("2d")!.putImageData(new ImageData(pixels, 2, 2), 0, 0);
+  try {
+    await copyImage(Promise.resolve(canvas.toDataURL("image/png").split(",")[1]));
+    const actual = await readImage();
+    try {
+      const size = await actual.size();
+      const rgba = await actual.rgba();
+      if (size.width !== 2 || size.height !== 2 || rgba.length !== pixels.length || rgba.some((v, i) => v !== pixels[i]))
+        throw new Error("Native clipboard did not preserve image pixels");
+      return true;
+    } finally { await actual.close(); }
+  } finally { await writeText(""); }
 }
 export async function reveal(path: string) {
   if (native) await revealItemInDir(path);

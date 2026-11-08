@@ -103,7 +103,9 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
     steps.getByRole("button").filter({ hasText: "info" }).first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Save image file" }).click();
   await expect(page.getByRole("status")).toContainText("Exported to");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Untitled" }).click();
   page.once("dialog", (dialog) => dialog.accept(project));
   await page
@@ -330,6 +332,7 @@ test("exports the output of an older selected step", async ({ page, core }) => {
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.locator(".step").first().click();
   await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Save image file" }).click();
   await expect(page.getByRole("status")).toContainText("Exported to");
   const file = await page.getByRole("status").innerText();
   const exportedPath = file.replace("Exported to ", "").trim();
@@ -338,8 +341,10 @@ test("exports the output of an older selected step", async ({ page, core }) => {
     id: first.outputs[0],
   })) as { data: string };
   expect((await readFile(exportedPath)).toString("base64")).toBe(expected.data);
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Before", exact: true }).click();
   await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Save image file" }).click();
   const original = (await core.call("artifacts.get", { id: image })) as { data: string };
   await expect.poll(async () => {
     const notice = await page.getByRole("status").innerText();
@@ -403,6 +408,7 @@ test("production assets and generated forms run under the packaged content secur
   const config = JSON.parse(
     await readFile(path.join(root, "app/src-tauri/tauri.conf.json"), "utf8"),
   ) as { app: { security: { csp: string } } };
+  expect(config.app.security.csp).not.toContain("unsafe-eval");
   await page.route("**/production/**", async (route) => {
     const relative = new URL(route.request().url()).pathname.replace(
       "/production/",

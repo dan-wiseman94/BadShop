@@ -3,7 +3,9 @@
 The app explicitly selects a model for background removal; it never uses rembg's default
 model selection. No generative image model is used. Models are downloaded on demand,
 not embedded in installers. The exact files, sizes and published hashes live in
-`core/src/badshop/engine/manifest.py`.
+`core/src/badshop/engine/manifest.py`. The four rembg SHA-256 values were independently measured
+on November 7, 2026 from bytes matching the existing upstream MD5 and exact-size pins. They are
+BadShop's recorded integrity pins, not newly published upstream signatures. Both hashes are checked.
 
 Reviewed against upstream sources on 2026-10-31:
 
@@ -25,4 +27,7 @@ Wikipedia image attribution is queried from the file metadata API when a file na
 available. User imports retain provenance but do not imply ownership or licensing.
 
 The installer includes `THIRD_PARTY_NOTICES.md`, Python distribution metadata/license files,
-and `dependencies.json`. Source lockfiles record JS and Rust dependencies.
+`dependencies.json`, and a `legal/` dependency inventory with collected notices and explicit coverage
+gaps. Source lockfiles identify JS and Rust versions but do not replace their license texts.
+The original geometric pigeon in `app/public/samples/` is CC0-1.0; the source generator is
+`scripts/build_starter_samples.py`. Source credits follow it into projects and optional export sidecars.

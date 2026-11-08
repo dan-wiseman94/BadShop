@@ -37,7 +37,7 @@ export const useUI = create<UIState>()((set) => ({
   notice: null,
   theme: validTheme(readPreference("theme", "system")),
   density: readPreference("density", "comfortable") === "compact" ? "compact" : "comfortable",
-  textScale: [100, 115, 130, 150].includes(Number(readPreference("textScale", "100"))) ? Number(readPreference("textScale", "100")) : 100,
+  textScale: [100, 115, 130, 150, 175, 200].includes(Number(readPreference("textScale", "100"))) ? Number(readPreference("textScale", "100")) : 100,
   motion: ["reduced", "full"].includes(readPreference("motion", "system")) ? readPreference("motion", "system") as Motion : "system",
   set: (patch) => set(patch),
 }));

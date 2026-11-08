@@ -52,6 +52,7 @@ pnpm --dir app exec playwright test
 cargo test --manifest-path app/src-tauri/Cargo.toml --locked
 uv run --project core --group build python packaging/build_core.py
 uv run --project core python packaging/smoke_core.py packaging/core-dist/badshop-core/badshop-core
+uv run --project core --group build python packaging/release_inventory.py --label linux-x64
 pnpm --dir app tauri build
 ```
 
@@ -126,14 +127,75 @@ Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to bui
 and test each supported installer before attaching it to a draft GitHub release.
 Both publishing jobs require the core and frontend checks and the native bundle matrix
 to pass on the tagged revision. The PyPI job uses the protected
-`pypi` GitHub environment and trusted publishing. Configure the repository/environment as
-a trusted PyPI publisher before its first release. Match the tag to Python, frontend and
+`pypi` GitHub environment and trusted publishing, and is disabled unless the repository
+variable `BADSHOP_PYPI_PUBLISH` is `true`. Current releases are desktop downloads only.
+Configure the repository/environment as a trusted PyPI publisher before enabling it.
+Match the tag to Python, frontend and
 Tauri package versions before tagging. Release tags and external publication are explicit
 maintainer actions, not part of ordinary development.
 
-Unsigned v1 installers: on macOS, use System Settings → Privacy & Security → Open Anyway
-if Gatekeeper blocks the downloaded app; on Windows, SmartScreen may require More info →
-Run anyway. Only bypass these prompts for builds whose source and release you trust.
+Current free releases disclose Windows publisher and Apple notarization warnings; OS signing
+remains a later milestone under the v1 design scope. Use platform signing and verify a clean
+download on a fresh machine before claiming a trusted first-install experience.
+Updater signatures do not replace Authenticode or Apple notarization.
+
+### Publication and integrity gates
+
+The exact Python lock (all groups), JavaScript lock (including development tools), and
+Rust lock are audited by `security.yml` on pull requests, main, weekly, and release calls.
+Any known vulnerability blocks; Rust warning exceptions are exact package/version/advisory
+reviews in `packaging/rust-advisory-review.json`, expire on 2026-12-07, and require fresh
+call-site/upstream review before renewal. Passing with a reviewed warning is not a clean
+dependency bill of health. External Actions are pinned to immutable commits.
+
+Native packaging collects actual license notices, inventory coverage, and a CycloneDX 1.6
+SBOM under `core-dist/badshop-core/legal/`. `release_inventory.py` fails on missing notice
+files; `coverage.json` also lists remaining manual legal reviews, which must be resolved
+before public redistribution. Cargo MPL-covered source is copied into `legal/covered-source/`.
+The SBOM deliberately includes build/non-host dependencies and is not a precise binary
+reachability claim. Use the platform sidecar SBOM, notices, model/font licenses and an
+inspection of the final installer together.
+
+The release publisher generates `SHA256SUMS` for every asset, rejects duplicate uploaded
+basenames, and creates GitHub build-provenance attestations. These are implemented workflow
+steps; a local source run does not prove a published attestation. Verify the downloaded
+bytes against the checksums and use `gh attestation verify <asset> --repo dan-wiseman94/BadShop`
+for provenance after the release workflow has actually run.
+
+Optional PyPI publication waits for successful draft installer creation. A draft is still a
+candidate. If a required desktop release gate fails, retain the draft and failed-run evidence;
+do not label it released. Before making the draft public, verify all platform assets,
+signatures, checksums, inventory, update feed, release notes and support links refer to the
+same tag. If Python publishing is enabled, verify its version separately and report any failure
+explicitly. Never overwrite an already published version with different bytes.
+
+### Signing and acceptance handoff
+
+The maintainer must provision the signing identities and repository secrets; none are
+generated, purchased or replaced by an ordinary source task. Follow the current official
+[Windows signing guide](https://v2.tauri.app/distribute/sign/windows/) for the chosen
+certificate/key service and [macOS signing guide](https://v2.tauri.app/distribute/sign/macos/)
+for Developer ID and notarization. Record the signing identity, certificate expiry,
+timestamp/notarization result and recovery owner without storing secrets in the evidence.
+
+For **each exact candidate** retain:
+
+| Target | Required evidence before promotion |
+| --- | --- |
+| Windows x64 | Downloaded NSIS signature/trust check; install/uninstall; native import/save/open; image clipboard paste into a real target app; keychain cleanup; signed upgrade and rejection of a tampered update |
+| macOS arm64 and x64 | Downloaded DMG and app archive; Developer ID and notarization/stapling checks; fresh launch; native file/clipboard workflows; keychain; signed upgrade and tamper rejection on each architecture |
+| Linux AppImage | Downloaded runtime on a supported distribution; clipboard into a target app; signed upgrade, interruption/retry, old-core cleanup and project recovery |
+| Linux deb/Flatpak | Install/run/uninstall using the package manager; file access and credential service; document reopen; explicit package-manager update path |
+
+For upgrades, create/save a project first, interrupt the download, retry, reject a changed
+signature, complete an authentic upgrade, compare saved artifact bytes, and verify the
+old core/worker is gone. Repeat rollback using a backup; older versions must not overwrite
+newer project formats. Browser mocks and a private Linux debug build are not these results.
+
+Flatpak still requests home/network access: the Python core owns user-chosen project/image
+paths and provider/source traffic, and host CLIs are not automatically available inside
+the sandbox. Portal-only grants across the Rust/Python boundary require a separate tested
+file-access change. This package must not be marketed as a restrictive filesystem sandbox.
 
 ## Release checks needing actual environments
 
@@ -170,7 +232,11 @@ Repeat this on Windows and macOS before their release. The downloaded model is c
 model measurement is separate from the lightweight installer smoke test.
 
 
-## Live validation performed during implementation
+## Historical live validation before release-readiness remediation
+
+The following evidence predates the release-readiness changes. It describes earlier tested
+builds, not a pass for the current candidate. Repeat the applicable checks on the exact release
+revision; see [the remediation report](release-implementation.md) for fresh results and gaps.
 
 - Gemini `gemini-3.8-flash`: vision plus native tool calling and forced JSON fallback passed.
   The first fallback request exceeded 90 seconds; a retry with a 180-second harness limit

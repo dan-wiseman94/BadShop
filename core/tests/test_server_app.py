@@ -36,9 +36,9 @@ NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have
 METHODS = sorted([
     'retro.list', 'creative.set', 'recipes.capture', 'recipes.save', 'recipes.remove', 'recipes.run', 'recipes.stop',
     'credits.get', 'credits.export', 'sources.key', 'cache.status', 'cache.clear', 'artifacts.frame',
-    "sources.status",
+    "sources.status", "updates.begin", "updates.end",
     "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",
-    "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
+    "media.status", "media.cancel", "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
     "collections.update", "collections.import", "collections.remove",
     "library.list", "library.save", "library.update", "library.import", "library.remove", "library.thumbnail",
     "branches.list", "branches.create", "branches.switch", "branches.rename", "branches.remove",
@@ -952,13 +952,14 @@ def test_settings_apply_to_the_running_app(env):
 
     async def body(app):
         c = Client(app)
-        assert [limits for limits, _ in made] == [{"timeout_s": 120.0, "max_rss_mb": 3072}]
+        assert [limits for limits, _ in made] == [{"timeout_s": 120.0, "max_rss_mb": 3072},
+                                                {"timeout_s": 30.0, "max_rss_mb": 1024}]
         got = await c.call("settings.set", values={"tool_timeout_s": 5, "output_dir": str(env / "elsewhere")})
         assert got["tool_timeout_s"] == 5.0 and load_settings() == Settings(**got)
         assert made[-1][0] == {"timeout_s": 5.0, "max_rss_mb": 3072}
         assert made[0][1].closes == 1 and app.session.executor is made[-1][1]
         await c.call("settings.set", values={"auto_replay": False})
-        assert len(made) == 2  # unchanged limits keep the executor
+        assert len(made) == 3  # unchanged limits keep the executor and independent decoder
         with pytest.raises(Failed) as e:
             await c.call("settings.set", values={"step_budget": 0})
         assert e.value.code == rpc.INVALID_PARAMS and "step_budget" in e.value.data["hint"]
@@ -971,7 +972,7 @@ def test_settings_apply_to_the_running_app(env):
                                                                             "lincoln_work.png")
 
     run(body, factory=factory)
-    assert [ex.closes for _, ex in made] == [1, 1]
+    assert [ex.closes for _, ex in made] == [1, 1, 1]
 
 
 def test_settings_changes_queued_behind_a_tool_all_apply(env):
@@ -1188,7 +1189,7 @@ def test_assets_status_and_download_progress(env, monkeypatch):
     assert assets.PROGRESS is before  # close() put the previous listener back
 
 
-@pytest.mark.parametrize("stop", ["rpc", "disconnect", "cancel_request", "close"])
+@pytest.mark.parametrize("stop", ["rpc", "disconnect", "cancel_request", "close", "local_only"])
 def test_asset_download_cancellation_reaches_worker(env, monkeypatch, stop):
     started, finished = threading.Event(), threading.Event()
     name = manifest.ASSETS[0].name
@@ -1218,6 +1219,8 @@ def test_asset_download_cancellation_reaches_worker(env, monkeypatch, stop):
             app.on_client_gone()
         elif stop == "cancel_request":
             request.cancel()
+        elif stop == "local_only":
+            await c.call("settings.set", values={"no_remote": True})
         else:
             await app.close()
         await asyncio.gather(request, return_exceptions=True)

@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -90,13 +91,13 @@ class MediaSources:
             raise EngineError("invalid media preview id")
         return self.root / id
 
-    def preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1):
+    def preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1, *, _scratch=None):
         try:
-            return self._preview(path, kind, start, end, count, page)
+            return self._preview(path, kind, start, end, count, page, _scratch=_scratch)
         except (OSError, ValueError, EOFError, Image.DecompressionBombError):
             raise EngineError("source could not be decoded", hint="choose a supported image, PDF, GIF or video") from None
 
-    def _preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1):
+    def _preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1, *, _scratch=None):
         if kind not in ("video", "document") or not 1 <= count <= 12 or not 1 <= page <= 100000:
             raise EngineError("invalid media preview options")
         if not math.isfinite(start) or start < 0 or (end is not None and (not math.isfinite(end) or end <= start)):
@@ -105,7 +106,7 @@ class MediaSources:
         raw = source_bytes(chosen)
         original_hash = hashlib.sha256(raw).hexdigest()
         frames, warnings = [], []
-        with tempfile.TemporaryDirectory(prefix="badshop-media-") as temp:
+        with (nullcontext(_scratch) if _scratch else tempfile.TemporaryDirectory(prefix="badshop-media-")) as temp:
             frozen = Path(temp) / ("source" + chosen.suffix.lower())
             frozen.write_bytes(raw)
             if kind == "document":
@@ -199,6 +200,10 @@ class MediaSources:
         return record
 
     def import_selected(self, session, preview_id, candidate_ids, crop=None, animate=False, delay=100):
+        with session.atomic_import():
+            return self._import_selected(session, preview_id, candidate_ids, crop, animate, delay)
+
+    def _import_selected(self, session, preview_id, candidate_ids, crop=None, animate=False, delay=100):
         folder = self._folder(preview_id)
         try:
             if (folder / "preview.json").stat().st_size > 4 * 2**20:
@@ -223,7 +228,7 @@ class MediaSources:
             blob = (folder / f"{id}.png").read_bytes()
             if hashlib.sha256(blob).hexdigest() != item["sha256"]:
                 raise EngineError("preview pixels changed; open the source again")
-            with Image.open(io.BytesIO(blob), formats=("PNG",)) as im:
+            with session.artifacts._open(blob, item["label"]) as im:
                 if crop is not None:
                     if len(crop) != 4 or not all(isinstance(v, int) for v in crop):
                         raise EngineError("crop must contain four integer coordinates")

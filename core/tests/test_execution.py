@@ -186,6 +186,83 @@ def test_a_percent_encoded_local_host_is_refused():
     assert requested == ["/pic.png"]
 
 
+
+
+def test_dns_rebinding_cannot_reach_an_owned_local_service(monkeypatch):
+    requested = []
+    original = socket.getaddrinfo
+    answers = []
+
+    def resolve(host, port, *args, **kwargs):
+        if host == "rebind.invalid":
+            address = "93.184.216.34" if not answers else "127.0.0.1"
+            answers.append(address)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 0))]
+        return original(host, port, *args, **kwargs)
+
+    # No real public connection is attempted: the attack's connecting lookup is loopback.
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    import urllib.request
+    monkeypatch.setattr(assets, "_OPENER", urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), assets._WebOnlyRedirects))
+    with serve(site(requested)) as base:
+        url = base.replace("127.0.0.1", "rebind.invalid") + "/pic.png"
+        with netpolicy.guarded():
+            with pytest.raises(EngineError, match="local network"):
+                assets.http_get(url, timeout=2)
+    assert requested == []
+
+
+
+
+def test_public_connection_pins_sockaddr_and_closes_failed_attempts(monkeypatch):
+    from unittest.mock import Mock
+    resolved, attempted, sockets = [], [], []
+
+    def resolve(*args):
+        resolved.append(args)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 443))
+                for ip in ("93.184.216.34", "8.8.8.8")]
+
+    def make_socket(*args):
+        result = Mock()
+        def connect(address):
+            attempted.append(address)
+            if address[0] == "93.184.216.34":
+                raise OSError("first address unavailable")
+        result.connect.side_effect = connect
+        sockets.append(result)
+        return result
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(socket, "socket", make_socket)
+    result = netpolicy.connect_public("https://public.invalid/a", ("public.invalid", 443), 2)
+    assert len(resolved) == 1
+    assert attempted == [("93.184.216.34", 443), ("8.8.8.8", 443)]
+    sockets[0].close.assert_called_once()
+    sockets[1].close.assert_not_called()
+    assert result is sockets[1]
+
+
+def test_pinned_https_keeps_original_tls_hostname(monkeypatch):
+    import http.client
+    import urllib.request
+    from unittest.mock import Mock
+    sock, tls = Mock(), Mock()
+    connector = Mock(return_value=sock)
+    monkeypatch.setattr(assets, "CONNECT", connector)
+    request = urllib.request.Request("https://images.example/a.png")
+    connection = assets._guarded_connection(http.client.HTTPSConnection, request)(
+        "images.example", timeout=3)
+    connection._context = tls
+    try:
+        connection.connect()
+        connector.assert_called_once_with(request.full_url, ("images.example", 443), 3, None)
+        tls.wrap_socket.assert_called_once_with(sock, server_hostname="images.example")
+    finally:
+        connection.close()
+
+
 def test_typed_urls_are_a_users_fetch_links_only():
     link = "http://192.168.1.20/cat.png"
     assert netpolicy.typed_urls("fetch", {"query": link}, "user") == frozenset({link})

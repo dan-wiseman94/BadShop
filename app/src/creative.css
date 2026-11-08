@@ -3,7 +3,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--muted, #999);
 }
 

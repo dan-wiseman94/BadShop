@@ -20,7 +20,7 @@ from badshop.engine.common import load_image
 from badshop.engine.errors import EngineError
 from badshop.engine.result import Output
 from badshop.session import netpolicy
-from badshop.session.artifacts import IMPORT_FORMATS, MAX_IMPORT_PIXELS, REF_HINT
+from badshop.session.artifacts import IMPORT_FORMATS, MAX_IMPORT_PIXELS, REF_HINT, _decode, _frames, _refused
 from badshop.tools import runner
 
 CRASH_HINT = "this is a bug in badshop; other steps are unaffected"
@@ -38,6 +38,22 @@ class ToolCall:
     no_remote: bool = False
 
 
+@dataclass(frozen=True)
+class DecodeCall:
+    """Untrusted compressed bytes enter only the existing bounded worker boundary."""
+    data: bytes
+    name: str
+    frame: int = 0
+
+
+@dataclass(frozen=True)
+class MediaCall:
+    """User-picked media extraction and collection indexing need the same process limits."""
+    operation: str
+    root: str
+    params: dict
+
+
 @dataclass
 class OutputRecord:
     key: str  # "work", "cutout", "1", "sheet"...
@@ -51,10 +67,63 @@ class ToolOutcome:
     ok: bool
     outputs: list[OutputRecord] = field(default_factory=list)
     lines: list[str] = field(default_factory=list)
-    data: dict = field(default_factory=dict)  # JSON-safe
+    data: dict = field(default_factory=dict)  # tool results are JSON-safe; decode replies carry raw bytes
     error_message: str | None = None
     error_hint: str | None = None
     crashed: bool = False  # a bug (not an EngineError): the session reports it the same way
+
+
+def execute_decode(call: DecodeCall) -> ToolOutcome:
+    try:
+        with _decode(call.data, call.name) as image:
+            frames = _frames(image, call.name)
+            if not 0 <= call.frame < frames:
+                raise EngineError("frame is outside this animation")
+            if call.frame:
+                image.seek(call.frame)
+                image.load()
+            # Raw pixels cross back. The core never reopens hostile compressed bytes.
+            data = {"mode": image.mode, "size": image.size, "format": image.format, "frames": frames,
+                    "pixels": image.tobytes(), "info": image.info,
+                    "palette": image.getpalette() if image.mode in ("P", "PA") else None}
+            return ToolOutcome(ok=True, data=data)
+    except EngineError as error:
+        return ToolOutcome(ok=False, error_message=error.message, error_hint=error.hint)
+    except Exception as error:
+        refused = _refused(call.name, error)
+        return ToolOutcome(ok=False, error_message=refused.message, error_hint=refused.hint)
+
+
+def decoded_image(outcome: ToolOutcome) -> Image.Image:
+    if not outcome.ok:
+        raise EngineError(outcome.error_message or "could not decode image", hint=outcome.error_hint)
+    data = outcome.data
+    image = Image.frombytes(data["mode"], data["size"], data["pixels"])
+    if data["palette"] is not None:
+        image.putpalette(data["palette"])
+    image.info = data["info"]
+    image.format = data["format"]
+    image.n_frames = data["frames"]
+    return image
+
+
+def execute_media(call: MediaCall) -> ToolOutcome:
+    from badshop.session.local_collection import LocalCollections
+    from badshop.session.media import MediaSources
+
+    try:
+        if call.operation == "preview":
+            result = MediaSources(call.root).preview(**call.params)
+        elif call.operation == "index":
+            result = LocalCollections(call.root).index(**call.params)
+        else:
+            raise EngineError("unknown media operation")
+        return ToolOutcome(ok=True, data=result)
+    except EngineError as error:
+        return ToolOutcome(ok=False, error_message=error.message, error_hint=error.hint)
+    except Exception:
+        return ToolOutcome(ok=False, error_message="source could not be decoded",
+                           error_hint="choose a supported image, PDF, GIF or video", crashed=True)
 
 
 class BytesStore:
@@ -105,7 +174,7 @@ def execute_call(call: ToolCall) -> ToolOutcome:
         data = json_safe(run.result.data)
         return ToolOutcome(ok=True, outputs=store.outputs, lines=list(run.result.lines), data=data)
     except EngineError as e:
-        return ToolOutcome(ok=False, error_message=e.message, error_hint=e.hint)
+        return ToolOutcome(ok=False, error_message=e.message, error_hint=e.hint, data=json_safe(e.data))
     except Exception as e:
         return ToolOutcome(ok=False, crashed=True, error_hint=CRASH_HINT,
                            error_message=f"the tool crashed ({type(e).__name__}: {e})")
@@ -160,6 +229,17 @@ class InProcessExecutor:
         if cancel is not None and cancel.is_set():  # stopped before it began
             return ToolOutcome(ok=False, error_message=STOPPED)
         return execute_call(call)
+
+    def decode(self, data: bytes, name: str, frame: int = 0) -> Image.Image:
+        return decoded_image(execute_decode(DecodeCall(data, name, frame)))
+
+    def media(self, operation: str, root: str, *, cancel: threading.Event | None = None, **params) -> dict:
+        if cancel is not None and cancel.is_set():
+            raise EngineError(STOPPED)
+        result = execute_media(MediaCall(operation, root, params))
+        if not result.ok:
+            raise EngineError(result.error_message or "source could not be decoded", hint=result.error_hint)
+        return result.data
 
     def cancel(self) -> None:
         pass

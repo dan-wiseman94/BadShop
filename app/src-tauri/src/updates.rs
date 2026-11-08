@@ -10,6 +10,12 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 pub struct Updates {
     pending: Mutex<Option<(Update, Option<Vec<u8>>)>>,
     pub restarting: AtomicBool,
+    cancellation: super::update_policy::Cancellation,
+}
+
+#[tauri::command]
+pub fn update_cancel(state: State<'_, Updates>) {
+    state.cancellation.cancel();
 }
 
 #[derive(Serialize)]
@@ -58,25 +64,39 @@ pub async fn update_check(
     if info.unavailable.is_some() {
         return Ok(info);
     }
+    let generation = state.cancellation.generation();
+    let connection = app
+        .state::<super::Core>()
+        .0
+        .current_connection()
+        .ok_or("Core is reconnecting")?;
     let handle = app.clone();
-    let update = app
-        .updater_builder()
-        .pubkey(key.trim())
-        .endpoints(vec![
-            "https://github.com/dan-wiseman94/BadShop/releases/latest/download/latest.json"
-                .parse()
-                .unwrap(),
-        ])
-        .map_err(|e| e.to_string())?
-        .timeout(Duration::from_secs(30))
-        .on_before_exit(move || {
-            handle.state::<super::Core>().0.stop();
-        })
-        .build()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?;
+    let update = super::update_policy::run(
+        connection.port,
+        &connection.token,
+        &state.cancellation,
+        generation,
+        async {
+            app.updater_builder()
+                .pubkey(key.trim())
+                .endpoints(vec![
+                    "https://github.com/dan-wiseman94/BadShop/releases/latest/download/latest.json"
+                        .parse()
+                        .unwrap(),
+                ])
+                .map_err(|e| e.to_string())?
+                .timeout(Duration::from_secs(30))
+                .on_before_exit(move || {
+                    handle.state::<super::Core>().0.stop();
+                })
+                .build()
+                .map_err(|e| e.to_string())?
+                .check()
+                .await
+                .map_err(|e| e.to_string())
+        },
+    )
+    .await?;
     if let Some(mut update) = update {
         // The frozen core makes these large downloads; the feed check stays bounded separately.
         update.timeout = Some(Duration::from_secs(15 * 60));
@@ -101,20 +121,35 @@ pub async fn update_download(
         return Ok(());
     }
     let mut downloaded = 0;
+    let generation = state.cancellation.generation();
+    let connection = app
+        .state::<super::Core>()
+        .0
+        .current_connection()
+        .ok_or("Core is reconnecting")?;
     *bytes = Some(
-        update
-            .download(
-                |chunk, total| {
-                    downloaded += chunk;
-                    let _ = app.emit(
-                        "update-progress",
-                        serde_json::json!({"downloaded": downloaded, "total": total}),
-                    );
-                },
-                || {},
-            )
-            .await
-            .map_err(|e| e.to_string())?,
+        super::update_policy::run(
+            connection.port,
+            &connection.token,
+            &state.cancellation,
+            generation,
+            async {
+                update
+                    .download(
+                        |chunk, total| {
+                            downloaded += chunk;
+                            let _ = app.emit(
+                                "update-progress",
+                                serde_json::json!({"downloaded": downloaded, "total": total}),
+                            );
+                        },
+                        || {},
+                    )
+                    .await
+                    .map_err(|e| e.to_string())
+            },
+        )
+        .await?,
     );
     Ok(())
 }

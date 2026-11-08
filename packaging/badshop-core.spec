@@ -17,10 +17,7 @@ hidden += collect_submodules('litellm', filter=lambda n: not n.startswith(('lite
 datas += collect_data_files('litellm')
 datas += collect_data_files('cv2')
 for dist in distributions():
-    try:
-        datas += copy_metadata(dist.metadata['Name'])
-    except Exception:
-        pass
+    datas += copy_metadata(dist.metadata['Name'])  # missing metadata/licenses must fail the release build
 
 a = Analysis([str(root / 'packaging/frozen_entry.py')], pathex=[str(root / 'core/src')],
              binaries=binaries, datas=datas, hiddenimports=hidden,

@@ -7,8 +7,19 @@ LiteLLM (MIT), keyring (MIT), platformdirs (MIT), websockets (BSD-3-Clause), psu
 The desktop uses Tauri and its plugins (MIT/Apache-2.0), React (MIT), Vite (MIT),
 TanStack Query (MIT), Zustand (MIT), RJSF (Apache-2.0), and Tailwind CSS (MIT).
 
-Builds include installed Python distribution license files and generated metadata inventory.
-JavaScript and Rust dependency licenses are recorded in their lockfiles and upstream packages.
+Builds include installed Python distribution license files plus a `legal/` directory with
+`sbom.json`, dependency notices and `coverage.json`. JavaScript production dependencies,
+the resolved Cargo graph and the installed Python build environment are inventoried;
+the latter two include build tools and packages for other targets. This is broader than
+the executable's runtime contents. License texts come from installed upstream packages,
+not lockfiles. The coverage file explicitly lists packages without a notice file for
+release review. Metadata and an SPDX expression do not replace required license notices.
+
+Supplemental notices retain immutable upstream source references in the SBOM. Missing notice
+files fail packaging. The separate manual-review list must still be resolved before public
+redistribution, including upstream Apple SDK-derived binding questions. Unmodified MPL Cargo
+package sources are included in `legal/covered-source/`; see each component's property for its
+relative source directory. The inventory is not an automatic legal-compatibility determination.
 
 Models and fonts are downloaded separately into the user's app data directory. See
 `docs/model-licenses.md` for model sources and license review. Fonts Anton and Comic Neue are

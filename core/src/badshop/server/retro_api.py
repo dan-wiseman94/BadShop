@@ -24,10 +24,9 @@ def register(app):
             meta = app.session.artifacts.meta[aid]
             if frame >= meta.frames:
                 raise EngineError("frame is outside this animation")
-            im = app.session.artifacts.image(aid)
-            im.seek(frame)
             out = io.BytesIO()
-            im.convert("RGBA").save(out, "PNG")
+            with app.session.artifacts.image(aid, frame) as im:
+                im.convert("RGBA").save(out, "PNG")
             return {
                 "meta": meta.model_dump(mode="json"),
                 "mime": "image/png",

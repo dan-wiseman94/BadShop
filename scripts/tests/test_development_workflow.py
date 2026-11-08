@@ -163,5 +163,5 @@ class NativeReadinessTests(unittest.TestCase):
             self.assertFalse(module.renderer_is_ready(receipt, 'this-run'))
             receipt.write_text(json.dumps({'nonce': 'old-run', 'session_id': 'session', 'tool_count': 20}))
             self.assertFalse(module.renderer_is_ready(receipt, 'this-run'))
-            receipt.write_text(json.dumps({'nonce': 'this-run', 'session_id': 'session', 'tool_count': 20}))
+            receipt.write_text(json.dumps({'nonce': 'this-run', 'session_id': 'session', 'tool_count': 20, 'clipboard_pixels': True}))
             self.assertTrue(module.renderer_is_ready(receipt, 'this-run'))

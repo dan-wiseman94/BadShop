@@ -13,7 +13,7 @@
   --raised: #34353e;
   --stage: #202127;
   --text: #e9e9ef;
-  --muted: #a0a1af;
+  --muted: #b0b1be;
   --line: #41424c;
   --accent: #bbb0ed;
   --accent-text: #292138;
@@ -29,13 +29,13 @@
   --raised: #e8e9f1;
   --stage: #d8dae5;
   --text: #292b38;
-  --muted: #626579;
+  --muted: #595c70;
   --line: #ced0dc;
-  --accent: #7863b1;
+  --accent: #6b55a3;
   --accent-text: #fff;
   --hover: #dedee9;
   --error: #a9343a;
-  --green: #3f7751;
+  --green: #31623f;
   --checker: #cfd1dd;
   color-scheme: light;
 }
@@ -52,6 +52,8 @@ select {
   font: inherit;
 }
 button {
+  min-width: 24px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -115,12 +117,12 @@ p {
   margin: 0;
 }
 h2 {
-  font-size: 23px;
+  font-size: 1.7692rem;
   font-weight: 650;
   letter-spacing: -0.7px;
 }
 h3 {
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
 }
 p {
@@ -137,7 +139,7 @@ kbd {
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: 0.9231rem;
   line-height: 1.6;
 }
 hr {
@@ -171,19 +173,20 @@ button.primary {
   overflow: hidden;
 }
 .app-header {
-  height: 70px;
+  height: auto;
   min-height: 70px;
   display: flex;
   align-items: center;
   gap: 22px;
-  padding: 0 24px;
+  padding: 10px 24px;
+  flex-wrap: wrap;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   position: relative;
   z-index: 3;
 }
 .brand {
-  font-size: 26px;
+  font-size: 2.0000rem;
   letter-spacing: -1.6px;
   font-weight: 850;
   display: flex;
@@ -192,7 +195,7 @@ button.primary {
   line-height: 1;
 }
 .brand > span {
-  font-size: 33px;
+  font-size: 2.5385rem;
   color: var(--accent);
   line-height: 1;
   margin-top: 2px;
@@ -222,7 +225,7 @@ button.primary {
 }
 .unsaved-dot {
   color: var(--accent);
-  font-size: 8px;
+  font-size: 0.9231rem;
 }
 .brand,
 .header-center,
@@ -262,12 +265,12 @@ button.primary {
 .approval-select select {
   border: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: 7px 0;
   max-width: 250px;
 }
 .provider-symbol {
-  font-size: 24px;
+  font-size: 1.8462rem;
   color: var(--accent);
 }
 .approval-dot,
@@ -314,13 +317,13 @@ button.primary {
   background: none;
   border: 0;
   text-align: left;
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: 9px;
 }
 .dropdown kbd {
   margin-left: auto;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .workbench {
   flex: 1;
@@ -340,6 +343,7 @@ button.primary {
   overflow: hidden;
 }
 .pane-heading {
+  flex-shrink: 0;
   height: 44px;
   min-height: 44px;
   display: flex;
@@ -347,11 +351,11 @@ button.primary {
   justify-content: space-between;
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
 }
 .pane-heading > .muted {
-  font-size: 10px;
+  font-size: 0.9231rem;
   font-weight: 400;
 }
 .resizer {
@@ -374,7 +378,7 @@ button.primary {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   font-weight: 400;
 }
@@ -400,27 +404,27 @@ button.primary {
 }
 .little-logo {
   font-weight: 900;
-  font-size: 27px;
+  font-size: 2.0769rem;
   line-height: 1;
   position: relative;
   margin-bottom: 20px;
   color: var(--accent);
 }
 .little-logo span {
-  font-size: 23px;
+  font-size: 1.7692rem;
   position: absolute;
   left: 15px;
   top: -4px;
 }
 .chat-welcome h1 {
-  font-size: 30px;
+  font-size: 2.3077rem;
   line-height: 1.14;
   font-weight: 700;
   letter-spacing: -1.2px;
   margin-bottom: 16px;
 }
 .chat-welcome > p {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--muted);
   max-width: 220px;
 }
@@ -435,7 +439,7 @@ button.primary {
   text-align: left;
   justify-content: space-between;
   white-space: normal;
-  font-size: 11px;
+  font-size: 0.9231rem;
   line-height: 1.6;
   padding: 10px 12px;
   border-color: var(--line);
@@ -445,7 +449,7 @@ button.primary {
   color: var(--muted);
 }
 .welcome-note {
-  font-size: 10px;
+  font-size: 0.9231rem;
   display: flex;
   gap: 7px;
   align-items: center;
@@ -454,11 +458,11 @@ button.primary {
 }
 .message {
   margin-bottom: 23px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   overflow-wrap: anywhere;
 }
 .message-name {
-  font-size: 11px;
+  font-size: 0.9231rem;
   font-weight: 650;
   display: flex;
   justify-content: space-between;
@@ -466,7 +470,7 @@ button.primary {
   margin-bottom: 8px;
 }
 .message-name span {
-  font-size: 9px;
+  font-size: 0.9231rem;
   color: var(--muted);
   font-weight: 400;
 }
@@ -476,7 +480,7 @@ button.primary {
   background: var(--raised);
 }
 .message.system_note {
-  font-size: 10px;
+  font-size: 0.9231rem;
   border-left: 2px solid var(--line);
   padding-left: 10px;
   color: var(--muted);
@@ -495,7 +499,7 @@ button.primary {
   background: var(--raised);
   padding: 1px 3px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .tool-chips {
   display: flex;
@@ -504,7 +508,7 @@ button.primary {
   margin-top: 11px;
 }
 .tool-chips button {
-  font-size: 10px;
+  font-size: 0.9231rem;
   border: 1px solid var(--line);
   background: var(--bg);
   padding: 3px 7px;
@@ -514,7 +518,7 @@ button.primary {
 }
 .working {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.9231rem;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -545,7 +549,7 @@ button.primary {
   background: none;
   min-height: 79px;
   max-height: 180px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: 12px;
   outline: none !important;
 }
@@ -564,7 +568,7 @@ button.primary {
   padding: 4px;
 }
 .composer-actions > span {
-  font-size: 9px;
+  font-size: 0.9231rem;
   color: var(--muted);
 }
 .composer-actions .send {
@@ -580,21 +584,21 @@ button.primary {
 .composer-actions .stop {
   margin-left: auto;
   color: var(--error);
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .chat-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 15px;
-  font-size: 9px;
+  font-size: 0.9231rem;
   color: var(--muted);
 }
 .chat-foot button {
   border: 0;
   background: none;
   padding: 0;
-  font-size: 9px;
+  font-size: 0.9231rem;
   color: var(--muted);
   gap: 4px;
 }
@@ -628,7 +632,7 @@ button.primary {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: #e8c57d;
   margin-bottom: 9px;
 }
@@ -645,7 +649,7 @@ button.primary {
 }
 .approval-card input {
   width: 100%;
-  font-size: 10px;
+  font-size: 0.9231rem;
   margin-bottom: 10px;
 }
 .approval-actions {
@@ -654,7 +658,7 @@ button.primary {
 }
 .approval-actions button {
   padding: 6px;
-  font-size: 10px;
+  font-size: 0.9231rem;
   gap: 4px;
 }
 .viewer-tools {
@@ -679,7 +683,7 @@ button.primary {
   border: 0;
   background: none;
   padding: 3px 10px;
-  font-size: 10px;
+  font-size: 0.9231rem;
   border-radius: 3px;
   color: var(--muted);
 }
@@ -706,7 +710,7 @@ button.primary {
   padding: 4px 0 4px 5px;
   background: none;
   border: 0;
-  font-size: 10px;
+  font-size: 0.9231rem;
   width: 61px;
 }
 .viewer-stage {
@@ -758,7 +762,7 @@ button.primary {
   stroke-width: 1;
 }
 .image-overlay text {
-  font-size: 11px;
+  font-size: 0.9231rem;
   fill: white;
   stroke: #222;
   stroke-width: 2px;
@@ -790,7 +794,7 @@ button.primary {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .pick-hint > div {
   flex: 1;
@@ -799,12 +803,12 @@ button.primary {
 }
 .pick-hint strong {
   display: block;
-  font-size: 10px;
+  font-size: 0.9231rem;
   margin-bottom: 2px;
 }
 .pick-hint button {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 4px 7px;
 }
 .empty-stage {
@@ -829,18 +833,18 @@ button.primary {
 }
 .cut-paper span {
   font-weight: 600;
-  font-size: 16px;
+  font-size: 1.2308rem;
   line-height: 1.35;
   letter-spacing: -0.3px;
 }
 .empty-stage p {
-  font-size: 11px;
+  font-size: 0.9231rem;
   max-width: 250px;
   color: var(--muted);
   margin-bottom: 15px;
 }
 .empty-stage button {
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .viewer-foot {
   display: flex;
@@ -850,7 +854,7 @@ button.primary {
   background: var(--bg);
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 0.9231rem;
 }
 .viewer-foot span {
   white-space: nowrap;
@@ -866,7 +870,7 @@ button.primary {
   border-top: 1px solid var(--line);
 }
 .strip-title {
-  font-size: 10px;
+  font-size: 0.9231rem;
   align-self: flex-start;
   display: flex;
   align-items: center;
@@ -905,7 +909,7 @@ button.primary {
   color: var(--muted);
   border-radius: 4px;
   padding: 1px 5px;
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .step-list {
   overflow-y: auto;
@@ -939,7 +943,7 @@ button.primary {
   min-width: 23px;
   border: 1px solid var(--line);
   border-radius: 50%;
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   margin-top: 1px;
 }
@@ -962,11 +966,11 @@ button.primary {
   gap: 5px;
 }
 .step-copy strong {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
 }
 .step-status {
-  font-size: 9px;
+  font-size: 0.9231rem;
   margin-left: auto;
   color: var(--muted);
 }
@@ -980,7 +984,7 @@ button.primary {
   color: var(--error);
 }
 .step-copy p {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -989,7 +993,7 @@ button.primary {
   margin-top: 4px;
 }
 .step-copy small {
-  font-size: 9px;
+  font-size: 0.9231rem;
   color: var(--muted);
   display: flex;
   align-items: center;
@@ -997,7 +1001,7 @@ button.primary {
   margin-top: 6px;
 }
 .edited {
-  font-size: 8px;
+  font-size: 0.9231rem;
   color: var(--accent);
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -1013,14 +1017,14 @@ button.primary {
   opacity: 0.6;
 }
 .empty-timeline h3 {
-  font-size: 13px;
+  font-size: 1.0000rem;
   color: var(--text);
   font-weight: 500;
   line-height: 1.6;
   margin-bottom: 10px;
 }
 .empty-timeline p {
-  font-size: 11px;
+  font-size: 0.9231rem;
   max-width: 220px;
   margin: auto;
 }
@@ -1028,11 +1032,11 @@ button.primary {
   margin: 12px;
   justify-content: flex-start;
   background: none;
-  font-size: 11px;
+  font-size: 0.9231rem;
   flex-shrink: 0;
 }
 .run-tool span {
-  font-size: 9px;
+  font-size: 0.9231rem;
   margin-left: auto;
   color: var(--muted);
 }
@@ -1056,7 +1060,7 @@ button.primary {
   background: none;
 }
 .step-detail > p {
-  font-size: 11px;
+  font-size: 0.9231rem;
   color: var(--muted);
   margin-bottom: 12px;
 }
@@ -1066,23 +1070,23 @@ button.primary {
   margin-top: 12px;
 }
 .detail-actions button {
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 5px 7px;
 }
 .result {
   margin-top: 16px;
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .result summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .result pre {
   background: var(--bg);
   padding: 9px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 0.9231rem;
   max-height: 260px;
   overflow: auto;
 }
@@ -1095,7 +1099,7 @@ button.primary {
 .provenance > div {
   display: flex;
   flex-direction: column;
-  font-size: 9px;
+  font-size: 0.9231rem;
   overflow: hidden;
 }
 .provenance strong {
@@ -1112,7 +1116,7 @@ button.primary {
   text-align: left;
   justify-content: flex-start;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 0.9231rem;
 }
 .app-footer {
   height: 28px;
@@ -1122,10 +1126,10 @@ button.primary {
   align-items: center;
   padding: 0 20px 7px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 0.9231rem;
 }
 .footer-brand {
-  font-size: 10px;
+  font-size: 0.9231rem;
   letter-spacing: -0.1px;
 }
 .modal-backdrop {
@@ -1159,7 +1163,7 @@ button.primary {
 }
 .modal-heading p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   margin-top: 5px;
 }
 .modal-heading > button {
@@ -1183,10 +1187,10 @@ button.primary {
   background: none;
   flex: 1;
   outline: none;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .search kbd {
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .tool-groups {
   margin-top: 21px;
@@ -1196,7 +1200,7 @@ button.primary {
 }
 .tool-groups h3 {
   text-transform: capitalize;
-  font-size: 11px;
+  font-size: 0.9231rem;
   color: var(--muted);
   margin: 17px 0 8px;
 }
@@ -1216,11 +1220,11 @@ button.primary {
   width: 83px;
   flex-shrink: 0;
   font-weight: 550;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .tool-option span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.9231rem;
   flex: 1;
 }
 .tool-option svg {
@@ -1231,7 +1235,7 @@ button.primary {
   background: none;
   border: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.9231rem;
   padding: 5px 0;
   margin-bottom: 15px;
 }
@@ -1248,7 +1252,7 @@ button.primary {
 }
 .rjsf label {
   display: block;
-  font-size: 11px;
+  font-size: 0.9231rem;
   margin-bottom: 5px;
   font-weight: 500;
 }
@@ -1259,21 +1263,21 @@ button.primary {
 .rjsf .field-description,
 .field-description,
 .rjsf .help-block {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   line-height: 1.6;
   margin-top: 5px;
 }
 .rjsf .form-control {
   width: 100%;
-  font-size: 11px;
+  font-size: 0.9231rem;
   padding: 7px 8px;
 }
 .rjsf .field-boolean label {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .rjsf .field-boolean input {
   margin-right: 8px;
@@ -1293,12 +1297,12 @@ button.primary {
   gap: 2px;
 }
 .rjsf .array-item-toolbox button {
-  font-size: 9px;
+  font-size: 0.9231rem;
   padding: 4px;
 }
 .rjsf .text-danger {
   color: var(--error);
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .rjsf .error-detail {
   padding-left: 14px;
@@ -1311,15 +1315,15 @@ button.primary {
   margin-bottom: 15px;
 }
 .rjsf .panel-danger h3 {
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .rjsf .panel-danger ul {
   padding-left: 14px;
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .form-run {
   width: 100%;
-  font-size: 11px;
+  font-size: 0.9231rem;
   margin-top: 5px;
 }
 .coordinate-inputs {
@@ -1329,7 +1333,7 @@ button.primary {
 .coordinate-inputs > label {
   flex: 1;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 0.9231rem;
   min-width: 0;
 }
 .coordinate-inputs input {
@@ -1337,10 +1341,10 @@ button.primary {
   width: 100%;
   margin-top: 4px;
   padding: 6px;
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .coordinate-field > button {
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 5px 7px;
   margin-top: 7px;
 }
@@ -1358,7 +1362,7 @@ button.primary {
   flex: 1;
   min-width: 0;
   width: 100%;
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .color-picker input[type="color"] {
   padding: 2px;
@@ -1401,7 +1405,7 @@ button.primary {
   background: none;
   border: 0;
   justify-content: flex-start;
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: 9px 12px;
 }
 .settings-body nav button.active {
@@ -1423,7 +1427,7 @@ button.primary {
   margin-bottom: 16px;
 }
 .section-title > button {
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .profile-row {
   border-bottom: 1px solid var(--line);
@@ -1446,15 +1450,15 @@ button.primary {
 }
 .profile-row strong {
   font-weight: 550;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .profile-row span,
 .profile-row small {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
 }
 .profile-row button {
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 5px 8px;
 }
 .profile-editor > label,
@@ -1462,7 +1466,7 @@ button.primary {
 .preferences details > label {
   display: flex;
   flex-direction: column;
-  font-size: 11px;
+  font-size: 0.9231rem;
   gap: 6px;
   margin-bottom: 15px;
 }
@@ -1471,10 +1475,10 @@ button.primary {
 .preferences input,
 .preferences select {
   width: 100%;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .profile-editor > p {
-  font-size: 11px;
+  font-size: 0.9231rem;
   margin: -4px 0 17px;
 }
 .profile-editor > .primary {
@@ -1489,7 +1493,7 @@ button.primary {
 }
 .capabilities legend {
   padding: 0 7px 0 0;
-  font-size: 11px;
+  font-size: 0.9231rem;
   color: var(--muted);
 }
 .capabilities label {
@@ -1497,12 +1501,12 @@ button.primary {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 11px;
-  font-size: 11px;
+  font-size: 0.9231rem;
   gap: 12px;
 }
 .capabilities select {
   width: 170px;
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 5px;
 }
 .cli-detection {
@@ -1511,11 +1515,11 @@ button.primary {
   border-top: 1px solid var(--line);
 }
 .cli-detection p {
-  font-size: 11px;
+  font-size: 0.9231rem;
   margin: 7px 0 13px;
 }
 .cli-detection button {
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .cli-detection pre {
   max-height: 240px;
@@ -1523,7 +1527,7 @@ button.primary {
   background: var(--bg);
   padding: 12px;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .preferences .switch-label {
   flex-direction: row;
@@ -1541,7 +1545,7 @@ button.primary {
   flex: 1;
 }
 .preferences details {
-  font-size: 11px;
+  font-size: 0.9231rem;
   margin-top: 22px;
 }
 .preferences details summary {
@@ -1568,15 +1572,15 @@ button.primary {
   min-width: 0;
 }
 .asset-row strong {
-  font-size: 11px;
+  font-size: 0.9231rem;
   font-weight: 500;
 }
 .asset-row span {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
 }
 .asset-row button {
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 6px 8px;
 }
 .asset-row > svg {
@@ -1589,11 +1593,11 @@ button.primary {
   accent-color: var(--accent);
 }
 .assets > p {
-  font-size: 11px;
+  font-size: 0.9231rem;
   margin-bottom: 15px;
 }
 .assets > button {
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .welcome-modal {
   width: 640px;
@@ -1606,15 +1610,15 @@ button.primary {
   margin-bottom: 31px;
 }
 .welcome-top > span {
-  font-size: 11px;
+  font-size: 0.9231rem;
   color: var(--muted);
 }
 .welcome-modal > h2 {
-  font-size: 29px;
+  font-size: 2.2308rem;
   margin-bottom: 11px;
 }
 .welcome-modal > p {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--muted);
   max-width: 480px;
   margin-bottom: 24px;
@@ -1644,11 +1648,11 @@ button.primary {
   color: var(--accent);
 }
 .kind-grid strong {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 550;
 }
 .kind-grid span {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   line-height: 1.6;
   max-width: 185px;
@@ -1660,7 +1664,7 @@ button.primary {
 .welcome-modal > .back-link {
   display: flex;
   margin: 15px auto 0;
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .welcome-modal > .primary + h3,
 .welcome-modal > .primary + .saved-provider-choice {
@@ -1677,7 +1681,7 @@ button.primary {
   padding: 9px 20px;
   background: color-mix(in srgb, var(--error) 12%, var(--panel));
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: 0.9231rem;
   flex-shrink: 0;
 }
 .error-banner > svg {
@@ -1690,7 +1694,7 @@ button.primary {
 }
 .error-banner button,
 .restore-banner button {
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 4px 7px;
 }
 .restore-banner {
@@ -1702,7 +1706,7 @@ button.primary {
   gap: 8px;
   color: var(--error);
   padding: 9px;
-  font-size: 11px;
+  font-size: 0.9231rem;
   border: 1px solid var(--error);
   border-radius: 5px;
   margin-bottom: 15px;
@@ -1710,7 +1714,7 @@ button.primary {
 .inline-error small {
   display: block;
   margin-top: 5px;
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .error-text {
   color: var(--error) !important;
@@ -1729,16 +1733,16 @@ button.primary {
   color: var(--error);
 }
 .core-error h1 {
-  font-size: 25px;
+  font-size: 1.9231rem;
   font-weight: 600;
   letter-spacing: -0.5px;
 }
 .core-error p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 1.0000rem;
 }
 .core-error code {
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .core-error > div {
   display: flex;
@@ -1759,7 +1763,7 @@ button.primary {
   display: flex;
   align-items: center;
   gap: 15px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   max-width: 85vw;
   overflow-wrap: anywhere;
 }
@@ -1784,10 +1788,10 @@ button.primary {
   color: var(--accent);
 }
 .drop-overlay h2 {
-  font-size: 35px;
+  font-size: 2.6923rem;
 }
 .drop-overlay p {
-  font-size: 14px;
+  font-size: 1.0769rem;
   color: var(--muted);
 }
 @keyframes pulse {
@@ -1820,10 +1824,10 @@ button.primary {
     padding: 9px;
   }
   .brand {
-    font-size: 24px;
+    font-size: 1.8462rem;
   }
   .brand > span {
-    font-size: 29px;
+    font-size: 2.2308rem;
   }
 }
 @media (max-width: 850px) {
@@ -1892,16 +1896,16 @@ button.primary {
   .header-actions .export {
     padding: 6px 8px;
     margin-left: 2px;
-    font-size: 11px;
+    font-size: 0.9231rem;
   }
   .app-header > .brand {
-    font-size: 23px;
+    font-size: 1.7692rem;
   }
   .app-header > .brand > span {
-    font-size: 25px;
+    font-size: 1.9231rem;
   }
   .session-name {
-    font-size: 11px;
+    font-size: 0.9231rem;
     max-width: 93px;
   }
   .modal-backdrop {
@@ -1935,7 +1939,7 @@ button.primary {
     padding: 24px;
   }
   .welcome-modal > h2 {
-    font-size: 25px;
+    font-size: 1.9231rem;
   }
   .kind-grid button {
     padding: 13px;
@@ -1947,7 +1951,7 @@ button.primary {
     gap: 8px;
   }
   .modal-heading p {
-    font-size: 11px;
+    font-size: 0.9231rem;
   }
   .tool-option strong {
     width: 72px;
@@ -1958,7 +1962,7 @@ button.primary {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 9px;
+  font-size: 0.9231rem;
   color: var(--muted);
   border-top: 1px solid var(--line);
 }
@@ -1968,14 +1972,14 @@ button.primary {
   white-space: nowrap;
 }
 .source-bar button {
-  font-size: 9px;
+  font-size: 0.9231rem;
   color: var(--accent);
   border: 0;
   background: none;
   padding: 0;
 }
 .provider-events {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   margin: 12px 0;
 }
@@ -1983,7 +1987,7 @@ button.primary {
   cursor: pointer;
 }
 .provider-events pre {
-  font-size: 9px;
+  font-size: 0.9231rem;
   background: var(--bg);
   padding: 8px;
   max-height: 160px;
@@ -1998,7 +2002,7 @@ button.primary {
   display: none;
 }
 .model-memory-note {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   line-height: 1.6;
   margin: 8px 0 12px;
@@ -2008,7 +2012,7 @@ button.primary {
 }
 .rjsf .field-array legend {
   display: block;
-  font-size: 11px;
+  font-size: 0.9231rem;
   color: var(--text);
   font-weight: 500;
   margin-bottom: 6px;
@@ -2025,13 +2029,13 @@ button.primary {
   border-top: 1px solid var(--line);
 }
 .detected-clis strong {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 550;
 }
 .detected-clis span,
 .detected-clis p,
 .detected-clis code {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   overflow-wrap: anywhere;
   max-width: 100%;
@@ -2046,7 +2050,7 @@ button.primary {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .new-session-modal form > div {
   display: flex;
@@ -2063,7 +2067,7 @@ button.primary {
 }
 .rjsf .rjsf-field-array > legend {
   display: block;
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
   padding: 0 5px;
   margin: 0 0 5px;
@@ -2079,7 +2083,7 @@ button.primary {
   min-width: 0;
 }
 .rjsf .rjsf-array-item-add {
-  font-size: 11px;
+  font-size: 0.9231rem;
   padding: 5px 9px;
   margin-top: 6px;
 }
@@ -2098,7 +2102,7 @@ button.primary {
   border-radius: 6px;
   color: var(--error);
   background: color-mix(in srgb, var(--error) 8%, var(--panel));
-  font-size: 11px;
+  font-size: 0.9231rem;
   line-height: 1.6;
 }
 .error-notice > svg {
@@ -2111,7 +2115,7 @@ button.primary {
   overflow-wrap: anywhere;
 }
 .error-notice > button {
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 4px 6px;
 }
 .error-notice > button:last-child {
@@ -2126,7 +2130,7 @@ button.primary {
   border-radius: 6px;
   margin: 12px 0;
   background: var(--bg);
-  font-size: 11px;
+  font-size: 0.9231rem;
 }
 .parameter-conflict > div {
   display: flex;
@@ -2135,10 +2139,10 @@ button.primary {
   margin-top: 9px;
 }
 .parameter-conflict button {
-  font-size: 10px;
+  font-size: 0.9231rem;
 }
 .rjsf .array-action {
-  font-size: 10px;
+  font-size: 0.9231rem;
   padding: 5px 7px;
   margin-top: 4px;
 }
@@ -2155,7 +2159,7 @@ button.primary {
   margin-top: 0;
 }
 .probe-notice {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   line-height: 1.6;
 }
@@ -2169,18 +2173,18 @@ button.primary {
   padding: 10px 12px;
 }
 .saved-provider-choice > button > strong {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 550;
 }
 .saved-provider-choice > button > span {
-  font-size: 10px;
+  font-size: 0.9231rem;
   color: var(--muted);
   margin-left: auto;
   white-space: normal;
   text-align: right;
 }
 .saved-provider-choice > p {
-  font-size: 11px;
+  font-size: 0.9231rem;
   color: var(--muted);
   margin-top: 15px;
 }
@@ -2215,3 +2219,35 @@ button.primary {
 .layouts-packs h3 { margin-top: 28px; }
 .studio select[multiple] { min-height: 140px; }
 .update-notice { position: fixed; bottom: 18px; right: 18px; z-index: 30; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; gap: 12px; align-items: center; }
+
+/* Quick ideas share the same session and viewer as the full workbench. Hidden
+   panels remain mounted so switching workspaces never discards a chat draft. */
+.advanced-workbench > .quick-start,
+.quick-workbench > .chat,
+.quick-workbench:not(.show-history) > .timeline,
+.quick-workbench:not(.show-history) > .resizer[aria-label="Resize steps pane"] { display: none; }
+.quick-content { overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 16px; }
+.quick-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.quick-cards button { white-space: normal; display: flex; flex-direction: column; align-items: stretch; padding: 8px; text-align: left; }
+.quick-cards button[aria-pressed="true"] { outline: 2px solid var(--accent); }
+.quick-cards img { width: 100%; height: 100px; object-fit: contain; image-rendering: pixelated; background: var(--stage); }
+.quick-cards span { font-size: .9231rem; color: var(--muted); }
+.quick-form { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.quick-form label { display: flex; flex-direction: column; gap: 5px; }
+.quick-form button { white-space: normal; }
+.quick-content details button { margin: 4px; white-space: normal; }
+.workspace-switch { flex-wrap: wrap; }
+.workspace-switch button { transition: none; }
+.workspace-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+.share-dialog { max-height: 90dvh; max-width: min(620px,95vw); overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 22px; color: var(--text); background: var(--panel); }
+.share-dialog::backdrop { background: #0009; }
+.share-dialog > button { float: right; }
+.share-image { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.share-image label { display: flex; align-items: center; gap: 8px; }
+.share-image details { width: 100%; overflow-wrap: anywhere; }
+.share-image details > * { margin-bottom: 10px; }
+.share-image button { white-space: normal; }
+.share-preview { max-width: 320px; width: 100%; max-height: 340px; object-fit: contain; background: var(--stage); image-rendering: pixelated; }
+.viewer-tools, .viewer-toggles { flex-wrap: wrap; height: auto; }
+.pane-heading { height: auto; padding-top: 9px; padding-bottom: 9px; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 1100px) { .header-center { order: 3; width: 100%; justify-content: center; } }

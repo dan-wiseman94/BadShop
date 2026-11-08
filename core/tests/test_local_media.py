@@ -83,6 +83,31 @@ def test_selected_frames_use_existing_animate_tool(tmp_path):
     assert result["artifacts"][0]["frames"] == 3
 
 
+@pytest.mark.parametrize("selection,options", [(["0", "1"], {}), (["0"], {"crop": [0, 0, 20, 20]}),
+                                                (["0", "1"], {"animate": True})])
+def test_media_storage_failure_is_atomic_for_images_history_and_branch(tmp_path, monkeypatch, selection, options):
+    from badshop.session import artifacts
+    source = tmp_path / "reaction.gif"
+    gif(source)
+    media = MediaSources(tmp_path / "cache")
+    preview = media.preview(str(source), "video", count=3)
+    events, changes = [], []
+    session = Session.new(emit=lambda *args: events.append(args), on_change=lambda: changes.append(True))
+    branches.create(session, "Keep this branch")
+    before, notes = session.data.model_dump(), list(session.changes)
+    timeline, document = session.data.steps, session.data
+    events.clear()
+    changes.clear()
+    allowed = ["0", "1"] if options.get("animate") else ["0"]
+    limit = sum((media.root / preview["id"] / f"{id}.png").stat().st_size for id in allowed)
+    monkeypatch.setattr(artifacts, "MAX_STORED_BYTES", limit)
+    with pytest.raises(EngineError, match="storage limit"):
+        media.import_selected(session, preview["id"], selection, **options)
+    assert session.data.model_dump() == before and session.changes == notes
+    assert session.data is document and session.data.steps is timeline
+    assert session.artifacts.ids() == [] and events == [] and changes == []
+
+
 def test_changed_cached_frame_is_rejected(tmp_path):
     source = tmp_path / "scan.png"
     Image.new("RGB", (30, 30), "red").save(source)
@@ -189,6 +214,15 @@ def test_user_only_media_rpc(env):
         with pytest.raises(Failed) as failure:
             await client.call("media.preview", path="/private/clip.mp4", kind="video")
         assert failure.value.code == FORBIDDEN
+        for method in ("media.status", "media.cancel"):
+            with pytest.raises(Failed) as failure:
+                await client.call(method)
+            assert failure.value.code == FORBIDDEN
+        user = Client(app, "user")
+        readiness = await user.call("media.status")
+        assert readiness == {"video": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
+                             "pdf": bool(shutil.which("pdftoppm"))}
+        assert await user.call("media.cancel") == {"cancelled": False}
     run(scenario)
 
 

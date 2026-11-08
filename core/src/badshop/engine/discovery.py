@@ -72,6 +72,8 @@ class DiscoverParams(Params):
     allow_sources: list[SourceName] = Field(default_factory=list, max_length=40)
     rights: Literal['any','known','public-domain'] = 'any'
     orientation: Literal['any','landscape','portrait','square'] = 'any'
+    material: Literal['any', 'photo', 'illustration', 'object'] = Field('any',
+        description='Prefer relevant source collections; this is not automatic image classification')
 
     @field_validator("query")
     @classmethod
@@ -545,6 +547,13 @@ def _rank(hit, image, p):
 def discover(p: DiscoverParams, reference=None) -> EngineResult:
     query = " ".join(filter(None, [p.query, p.pose, p.expression]))
     names = [item["id"] for item in source_status() if item["configured"]] if p.source == "all" else [p.source]
+    if p.source == "all" and p.material != "any":
+        preferred = {
+            "photo": {"commons", "openverse", "flickr", "pexels", "pixabay", "brave", "web"},
+            "illustration": {"commons", "openverse", "openmoji", "bhl", "loc"},
+            "object": {"commons", "met", "chicago", "cleveland", "smithsonian", "wellcome"},
+        }[p.material]
+        names = [name for name in names if name in preferred]
     if p.allow_sources:
         names = [name for name in names if name in p.allow_sources]
     if not names:
@@ -561,6 +570,8 @@ def discover(p: DiscoverParams, reference=None) -> EngineResult:
             return name, [], f"{name}: {sources._clean(reason)[:300]}"
     with ThreadPoolExecutor(max_workers=7) as pool:
         groups = list(pool.map(search, names))
+    health = {name: {"status": "failed" if error else "responded", "results": len(group)}
+              for name, group, error in groups}
     hits, seen = [], set(p.exclude_urls)
     for _, _, error in groups:
         if error:
@@ -586,7 +597,8 @@ def discover(p: DiscoverParams, reference=None) -> EngineResult:
     if p.orientation != 'any':
         previews = [item for item in previews if (item[1].width>item[1].height*1.1 if p.orientation=='landscape' else item[1].height>item[1].width*1.1 if p.orientation=='portrait' else .9<=item[1].width/item[1].height<=1.1)]
     if not previews:
-        raise EngineError("no usable image previews found", hint="; ".join(notes + ["try fewer words or another source"]))
+        raise EngineError("no usable image previews found", hint="; ".join(notes + ["try fewer words or another source"]),
+                          data={"source_health": health, "warnings": notes})
     ranked = []
     ref = fingerprint(reference) if reference else None
     if ref is None and p.reference_url:
@@ -612,7 +624,12 @@ def discover(p: DiscoverParams, reference=None) -> EngineResult:
             novelty = min(distance(row[3], other[3]) for other in selected)
             source_seen = any(row[1]["source"]["kind"] == other[1]["source"]["kind"] for other in selected)
             return row[0] + novelty * 0.5 - (0.2 if source_seen else 0)
-        best = max(range(len(ranked)), key=lambda i: adjusted(ranked[i]))
+        # Description relevance is the primary key. Diversity breaks ties within
+        # that relevance tier; it must not promote an unrelated museum object.
+        terms = set(re.findall(r"\w+", p.query.casefold()))
+        def relevance(row):
+            return len(terms & set(re.findall(r"\w+", row[1]["title"].casefold())))
+        best = max(range(len(ranked)), key=lambda i: (relevance(ranked[i]), adjusted(ranked[i])))
         row = ranked.pop(best)
         if any(distance(row[3], other[3]) < 0.12 for other in selected):
             duplicates += 1
@@ -628,6 +645,7 @@ def discover(p: DiscoverParams, reference=None) -> EngineResult:
                "Choose a candidate with acquire(url=..., source_kind=..., page=..., title=..., license=..., creator=...).",
                "Ranking uses description, framing, and visual similarity; inspect the actual pose and expression.", *notes],
         data={"sources": [None], "query": query, "candidates": candidates,
+              "source_health": health,
               "duplicates_removed": duplicates, "warnings": notes})
 
 

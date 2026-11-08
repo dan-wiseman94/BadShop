@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 from pydantic import TypeAdapter, ValidationError
@@ -128,8 +129,9 @@ class Session:
 
     def __init__(self, data: SessionData, artifacts: ArtifactStore, *, executor: Executor | None = None,
                  emit: Emit | None = None, output_dir: Path | None = None,
-                 on_change: Callable[[], None] | None = None):
+                 on_change: Callable[[], None] | None = None, decoder=None):
         self.data, self.artifacts = data, artifacts
+        self.artifacts.decoder = decoder
         # One dict: a snapshot or a project file of `data` always lists every artifact the store holds.
         self.data.artifacts = artifacts.meta
         self.executor: Executor = executor if executor is not None else InProcessExecutor()
@@ -186,6 +188,37 @@ class Session:
         return _ROOT_SUFFIX.sub("", label)
 
     # user input
+
+    @contextmanager
+    def atomic_import(self):
+        """Commit a multi-frame/crop/animation import with its history and events."""
+        before, changes = self.data.model_copy(deep=True), list(self.changes)
+        emit, changed = self.emit, self.on_change
+        events = []
+        self.emit = lambda event, payload: events.append((event, payload))
+        self.on_change = lambda: None
+        try:
+            with self.artifacts.atomic():
+                yield
+        except BaseException:
+            # Pending automatic replay captures the timeline identity. A rejected
+            # import is not a document/branch replacement: restore containers in place.
+            for name in type(before).model_fields:
+                current, saved = getattr(self.data, name), getattr(before, name)
+                if isinstance(current, list):
+                    current[:] = saved
+                elif isinstance(current, dict):
+                    current.clear()
+                    current.update(saved)
+                else:
+                    setattr(self.data, name, saved)
+            self.changes[:] = changes
+            raise
+        finally:
+            self.emit, self.on_change = emit, changed
+        for event, payload in events:
+            emit(event, payload)
+        changed()
 
     def import_image(self, data: bytes, label: str, source: Source | None = None) -> ArtifactMeta:
         """A dropped, pasted or opened picture: stored as a working copy (returned) plus the original.
@@ -308,15 +341,16 @@ class Session:
                 call = ToolCall(step.tool, step.params, inputs, stem, trusted_urls=trusted,
                                 guard_network=True, no_remote=getattr(self, 'no_remote', False))
                 outcome = self.executor.run(call, cancel=cancel)  # the caller's stop goes with its call
-            outputs = self._store_outputs(step, outcome, stem) if outcome.ok else []
+            with self.artifacts.atomic():
+                outputs = self._store_outputs(step, outcome, stem) if outcome.ok else []
         except EngineError as e:
             outcome, outputs = ToolOutcome(False, error_message=e.message, error_hint=e.hint), []
         except Exception as e:  # a bug, in the session or a tool: one failed step, the session goes on
             outcome, outputs = _crashed(e), []
         step.finished_at = time.time()
+        step.data = {k: v for k, v in outcome.data.items() if k != "sources"} or None
         if outcome.ok:
             step.status, step.outputs = "done", outputs
-            step.data = {k: v for k, v in outcome.data.items() if k != "sources"} or None
         else:
             step.status = "error"
             step.error = StepError(message=outcome.error_message or "the tool failed",

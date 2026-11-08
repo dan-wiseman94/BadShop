@@ -338,3 +338,12 @@ def test_lospec_empty_author_is_valid_metadata(monkeypatch):
     result = collections.browse(collections.CollectionParams(kind='lospec', identifier='pico-8'))
     assert result.data['author'] == ''
     assert result.data['colors'] == ['#000000', '#ffffff']
+def test_png_export_profile_keeps_hard_transparency():
+    from badshop.engine.retro import ExportProfileParams, export_profile
+    from PIL import Image
+    image = Image.new("RGBA", (2, 2), (200, 10, 20, 0))
+    image.putpixel((1, 1), (10, 220, 30, 255))
+    output = export_profile(ExportProfileParams(image="test", profile="avatar", format="PNG"), image).outputs[0]
+    assert output.image.mode == "RGBA"
+    assert output.image.getpixel((0, 0))[3] == 0
+    assert output.image.getpixel((output.image.width - 1, output.image.height - 1)) == (10, 220, 30, 255)

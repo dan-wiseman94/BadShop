@@ -23,6 +23,17 @@ def sample(**kw):
             "capability_overrides": {"vision": True, "tool_calls": True}, **kw}
 
 
+def test_remote_http_requires_explicit_opt_in_and_old_profiles_stay_editable(env):
+    old = profiles.Profile(**sample(api_base="http://192.0.2.1/v1"))
+    profiles.save_profiles({old.id: old})
+    assert profiles.load_profiles()[old.id] == old
+    with pytest.raises(EngineError, match="unencrypted HTTP"):
+        profiles.require_secure_transport(old)
+    profiles.require_secure_transport(old.model_copy(update={"allow_insecure_http": True}))
+    for base in ("https://api.example.com", "http://127.0.0.1:8000", "http://[::1]:8000", "http://localhost:8000"):
+        profiles.require_secure_transport(old.model_copy(update={"api_base": base}))
+
+
 class Keychain:
     def __init__(self):
         self.values = {}

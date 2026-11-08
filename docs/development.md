@@ -77,7 +77,7 @@ records which unit cases were removed and which integration coverage was preserv
 | --- | --- | --- |
 | `./verify.sh quick` (explicit broad run) | Python lint and tests, verification-harness contracts, frontend components, production frontend build, Rust formatting and tests | A rendered browser or native window; excludes tests marked models, network, or live |
 | `./verify.sh browser` | Playwright UI workflows with a real Python core, local fixtures, and scripted model responses | Native Tauri dialogs/clipboard; real model quality |
-| `./verify.sh desktop` | Linux native debug build and the actual `start.sh` launcher, real WebKit rendering, core connection, normal window close, child-process cleanup | A packaged installer; native dialog/clipboard interactions |
+| `./verify.sh desktop` | Linux native debug build and `start.sh`, WebKit rendering, real clipboard RGBA roundtrip/paste, core crash recovery, close guard and process cleanup on private Xvfb | A packaged installer; native file dialogs; other platforms |
 | `./verify.sh all` | All three layers, including independent layers after a failed check | Windows/macOS runtime behavior, model downloads, live providers |
 | `./verify.sh doctor` | Tool discovery and Linux native library metadata | A successful build or runtime |
 
@@ -172,7 +172,8 @@ criteria for desktop work; identify which ones the task affects:
 
 When changing file dialogs, drag/drop, clipboard, keyboard input, or keychain integration,
 add a concrete native test or perform and record that interaction on the target platform.
-The current native smoke does not claim those interactions. A useful completion report
+The native smoke covers clipboard pixels/paste and close handling; file pickers and
+assistive technology still require their own platform evidence. A useful completion report
 states: changed behavior; commands and outcomes; evidence locations; unverified behavior.
 
 ## Isolated worktrees
@@ -344,8 +345,12 @@ The maintenance workflow runs on PRs and main pushes. It blocks on import contra
 Ruff, high-confidence Vulture findings, and Knip's unused files/dependencies or broken
 imports. Export/type candidates and lower-confidence Python findings remain advisory
 in the job summary and retained artifacts. A tool failure is not a clean result.
-Knip recognizes Vite, Vitest and Playwright entry points. Its only dependency exception,
-`tailwindcss`, is imported by `app/src/style.css`, which Knip does not resolve here.
+Knip recognizes Vite, Vitest and Playwright entry points. `tailwindcss` is imported
+by `app/src/style.css`, which Knip does not resolve here. The other narrow exception,
+`@rjsf/validator-ajv8` 6.11.0, is a development dependency required by the static
+`getTestRegistry` export in `@rjsf/core` 6.11.0. Remove it when that upstream test-helper
+import is removed or isolated. Application forms use the eval-free cfworker validator;
+the packaged CSP excludes `unsafe-eval` and a browser regression checks it.
 Do not mark every source file as an entry point or blanket-ignore dynamic registries.
 For Python, Pydantic fields, registered handlers, callbacks, and platform-specific
 entry points need caller/registration review before removal. No blanket whitelist is

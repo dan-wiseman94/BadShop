@@ -21,6 +21,7 @@ import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { Studio } from "./components/Studio";
+import { QuickStart } from "./components/QuickStart";
 import { sourceCard } from "./sourceCard";
 import { SaveChangesDialog, useSessionActions } from "./sessionActions";
 import { usePaneLayout } from "./layout";
@@ -38,7 +39,7 @@ import {
 } from "./native";
 import { reportNativeReadiness } from "./nativeReadiness";
 import type { ApprovalMode } from "./types";
-import { useReducedMotion } from "./appearance";
+import { readPreference, savePreference, useReducedMotion } from "./appearance";
 import { useUpdates, UpdateProgress } from "./updates";
 import "./themes.css";
 function Resizer({
@@ -101,8 +102,13 @@ export default function App() {
   const [attachments, setAttachments] = useState<string[]>([]);
   const { workbench, widths, resize, reset, contentWidth } = usePaneLayout();
   const documents = useSessionActions();
-  const updates = useUpdates(() => documents.request({ kind: "close" }));
+  const { data: settings } = useCoreQuery("settings.get");
+  const updates = useUpdates(() => documents.request({ kind: "close" }), settings?.no_remote ?? true);
   const [welcome, setWelcome] = useState(!localStorage.getItem("badshop.welcome"));
+  // Existing users keep their workbench; first-time users begin with quick ideas.
+  const [workspace, setWorkspace] = useState(() => readPreference("workspace", localStorage.getItem("badshop.welcome") ? "advanced" : "quick"));
+  const [history, setHistory] = useState(false);
+  const chooseWorkspace = (value: string) => { setWorkspace(value); savePreference("workspace", value); };
   const [menu, setMenu] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
   const [ideaDrafts, setIdeaDrafts] = useState<{ id: string; text: string; generation: number }[]>([]);
@@ -235,7 +241,15 @@ export default function App() {
         useUI.getState().set({ settingsOpen: false, paletteOpen: false, pick: null });
         setMenu(false);
       }
-      if (document.querySelector('[role="dialog"]')) return;
+      if (document.querySelector('[role="dialog"], dialog[open]')) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (native && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v"
+        && !target?.closest("input, textarea, select") && !target?.isContentEditable) {
+        // WebKit does not dispatch an image paste event from a focused button/canvas.
+        // Use the native clipboard there; editable controls keep their normal paste.
+        event.preventDefault();
+        run(async () => { await addBlob(await clipboardImage()); });
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         save(event.shiftKey);
@@ -247,7 +261,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [save, documents.open, documents.pending, documents.cancel]);
+  }, [save, documents.open, documents.pending, documents.cancel, addBlob]);
   useEffect(() => {
     if (!ui.notice) return;
     const timer = setTimeout(() => useUI.getState().set({ notice: null }), 6000);
@@ -446,6 +460,11 @@ export default function App() {
           )}
         </div>
         <div className="header-center">
+          <div className="segmented workspace-switch" aria-label="Workspace">
+            <button aria-pressed={workspace === "quick"} onClick={() => chooseWorkspace("quick")}>Quick ideas</button>
+            <button aria-pressed={workspace === "advanced"} onClick={() => chooseWorkspace("advanced")}>Art director</button>
+          </div>
+          {workspace === "advanced" && <>
           <label className="provider-select">
             <span className="provider-symbol">✱</span>
             <select
@@ -493,8 +512,10 @@ export default function App() {
               <option value="ask_all">Ask for everything</option>
             </select>
           </label>
+          </>}
         </div>
         <div className="header-actions">
+          {workspace === "quick" && <button aria-pressed={history} onClick={() => setHistory(!history)}>History</button>}
           <button
             className="studio-launch"
             aria-label="Images & directions"
@@ -584,15 +605,16 @@ export default function App() {
         </main>
       )}
       <main
-        className="workbench"
+        className={`workbench ${workspace === "quick" ? "quick-workbench" : "advanced-workbench"} ${history ? "show-history" : ""}`}
         hidden={disconnected}
         inert={ui.status !== "ready"}
         ref={workbench}
         style={{
           display: disconnected ? "none" : undefined,
-          gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr) 6px ${widths.right}px`,
+          gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr)${workspace === "advanced" || history ? ` 6px ${widths.right}px` : ""}`,
         }}
       >
+        <QuickStart key={`quick-${ui.documentGeneration}`} onImport={importImages} onAdvanced={() => chooseWorkspace("advanced")} />
         <Chat
           key={`chat-${ui.documentGeneration}`}
           attachments={attachments}
@@ -628,7 +650,7 @@ export default function App() {
           {session?.turn_running
             ? "Agent working"
             : ui.status === "ready"
-              ? "All systems questionable"
+              ? "Connected"
               : "Starting core…"}
         </span>
       </footer>
@@ -655,6 +677,7 @@ export default function App() {
           onClose={() => setStudioOpen(false)}
           onAttach={(id) => setAttachments((previous) => [...new Set([...previous, id])])}
           onDraft={(text) => {
+            chooseWorkspace("advanced");
             setIdeaDrafts((previous) => [
               ...previous,
               { id: crypto.randomUUID(), text, generation: ui.documentGeneration },
@@ -666,7 +689,7 @@ export default function App() {
       )}
       <SaveChangesDialog actions={documents} />
       {welcome && ui.status === "ready" && !ui.settingsOpen && !documents.pending && (
-        <Welcome onClose={closeWelcome} />
+        <Welcome onClose={closeWelcome} onManual={() => { chooseWorkspace("advanced"); closeWelcome(); }} />
       )}
       {dragging && (
         <div className="drop-overlay">

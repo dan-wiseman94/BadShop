@@ -1,11 +1,12 @@
 [project]
 name = "badshop"
-version = "0.3.0"
+version = "0.4.0"
 description = "Deliberately bad, old-internet photoshops, art-directed by any LLM"
 requires-python = ">=3.12,<3.14"
 license = "MIT"
 dependencies = [
-    "pillow>=12.3",
+    "pillow>=13.0,<14",  # fixes decoder memory-safety/resource advisories in 12.3
+    "filelock>=4.2.9,<5",  # security floor for transitive model-cache locking
     "numpy>=2.5; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     # Intel macOS wheels stop at these inference runtimes; numba requires NumPy <2.4.
     "numpy>=2.3,<2.4; sys_platform == 'darwin' and platform_machine == 'x86_64'",

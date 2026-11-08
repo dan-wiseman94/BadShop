@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from badshop.agent.approval import ApprovalGate, needs_approval
-from badshop.agent.context import build_messages, image_placeholder, model_result, tool_definitions
+from badshop.agent.context import CHANGES_NOTE, build_messages, image_placeholder, model_result, tool_definitions
 from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.engine.errors import EngineError
 from badshop.session.models import ArtifactMeta, Message, Part, Step
@@ -21,7 +21,6 @@ Blocking = Callable[..., Awaitable[Any]]  # asyncio.to_thread, or the server's l
 
 STOPPED = "stopped by the user"
 FAILED = "the turn failed"
-CHANGES_NOTE = "Since your last turn the user changed the session (the step list is current):"
 
 
 @dataclass
@@ -29,6 +28,7 @@ class TurnConfig:
     approval_mode: str = "ask_changes"  # read at every call: the server can switch it mid-turn
     step_budget: int = 40  # executed steps per turn
     max_invalid: int = 3  # consecutive invalid calls end the turn
+    before_request: Callable[[], None] | None = None  # recheck the app's current network policy
 
 
 def _arguments(call: ToolCallRequest) -> dict:
@@ -74,7 +74,7 @@ def _changes_note(session: Session) -> Message | None:
     if not changes:
         return None
     note = "\n".join([CHANGES_NOTE, *(f"- {c}" for c in changes)])
-    _record(session, {"role": "system", "content": note})
+    _record(session, {"role": "user", "content": note})
     return session.add_message("system_note", [Part(type="text", text=note)])
 
 
@@ -232,6 +232,8 @@ class _Turn:
             messages = await self.call(build_messages, self.session,
                                        getattr(self.provider, "full_image_ids", False))
             try:
+                if self.cfg.before_request is not None:
+                    self.cfg.before_request()
                 reply = await self.provider.complete(messages, tools, self.delta)
             except ProviderError as e:
                 self.error = str(e)

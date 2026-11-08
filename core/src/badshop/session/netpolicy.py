@@ -3,8 +3,8 @@ chooses most of the links a tool follows, so every hop must lead to a public int
 this computer or the local network, or `fetch` becomes a way to read the user's router, NAS or cloud
 metadata, and its errors a LAN scanner. Only the link the user typed is let through, on its first hop.
 
-Resolve-then-connect is best effort against DNS rebinding (the name could resolve differently a moment
-later, when urllib connects)."""
+The connection hook validates every resolved address and connects directly to that sockaddr,
+without a second DNS lookup. HTTP Host and TLS server identity remain the original hostname."""
 
 import http.client
 import ipaddress
@@ -56,6 +56,16 @@ def _public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return ip.is_global and not local  # is_global also rules out shared space 100.64/10 (CGNAT, Tailscale)
 
 
+def _check_address(url: str, address: str) -> None:
+    try:
+        public = _public(ipaddress.ip_address(address))
+    except ValueError:
+        public = False
+    if not public:
+        raise EngineError(f"refused {url[:60]}: it points into this computer or the local network",
+                          hint=LOCAL_HINT)
+
+
 def refuse_private(url: str, trusted: frozenset[str] = frozenset()) -> None:
     """Raise EngineError when `url` leads to this computer or a non-public network: any address either
     reading of its host resolves to that is private, loopback, link-local, reserved, multicast or
@@ -63,19 +73,43 @@ def refuse_private(url: str, trusted: frozenset[str] = frozenset()) -> None:
     checked. A host that doesn't resolve passes too: the request itself fails the same way."""
     if url in trusted:
         return
-    for host in _hosts(url):
+    hosts = _hosts(url)
+    names = []
+    for host in hosts:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            names.append(host)
+        else:
+            _check_address(url, host)  # reject an explicit local reading before querying any aliases
+    for host in names:
         try:
             found = socket.getaddrinfo(host, None, 0, socket.SOCK_STREAM)  # as socket.create_connection asks
         except (OSError, UnicodeError):  # gaierror is an OSError; a label over 63 characters, a UnicodeError
             continue
         for *_, sockaddr in found:
-            try:
-                public = _public(ipaddress.ip_address(sockaddr[0]))
-            except ValueError:  # an address this module can't read is not known to be public
-                public = False
-            if not public:  # the resolved address stays out of the message: it would answer DNS for a model
-                raise EngineError(f"refused {url[:60]}: it points into this computer or the local network",
-                                  hint=LOCAL_HINT)
+            _check_address(url, sockaddr[0])
+
+
+def connect_public(url: str, address: tuple[str, int], timeout: float,
+                   source_address=None, *, trusted: frozenset[str] = frozenset()) -> socket.socket:
+    found = socket.getaddrinfo(*address, 0, socket.SOCK_STREAM)
+    if url not in trusted:
+        for *_, sockaddr in found:
+            _check_address(url, sockaddr[0])
+    error = OSError("the hostname has no usable addresses")
+    for family, kind, protocol, _, sockaddr in found:
+        connection = socket.socket(family, kind, protocol)
+        try:
+            connection.settimeout(timeout)
+            if source_address:
+                connection.bind(source_address)
+            connection.connect(sockaddr)  # numeric address: no resolve-then-connect race
+            return connection
+        except OSError as exc:
+            connection.close()
+            error = exc
+    raise error
 
 
 def policy_for(trusted: frozenset[str] = frozenset()) -> Callable[[str], None]:
@@ -88,14 +122,16 @@ def guarded(trusted: frozenset[str] = frozenset(), no_remote: bool = False) -> I
     """Install the policy as assets.URL_POLICY for the block, so every download, redirect hop and asset
     fetch is checked, then put back whatever was there. URL_POLICY is process-wide: one tool call runs
     at a time in a process (the session's lock, or the worker's single child)."""
-    previous = assets.URL_POLICY
+    previous, previous_connect = assets.URL_POLICY, assets.CONNECT
     def offline(url):
         raise EngineError('remote downloads are disabled', hint='import a local file or turn off Local only in Settings')
     assets.URL_POLICY = offline if no_remote else policy_for(trusted)
+    assets.CONNECT = partial(connect_public, trusted=frozenset(trusted))
     try:
         yield
     finally:
         assets.URL_POLICY = previous
+        assets.CONNECT = previous_connect
 
 
 def typed_urls(tool: str, params: dict, actor: str) -> frozenset[str]:

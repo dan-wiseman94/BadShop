@@ -244,6 +244,70 @@ def _read(path: Path, zf: zipfile.ZipFile, info: zipfile.ZipInfo, cap: int) -> b
     return b"".join(chunks)
 
 
+
+def _imported_transcript(path: Path, entries: list[dict]) -> list[dict]:
+    """Validate persisted provider messages, never treating a file's notes as app instructions.
+
+    Schema 1–3 store transient system change notes. Discard those on import: the app
+    reconstructs current state from validated steps, while UI messages retain history.
+    Missing tool answers are allowed for interrupted autosaves; agent.context fills them.
+    """
+    def invalid():
+        return _damaged(path, "invalid conversation history",
+                        hint="open a known-good copy; the current project has not been replaced")
+
+    if len(entries) > 50_000:
+        raise invalid()
+    result, pending = [], set()
+    for entry in entries:
+        role = entry.get("role")
+        if not isinstance(role, str) or role not in {"user", "assistant", "tool", "system", "developer"}:
+            raise invalid()
+        content = entry.get("content")
+        if content is not None and not isinstance(content, str):
+            raise invalid()
+        if content is None and role != "assistant":
+            raise invalid()
+        if role in {"system", "developer"}:
+            continue
+        message = {"role": role, "content": content}
+        calls = entry.get("tool_calls")
+        if role == "assistant" and content is None and not calls:
+            raise invalid()
+        if role != "assistant" and calls is not None:
+            raise invalid()
+        if role == "tool":
+            call_id = entry.get("tool_call_id")
+            if not isinstance(call_id, str) or call_id not in pending:
+                raise invalid()
+            pending.remove(call_id)
+            message["tool_call_id"] = call_id
+        else:
+            pending = set()
+        if calls is not None:
+            if not isinstance(calls, list) or len(calls) > 128:
+                raise invalid()
+            normalized = []
+            for call in calls:
+                if not isinstance(call, dict):
+                    raise invalid()
+                call_id, function = call.get("id"), call.get("function")
+                if (not isinstance(call_id, str) or not 1 <= len(call_id) <= 1024
+                        or call_id in pending or call.get("type") != "function"
+                        or not isinstance(function, dict)):
+                    raise invalid()
+                name, arguments = function.get("name"), function.get("arguments")
+                if not isinstance(name, str) or not 1 <= len(name) <= 128 or not isinstance(arguments, str):
+                    raise invalid()
+                pending.add(call_id)
+                normalized.append({"id": call_id, "type": "function",
+                                   "function": {"name": name, "arguments": arguments}})
+            message["tool_calls"] = normalized
+        result.append(message)
+    return result
+
+
+
 def _session_data(path: Path, raw: bytes) -> SessionData:
     try:
         payload = json.loads(raw)
@@ -259,6 +323,7 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
         data = SessionData.model_validate(payload)
     except ValidationError as e:
         raise _damaged(path, "session.json isn't a badshop session", hint=runner.explain(e)) from None
+    data.transcript = _imported_transcript(path, data.transcript)
     if len({step.id for step in data.steps}) != len(data.steps):
         raise _damaged(path, "duplicate step ids")
     if [step.index for step in data.steps] != list(range(1, len(data.steps) + 1)):
@@ -300,7 +365,7 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
                           "created_at": branch.created_at, "steps": [s.model_dump() for s in branch.steps],
                           "messages": [m.model_dump() for m in branch.messages],
                           "transcript": branch.transcript}
-        _session_data(path, json.dumps(branch_payload).encode("ascii"))
+        branch.transcript = _session_data(path, json.dumps(branch_payload).encode("ascii")).transcript
     return data
 
 
@@ -354,7 +419,7 @@ def open_project(path: Path, **session_kw) -> Session:
             problem = _size_problem(info.file_size, {aid: members[aid].file_size for aid in data.artifacts})
             if problem:
                 raise _too_big(path, problem)
-            artifacts = ArtifactStore()
+            artifacts = ArtifactStore(decoder=session_kw.get("decoder"))
             for aid, meta in data.artifacts.items():
                 blob = _read(path, zf, members[aid], MAX_MEMBER_BYTES)
                 if hashlib.sha256(blob).hexdigest() != aid:
