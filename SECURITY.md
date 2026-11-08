@@ -2,10 +2,10 @@
 
 Do not post exploit details, credentials, private images or affected project archives in a public
 issue. On the [repository Security page](https://github.com/dan-wiseman94/BadShop/security), use
-**Report a vulnerability** if private reporting is enabled. If that option is unavailable, open
+**Report a vulnerability**. Private reporting is enabled and was verified for the 0.4.0 release.
+If that option is unavailable, open
 a minimal issue requesting a private contact channel without including the vulnerability details.
-Maintainers must enable and verify a private channel before a paid public release; no response
-SLA is promised until its owner and coverage are agreed.
+No response SLA is promised until its owner and coverage are agreed.
 
 A useful private report includes the affected version/OS, a minimal synthetic reproduction,
 the trust boundary crossed, expected/observed behavior and impact. Avoid running destructive

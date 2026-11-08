@@ -134,9 +134,10 @@ Match the tag to Python, frontend and
 Tauri package versions before tagging. Release tags and external publication are explicit
 maintainer actions, not part of ordinary development.
 
-Unsigned builds are development/preview candidates, not the paid consumer release gate.
-Use platform signing and verify a clean download on a fresh machine before promoting a
-paid release. Updater signatures do not replace Authenticode or Apple notarization.
+Current free releases disclose Windows publisher and Apple notarization warnings; OS signing
+remains a later milestone under the v1 design scope. Use platform signing and verify a clean
+download on a fresh machine before claiming a trusted first-install experience.
+Updater signatures do not replace Authenticode or Apple notarization.
 
 ### Publication and integrity gates
 

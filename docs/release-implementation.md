@@ -24,8 +24,9 @@ dependency review, privacy documentation, and license inventory are substantiall
 This is meaningful progress toward a credible free beta and professional release. Real-user value
 still needs observation. The next release is **0.4.0, a free incremental release**; it does not
 claim that human usefulness, every provider, or every assistive technology has been validated.
-Local core, browser, accessibility and dependency checks now pass. Exact-candidate installed
-platform checks remain the publication gate.
+Local core, browser, accessibility and dependency checks now pass, as do all four installed
+platform jobs for candidate `0a9241a`. The tagged release workflow repeats the packaging gates
+before creating a draft; publication also requires checking its actual downloadable assets.
 
 A host storage failure interrupted an earlier verification attempt. Source and readable evidence
 were backed up; the rescue register preserves 76 unreadable historical files. WSL later became
@@ -104,6 +105,8 @@ sharing controls.
   metadata collection fails visibly instead of swallowing missing-package errors.
 - Added security reporting, support, privacy, compatibility and first-use documentation covering
   downloads, provider costs, local-only semantics, formats, memory needs, source rights and recovery.
+- Enabled GitHub private vulnerability reporting and verified the repository setting, so reporters
+  have a private channel without posting exploit details publicly.
 - Expanded OS signing/notarization, installed-platform, update and rollback instructions.
   Historical live-provider/installer results are explicitly labelled as historical.
 
@@ -115,6 +118,7 @@ an earlier full-suite result. Evidence contains source fingerprints where the ha
 | Check | Actual result |
 | --- | --- |
 | Broad offline core | Final run: **1,363 passed, 46 skipped**, no failures. Skips are platform-specific or explicitly opt-in (40 macOS, 2 Windows, 1 optional PDF, 2 Gemini, 1 slow MCP). |
+| PR core including downloaded models | Corrected candidate `0a9241a`: **1,381 passed, 51 skipped, 1 deselected** in GitHub Actions. The separately documented cutout golden review below accounts for its first-run failure. |
 | Follow-up import/discovery/media paths | `review-fixes-final.log`: 53 passed, 1 optional PDF skip. |
 | Worker/decode/cancellation | `worker-final.log`: 48 passed, 1 optional PDF skip, including child cleanup after timeout/cancel. |
 | Frontend components/new validator | 58 passed across 19 files. |
@@ -128,6 +132,20 @@ an earlier full-suite result. Evidence contains source fingerprints where the ha
 | Native | Version 0.4.0 source debug and development-launcher workflows passed: native clipboard pixels, Ctrl+V import, core-crash recovery with unsaved session preserved, Cancel/Discard close behavior and no surviving child processes. The shortcut fixes a WebKit paste gap outside editable controls. Source debug results do not establish installer coverage. |
 | Creative tooling | All 36 briefs enumerate; deterministic demo/comparison ran. Scripted fixtures are not live AI creativity results. |
 | SBOM/notices | Final Linux inventory: **774 components, zero missing notices**, 21 explicit manual-review entries. cfworker MIT/derived-code notices come from its exact source commit. Generated inventory passed CycloneDX 1.6 schema validation. |
+
+The [corrected installed-desktop run](https://github.com/dan-wiseman94/BadShop/actions/runs/42439541174)
+validated candidate `0a9241a` on four native runners. Subsequent report/security-policy changes
+do not change the application or packaging implementation.
+
+| Installed target | Observed result |
+| --- | --- |
+| Windows x64 NSIS | Install; frozen core and real keychain; clipboard pixels; native image import, deepfry, Cancel close, native Save As, reopen with identical output hash, clean close/uninstall. |
+| Linux x64 | Frozen core and real keychain; extracted .deb, AppImage and installed Flatpak startup, authenticated renderer/catalog, clipboard pixels and clean close. |
+| macOS Apple Silicon | DMG mount/copy, shell/core architecture, frozen core and real keychain, authenticated renderer, clipboard pixels, native Quit guard and cleanup. |
+| macOS Intel | The Mac checks above, plus 105 image-engine tests and real U2-Net removal in the frozen worker. |
+
+Retained screenshots were inspected. These results do not imply that every Mac/Linux native
+editing dialog or every version-to-version in-app update/recovery journey was exercised.
 
 Fresh exact-lock Python all-group and JavaScript audits report zero vulnerabilities.
 The refreshed Rust audit reports no vulnerability
@@ -159,8 +177,8 @@ afterward. Neither fix weakens the security or installer gates.
 
 | Gate | Required evidence/action |
 | --- | --- |
-| Finish candidate | Local core/component/browser/accessibility, native lifecycle and dependency checks pass. Complete frozen/installed platform checks for this candidate. |
-| Platform coverage | Exact-candidate Windows, Linux and both macOS architectures: install, create/revise/share, save/reopen, recovery, clipboard, native dialogs, keychain and cleanup. Historical passes do not qualify. |
+| Finish candidate | Local and PR checks plus all four installed candidate jobs pass. Require the tagged packaging run and downloadable-asset integrity checks before publication. |
+| Platform coverage | Fresh installed-platform results are recorded above. Extend native Mac/Linux editing/save/reopen, real Wayland and assistive-technology journeys; browser workflows do not prove those native interactions. |
 | Trusted distribution | Verify downloaded hashes/attestations and signed updater assets for this release. OS signing/notarization remains a later milestone under the original v1 scope; first-install OS warnings must be disclosed. Test real signed upgrade, failed-update recovery and rollback before claiming those journeys verified. Updater signatures do not replace OS signing. |
 | Dependencies/licenses | Inspect each platform inventory/payload, review Apple-derived notices and MPL source availability, resolve or renew justified expiring Rust exceptions. Fresh Linux audits/inventory pass their automated gates. |
 | Real creative success | Execute 36 briefs with intended defaults, repeat difficult cases across advertised providers, and obtain blinded human ratings plus time/cost/correction measurements. No live-provider spending was initiated here. |
