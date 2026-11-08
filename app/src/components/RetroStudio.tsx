@@ -3,7 +3,7 @@ import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
 import { useState } from "react";
 import { action, run, useCoreQuery, useSession } from "../data";
-import { useUI } from "../store";
+import { useSelectedArtifact, useUI } from "../store";
 import { openLink } from "../native";
 import { ArtifactThumb } from "./Viewer";
 import { ShareImage } from "./ShareImage";
@@ -48,7 +48,7 @@ export function RetroStudio({
   const [jpegQuality, setJpegQuality] = useState(35);
   const [jpegPasses, setJpegPasses] = useState(2);
   const [comparison, setComparison] = useState<string[]>([]);
-  const chosen = useUI((s) => s.selectedArtifact);
+  const chosen = useSelectedArtifact(session?.steps);
   const selectedStep = useUI((s) => s.selectedStep);
   const artifacts = Object.values(session?.artifacts ?? {});
   const image =

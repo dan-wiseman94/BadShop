@@ -83,6 +83,10 @@ function acceptSessionReplacement(
     (previous.id === session.id ||
       (isPristineSession(previous) && isPristineSession(session)));
   const ui = useUI.getState();
+  const selection = ui.selectedArtifact;
+  const hasSelection = typeof selection === "string"
+    ? !!session.artifacts[selection]
+    : !!selection && session.steps.some((step) => step.id === selection.stepId);
   queries.removeQueries({ queryKey: ["artifact"] });
   queries.setQueryData<Session>(["session.get"], {
     ...session,
@@ -93,10 +97,7 @@ function acceptSessionReplacement(
       preserve && session.steps.some((step) => step.id === ui.selectedStep)
         ? ui.selectedStep
         : null,
-    selectedArtifact:
-      preserve && ui.selectedArtifact && session.artifacts[ui.selectedArtifact]
-        ? ui.selectedArtifact
-        : null,
+    selectedArtifact: preserve && hasSelection ? selection : null,
     pick:
       preserve && ui.pick && session.artifacts[ui.pick.artifactId]
         ? ui.pick
@@ -292,6 +293,8 @@ export function applyCoreEvent({ method, params }: CoreEvent) {
   });
   if (method !== "message.done")
     void queries.invalidateQueries({ queryKey: ["session.get"] });
+  if (["step.finished", "step.failed", "step.deleted"].includes(method))
+    void queries.invalidateQueries({ queryKey: ["branches.list"] });
   if (method === "step.done" || method === "step.deleted")
     void queries.invalidateQueries({ queryKey: ["sources.status"] });
 }

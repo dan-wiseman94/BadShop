@@ -14,7 +14,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { action, run, useCoreQuery, useSession } from "../data";
-import { useUI } from "../store";
+import { useSelectedArtifact, useUI } from "../store";
 import { copyText, openLink } from "../native";
 import { ToolForm, normalizeSchema } from "./ToolForm";
 import { ArtifactThumb } from "./Viewer";
@@ -267,11 +267,14 @@ export function Timeline() {
               <pre>{JSON.stringify(step.data, null, 2)}</pre>
             </details>
           )}
-          {step.outputs.map((id) => {
+          {step.outputs.map((id, outputIndex) => {
             const artifact = session?.artifacts[id];
             return (
               <div key={id} className="provenance">
-                <ArtifactThumb id={id} onClick={() => useUI.getState().set({ selectedArtifact: id })} />
+                <ArtifactThumb
+                  id={id}
+                  onClick={() => useUI.getState().set({ selectedArtifact: { stepId: step.id, outputIndex } })}
+                />
                 <div>
                   <strong>{artifact?.label}</strong>
                   <span>
@@ -302,6 +305,7 @@ export function ToolPalette() {
   const defaults = useRef<Params>({});
   const { data: tools } = useCoreQuery("tools.list");
   const { data: session } = useSession();
+  const selectedArtifact = useSelectedArtifact(session?.steps);
   const groups = (tools ?? [])
     .filter((t) => `${t.name} ${t.summary} ${t.category}`.toLowerCase().includes(search.toLowerCase()))
     .reduce<Record<string, Tool[]>>(
@@ -343,7 +347,7 @@ export function ToolPalette() {
                 });
                 useUI.getState().set({
                   selectedStep: result.id,
-                  selectedArtifact: result.outputs[0] ?? null,
+                  selectedArtifact: result.outputs.length ? { stepId: result.id, outputIndex: 0 } : null,
                   paletteOpen: false,
                 });
               }}
@@ -372,7 +376,7 @@ export function ToolPalette() {
                       className="tool-option"
                       onClick={() => {
                         const selected =
-                          useUI.getState().selectedArtifact ??
+                          selectedArtifact ??
                           session?.steps.at(-1)?.outputs[0] ??
                           Object.values(session?.artifacts ?? {}).find(
                             (artifact) =>

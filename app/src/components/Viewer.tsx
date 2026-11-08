@@ -3,7 +3,7 @@ import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
 import { Grid2X2, ScanFace, Maximize, ChevronDown } from "lucide-react";
 import { imageUrl, useArtifact, useSession, run } from "../data";
-import { useUI } from "../store";
+import { useSelectedArtifact, useUI } from "../store";
 import { useReducedMotion } from "../appearance";
 import { openLink } from "../native";
 import { CopyImage, ShareImage } from "./ShareImage";
@@ -29,7 +29,7 @@ function faceBoxes(data: Params | undefined): number[][] {
 export function Viewer({ onImport }: { onImport: () => void }) {
   const { data: session } = useSession();
   const selectedStep = useUI((s) => s.selectedStep);
-  const selectedArtifact = useUI((s) => s.selectedArtifact);
+  const selectedArtifact = useSelectedArtifact(session?.steps);
   const pick = useUI((s) => s.pick);
   const [grid, setGrid] = useState(false);
   const [boxes, setBoxes] = useState(false);

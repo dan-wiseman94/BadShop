@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { action, imageUrl, run, useCoreQuery, useSession } from "../data";
 import { rpc } from "../rpc";
-import { useUI } from "../store";
+import { useSelectedArtifact, useUI } from "../store";
 import { openLink } from "../native";
 import { sourceCard } from "../sourceCard";
 import { ArtifactThumb } from "./Viewer";
@@ -81,7 +81,7 @@ export function Studio({
     if (sources.length && source !== "all" && !sources.some((item) => item.id === source && item.configured))
       setSource("all");
   }, [sources, source]);
-  const selected = useUI((s) => s.selectedArtifact);
+  const selected = useSelectedArtifact(session?.steps);
   const selectedStep = useUI((s) => s.selectedStep);
   const ready = useUI((s) => s.status === "ready");
   const image =
