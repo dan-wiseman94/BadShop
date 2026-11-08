@@ -1225,7 +1225,7 @@ def test_asset_download_cancellation_reaches_worker(env, monkeypatch, stop):
             await app.close()
         await asyncio.gather(request, return_exceptions=True)
         assert await asyncio.to_thread(finished.wait, 2)
-        await asyncio.gather(*(task for _, task in app._downloads.values()), return_exceptions=True)
+        await asyncio.gather(*(download.task for download in app._downloads.values()), return_exceptions=True)
         assert await c.call("assets.cancel", name=name) == {"cancelled": False}
 
     run(body)

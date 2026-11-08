@@ -20,6 +20,8 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from badshop import __version__
+from badshop.agent.provider import Reply
+from badshop.engine import assets, manifest
 from badshop.server import app as server_app
 from badshop.server import main as core_main
 from badshop.server import ws as transport
@@ -182,6 +184,79 @@ async def until(check) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError("the server never got there")
+
+
+def test_asset_download_keeps_websocket_open_during_a_progress_burst(env, monkeypatch):
+    body = b"test model bytes" * 1024
+    asset = manifest.Asset("local-vision/test.gguf", "Test model", "https://example.test/model", 1,
+                           size=len(body), sha256=hashlib.sha256(body).hexdigest())
+    destination = manifest.asset_path(asset)
+
+    class ChunkedResponse(io.BytesIO):
+        headers = {"Content-Length": str(len(body))}
+
+        def read1(self, size):
+            return self.read(min(size, 16))
+
+    monkeypatch.setattr(manifest, "vision_assets", lambda: (asset,))
+    monkeypatch.setattr(assets, "_open", lambda *args, **kwargs: ChunkedResponse(body))
+    write = transport._write
+
+    async def backpressured_write(ws, outbox):
+        # Hold writes through this short transfer, as a temporarily busy renderer can.
+        await until(destination.is_file)
+        await write(ws, outbox)
+
+    monkeypatch.setattr(transport, "_write", backpressured_write)
+
+    async def scenario(app):
+        async with await serve(app, TOKEN) as server:
+            async with client(bound_port(server), TOKEN) as ui:
+                result = await ui.call("assets.download", {"name": asset.name})
+                assert Path(result["path"]) == destination
+                assert destination.read_bytes() == body
+                assert not (destination.parent / ".badshop-partials").exists()
+                assert await ui.call("session.get")
+                progress = [e["params"] for e in ui.seen if e["method"] == "asset.progress"]
+                assert progress[-1] == {"name": asset.name, "done": len(body), "total": len(body)}
+
+    run(scenario)
+
+
+def test_fast_chat_stream_keeps_websocket_open_and_saves_full_reply(env, monkeypatch):
+    burst = "0123456789" * 100
+    tail = " End of reply."
+
+    async def scenario(app):
+        release = asyncio.Event()
+
+        class BurstyProvider:
+            actor = "agent:fake"
+
+            async def complete(self, messages, tools, on_delta):
+                for character in burst:
+                    on_delta(character)
+                await release.wait()
+                on_delta(tail)
+                return Reply(text=burst + tail)
+
+        monkeypatch.setattr(app, "_get_provider", BurstyProvider)
+        async with await serve(app, TOKEN) as server:
+            async with client(bound_port(server), TOKEN) as ui:
+                assert await ui.call("chat.send", {"text": "Stream a reply"}) == {"started": True}
+                await ui.event("message.delta")  # show text even while the provider is paused
+                release.set()
+                assert await ui.event("turn.finished") == {"reason": "done"}
+                assert await ui.call("session.get")
+                streamed = "".join(e["params"]["text"] for e in ui.seen if e["method"] == "message.delta")
+                assert streamed == burst + tail
+                assistant = next(i for i, e in enumerate(ui.seen) if e["method"] == "message.done"
+                                 and e["params"]["message"]["role"] == "assistant")
+                assert not any(e["method"] == "message.delta" for e in ui.seen[assistant:])
+
+    run(scenario)
+    saved = open_project(env / "data" / "autosave" / "session.badshop")
+    assert saved.data.messages[-1].content[0].text == burst + tail
 
 
 def test_listens_on_loopback_and_answers_with_the_connection_actor():

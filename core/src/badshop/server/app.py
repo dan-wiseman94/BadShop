@@ -13,8 +13,10 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -57,7 +59,17 @@ Verdict = Literal["approve", "reject", "edit"]
 MAX_IMPORT_BYTES = 200 * 2**20  # a picked file bigger than this is refused before it is read
 MAX_PASTE_BYTES = 47 * 2**20  # base64 plus JSON must fit ws.MAX_MESSAGE; see app/src/data.ts
 UPDATE_STOP_TIMEOUT_S = 15.0
+DOWNLOAD_PROGRESS_INTERVAL_S = 0.2
+CHAT_DELTA_INTERVAL_S = 0.04
+CHAT_DELTA_BATCH_CHARS = 16 * 1024
 NO_PROVIDER_HINT = "add a profile with providers.save and select it with providers.select, or use badshop chat --model"
+
+
+@dataclass
+class _Download:
+    cancel: threading.Event
+    task: asyncio.Task
+    next_progress_at: float = float("-inf")
 
 
 def _user_path(path: str) -> Path:
@@ -202,7 +214,7 @@ class CoreApp:
         self._dirty = False  # nothing autosaves until the session changes: an untouched core leaves none
         self._prev_progress = assets.PROGRESS
         assets.PROGRESS = self._on_progress
-        self._downloads: dict[str, tuple[threading.Event, asyncio.Task]] = {}
+        self._downloads: dict[str, _Download] = {}
         self._prev_cancel = assets.CANCEL
         assets.CANCEL = self._download_cancelled
         self.dispatcher = Dispatcher()
@@ -380,6 +392,14 @@ class CoreApp:
         return task
 
     def _on_progress(self, name: str, done: int, total: int | None) -> None:  # assets.PROGRESS
+        # Direct downloads can report chunks faster than the renderer can read. Sample UI updates here so
+        # tool workers keep their existing progress heartbeats and deadline behavior.
+        download = self._downloads.get(name)
+        if download is not None:
+            now = time.monotonic()
+            if done != total and now < download.next_progress_at:
+                return
+            download.next_progress_at = now + DOWNLOAD_PROGRESS_INTERVAL_S
         self._emit("asset.progress", {"name": name, "done": done, "total": total})
 
     def _snapshot(self) -> dict:
@@ -491,9 +511,31 @@ class CoreApp:
     async def _turn_main(self, session: Session, provider: Provider, text: str,
                          attachments: list[str], cfg: TurnConfig, retry: bool = False) -> None:
         finished = False  # run_turn announced the end itself
+        pending_text = io.StringIO()
+        flush_handle: asyncio.TimerHandle | None = None
+
+        def flush_text() -> None:
+            nonlocal flush_handle
+            if flush_handle is not None:
+                flush_handle.cancel()
+                flush_handle = None
+            if pending_text.tell():
+                chunk = pending_text.getvalue()
+                pending_text.seek(0)
+                pending_text.truncate()
+                self._emit("message.delta", {"text": chunk})
 
         def emit(method: str, params: dict) -> None:
-            nonlocal finished
+            nonlocal finished, flush_handle
+            # Providers may drain many buffered chunks without yielding to the socket writer.
+            if method == "message.delta":
+                pending_text.write(params["text"])
+                if pending_text.tell() >= CHAT_DELTA_BATCH_CHARS:
+                    flush_text()
+                elif flush_handle is None:
+                    flush_handle = self._loop.call_later(CHAT_DELTA_INTERVAL_S, flush_text)
+                return
+            flush_text()  # a completed message or turn must never be followed by its old deltas
             finished = finished or method == "turn.finished"
             if method == "turn.finished":
                 self._retry_session = session if params.get("reason") == "provider_error" else None
@@ -511,9 +553,11 @@ class CoreApp:
                 await run_turn(session, provider, self.gate, text, attachments, cfg, emit,
                                blocking=self._blocking, retry=retry)
         except asyncio.CancelledError:  # stopped
+            flush_text()
             if not finished:
                 self._emit("turn.finished", {"reason": "stopped"})
         except Exception as e:  # the turn broke: say so, and keep the core serving
+            flush_text()
             log.exception("the agent turn failed")
             self._log("error", f"the agent turn failed ({type(e).__name__}: {e})")
             if not finished:
@@ -558,8 +602,8 @@ class CoreApp:
         self._cancel_approvals("the user closed the app")
         if getattr(self, '_recipe_cancel', None) is not None:
             self._recipe_cancel.set()
-        for signal, _ in self._downloads.values():
-            signal.set()
+        for download in self._downloads.values():
+            download.cancel.set()
         self._start_generation += 1  # also invalidate sends still queued for _lock
         if self._turn is not None or self._starting:
             self._spawn(self._stop_turn("the user closed the app"))
@@ -576,8 +620,8 @@ class CoreApp:
         if getattr(self, '_recipe_cancel', None) is not None:
             self._recipe_cancel.set()
         downloads = list(self._downloads.values())
-        for signal, _ in downloads:
-            signal.set()
+        for download in downloads:
+            download.cancel.set()
         self._cancel_approvals("badshop is closing")
         await self._stop_turn("badshop is closing")
         await self._local_runtime.close()
@@ -600,7 +644,7 @@ class CoreApp:
         for pump in pumps:
             pump.cancel()
         await asyncio.gather(*pumps, return_exceptions=True)
-        await asyncio.gather(*(task for _, task in downloads), return_exceptions=True)
+        await asyncio.gather(*(download.task for download in downloads), return_exceptions=True)
         if assets.PROGRESS == self._on_progress:
             assets.PROGRESS = self._prev_progress
         if assets.CANCEL == self._download_cancelled:
@@ -1308,8 +1352,8 @@ class CoreApp:
                     for task in probes:
                         task.cancel()
                     downloads = list(self._downloads.values())
-                    for signal, _ in downloads:
-                        signal.set()
+                    for download in downloads:
+                        download.cancel.set()
                     if getattr(self, '_recipe_cancel', None) is not None:
                         self._recipe_cancel.set()
                     self._cancel_approvals("Local only is being enabled")
@@ -1317,7 +1361,7 @@ class CoreApp:
                     await asyncio.gather(*probes, return_exceptions=True)
                     await asyncio.gather(*(p.close() for p in self._cli_providers.values()))
                     self._cli_providers.clear()
-                    await asyncio.gather(*(task for _, task in downloads), return_exceptions=True)
+                    await asyncio.gather(*(download.task for download in downloads), return_exceptions=True)
                     try:
                         async with asyncio.timeout(UPDATE_STOP_TIMEOUT_S):
                             await asyncio.gather(*(stopped.wait() for stopped in updates))
@@ -1363,7 +1407,7 @@ class CoreApp:
             raise EngineError("this asset is already downloading")
         signal = threading.Event()
         task = asyncio.create_task(asyncio.to_thread(manifest.download, name))
-        self._downloads[name] = (signal, task)
+        self._downloads[name] = _Download(signal, task)
 
         def finished(done: asyncio.Task) -> None:
             self._downloads.pop(name, None)
@@ -1379,11 +1423,11 @@ class CoreApp:
 
     def _download_cancelled(self, name: str) -> bool:
         pending = self._downloads.get(name)
-        return bool(pending and pending[0].is_set())
+        return bool(pending and pending.cancel.is_set())
 
     async def _assets_cancel(self, actor: str, name: str) -> dict:
         pending = self._downloads.get(name)
-        active = pending is not None and not pending[1].done()
+        active = pending is not None and not pending.task.done()
         if active:
-            pending[0].set()
+            pending.cancel.set()
         return {"cancelled": active}
