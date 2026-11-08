@@ -1,9 +1,10 @@
 import type { ComponentProps, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { ThemeIcon, type ThemeIconName } from "./ThemeIcon";
 
 type Props = ComponentProps<"button"> & {
   label?: ReactNode;
-  icon?: LucideIcon;
+  icon?: LucideIcon | ThemeIconName;
   iconSize?: number;
 };
 
@@ -11,7 +12,7 @@ type Props = ComponentProps<"button"> & {
 export function Button({ label, icon: Icon, iconSize, children, ...button }: Props) {
   return (
     <button {...button}>
-      {Icon && <Icon size={iconSize} />}
+      {typeof Icon === "string" ? <ThemeIcon name={Icon} size={iconSize} /> : Icon && <Icon size={iconSize} />}
       {label}
       {children}
     </button>

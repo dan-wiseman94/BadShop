@@ -1,12 +1,11 @@
 import { Button } from "./Button";
+import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Clock3,
-  RotateCcw,
   Plus,
   Search,
-  X,
   Code,
   Trash2,
   AlertTriangle,
@@ -93,7 +92,8 @@ export function Timeline() {
   return (
     <section className="timeline pane" aria-label="Steps timeline">
       <div className="pane-heading">
-        <span>
+        <span className="pane-title">
+          <ThemeIcon name="replay" size={16} />
           Steps <span className="count">{session?.steps.length ?? 0}</span>
         </span>
         <button
@@ -102,7 +102,7 @@ export function Timeline() {
           disabled={!session?.steps.length || busy}
           onClick={() => run(() => action("steps.replay_from", { step_id: session!.steps[0].id }))}
         >
-          <RotateCcw size={15} />
+          <ThemeIcon name="replay" size={16} />
         </button>
       </div>
       <div className="step-list">
@@ -162,7 +162,7 @@ export function Timeline() {
         className="run-tool"
         onClick={() => useUI.getState().set({ paletteOpen: true })}
       >
-        <Plus size={16} />
+        <ThemeIcon name="tools" size={18} />
         Run tool<span>{tools?.length ?? "…"} tools</span>
       </button>
       {step && tool && (
@@ -172,7 +172,7 @@ export function Timeline() {
               {step.index}. {step.tool}
             </h3>
             <button title="Close step details" onClick={() => useUI.getState().set({ selectedStep: null })}>
-              <X size={16} />
+              <ThemeIcon name="close" size={16} />
             </button>
           </div>
           {step.reason && <p>{step.reason}</p>}
@@ -209,7 +209,7 @@ export function Timeline() {
               disabled={busy}
               onClick={() => run(() => action("steps.replay_from", { step_id: step.id }))}
               label="Replay from here"
-              icon={RotateCcw}
+              icon="replay"
               iconSize={13}
             />
             <Button
@@ -325,7 +325,7 @@ export function ToolPalette() {
             <p>{tool ? tool.summary : "The exact same tools your agent uses. Your call."}</p>
           </div>
           <button aria-label="Close tools" onClick={() => useUI.getState().set({ paletteOpen: false })}>
-            <X size={20} />
+            <ThemeIcon name="close" size={20} />
           </button>
         </div>
         <ErrorNotice />

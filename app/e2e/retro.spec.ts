@@ -60,35 +60,81 @@ test("retro catalog, persisted defaults, recipes and credited export use real co
   expect(offline.error?.message).toContain("disabled");
 });
 
-test("every interface skin persists and keeps artwork pixels unchanged", async ({
+for (const [theme, name] of [
+  ["classic", "Classic Desktop"],
+  ["terminal", "Terminal"],
+  ["geocities", "GeoCities"],
+  ["y2k", "Y2K"],
+  ["paper", "Paper"],
+  ["arcade", "Arcade"],
+]) test(`${theme} interface skin persists and keeps artwork pixels unchanged`, async ({
   page,
   core,
 }) => {
-  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await page.addInitScript(() => {
+    localStorage.setItem("badshop.welcome", "1");
+    // Do not set the theme here: reload must use the preference saved by the UI.
+  });
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   const before = (await core.call("session.get")) as Session;
+  const artwork = page.locator(".canvas-image");
+  await expect(artwork).toBeVisible();
+  const source = await artwork.getAttribute("src");
+  const artifactId = Object.keys(before.artifacts)[0];
+  const bytes = await core.call("artifacts.get", { id: artifactId });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
-  for (const theme of [
-    "classic",
-    "terminal",
-    "geocities",
-    "y2k",
-    "paper",
-    "arcade",
-  ]) {
-    await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption(theme);
-    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-    await page.screenshot({
-      path: test.info().outputPath(`theme-${theme}.png`),
-    });
-  }
+  await page.locator(".theme-card").filter({ has: page.getByText(name, { exact: true }) }).click();
+  await expect(page.getByRole("combobox", { name: "Theme", exact: true })).toHaveValue(theme);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  await page.locator(".theme-grid").screenshot({ path: test.info().outputPath(`theme-${theme}-picker.png`) });
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Settings", exact: true }).locator("svg")).toHaveAttribute("data-icon-skin", theme);
+  await expect(page.getByRole("button", { name: "Replay all steps", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Run tool", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Run a tool", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close tools", exact: true }).click();
+  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Images & directions", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close images and directions", exact: true }).click();
+  await expect(artwork).toHaveAttribute("src", source!);
+  // A theme must not tint, blur or fade the image through any ancestor.
+  const effects = await artwork.evaluate(image => {
+    const result = [];
+    for (let node: Element | null = image; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.filter !== "none" || style.opacity !== "1" || style.mixBlendMode !== "normal")
+        result.push({ node: node.className, filter: style.filter, opacity: style.opacity, blend: style.mixBlendMode });
+    }
+    return result;
+  });
+  expect(effects).toEqual([]);
+  await expect(artwork).toHaveCSS("image-rendering", "pixelated");
+  await page.screenshot({ path: test.info().outputPath(`theme-${theme}-workbench.png`) });
+  await page.getByRole("button", { name: "Quick ideas", exact: true }).click();
+  await page.screenshot({ path: test.info().outputPath(`theme-${theme}-quick.png`) });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  // Both selectors use the same saved preference.
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption("dark");
+  await expect(page.getByRole("button", { name: "Close settings", exact: true }).locator(".theme-icon")).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption(theme);
   await page.getByRole("combobox", { name: "Motion", exact: true }).selectOption("reduced");
   await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("130");
+  await page.getByRole("combobox", { name: "Interface density", exact: true }).selectOption("compact");
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "arcade");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
+  await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
+  await expect(page.locator("html")).toHaveCSS("font-size", "16.9px");
+  await expect(page.getByRole("button", { name: "Settings", exact: true }).locator("svg")).toHaveAttribute("data-icon-skin", theme);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Theme", exact: true })).toHaveValue(theme);
+  await page.screenshot({ path: test.info().outputPath(`theme-${theme}-scaled-settings.png`) });
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  expect(await core.call("artifacts.get", { id: artifactId })).toEqual(bytes);
   expect(((await core.call("session.get")) as Session).artifacts).toEqual(
     before.artifacts,
   );
