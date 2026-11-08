@@ -3,7 +3,7 @@ import { SelectField } from "./Fields";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
-import { ArrowUp, Square, Paperclip, Sparkles, Check, X, SlidersHorizontal, RotateCcw } from "lucide-react";
+import { ArrowUp, Square, Paperclip, Scissors, Check, X, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { action, run, useSession } from "../data";
 import { useUI } from "../store";
 import { ArtifactThumb } from "./Viewer";
@@ -98,13 +98,11 @@ export function Chat({
       >
         {!session?.messages.length && (
           <div className="chat-welcome">
-            <div className="little-logo">
-              b<span>✱</span>
-            </div>
+            <div className="welcome-label">The cut &amp; paste department</div>
             <h1>
-              Good tools.
+              Cut. Paste.
               <br />
-              Bad intentions.
+              <span>Make it worse.</span>
             </h1>
             <p>
               {session?.provider_profile_id === ON_DEVICE
@@ -127,7 +125,7 @@ export function Chat({
               ))}
             </div>
             <div className="welcome-note">
-              <Sparkles size={14} />
+              <Scissors size={14} />
               Real pixels. No image generation.
             </div>
           </div>

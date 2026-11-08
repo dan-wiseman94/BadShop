@@ -1,6 +1,57 @@
-/* Chrome only: textures are backgrounds, never overlays or filters on artwork.
-   Miniature windows share the same skin tokens as the real interface. */
-.theme-preview { --skin-radius: 0px; --skin-frame: 1px solid var(--line); }
+/* Interface materials only. Never put filters, textures or opacity on artwork
+   or its ancestors. The picker uses the same tokens as the workbench. */
+:root, .theme-preview {
+  --font-ui: Arial, "Liberation Sans", sans-serif;
+  --font-meta: "Cascadia Mono", "Liberation Mono", Consolas, monospace;
+  --bg: #171a17;
+  --panel: #232722;
+  --raised: #2f342c;
+  --stage: #191a19;
+  --text: #f0f0df;
+  --muted: #b4bba8;
+  --line: #4a5243;
+  --accent: #d6ef49;
+  --accent-text: #1d2411;
+  --hover: #3b4333;
+  --error: #ff9e86;
+  --green: #b6de83;
+  --warning: #efc66a;
+  --checker: #222422;
+  --skin-radius: 2px;
+  --skin-frame: 1px solid var(--line);
+  --skin-heading: var(--raised);
+  --skin-heading-text: var(--text);
+  --skin-shadow: 3px 3px 0 #0004;
+  --skin-button: var(--raised);
+  --skin-button-shadow: inset 0 1px 0 #ffffff0c;
+  --skin-field: var(--bg);
+  --skin-field-shadow: none;
+  --skin-rule: solid;
+  --skin-action: var(--accent);
+  --skin-action-text: var(--accent-text);
+  color-scheme: dark;
+}
+:root[data-theme="light"], .theme-preview[data-skin="light"] {
+  --bg: #dddfd3;
+  --panel: #f5f4e9;
+  --raised: #e6e8d9;
+  --stage: #c8cbc2;
+  --text: #24291e;
+  --muted: #5e6654;
+  --line: #a2a991;
+  --accent: #515e00;
+  --accent-text: #fff;
+  --hover: #d7ddc4;
+  --error: #a22f20;
+  --green: #3c6426;
+  --warning: #815200;
+  --checker: #bfc3b9;
+  --skin-action: #d6ef49;
+  --skin-action-text: #1d2411;
+  --skin-button-shadow: inset 0 1px #fff9;
+  --skin-field: #fffef5;
+  color-scheme: light;
+}
 :root[data-theme="classic"], .theme-preview[data-skin="classic"] {
   --bg: #c0c0c0;
   --panel: #c0c0c0;
@@ -15,6 +66,11 @@
   --error: #a00000;
   --green: #006000;
   --checker: #007777;
+  --warning: #805000;
+  --skin-radius: 0px;
+  --font-meta: Tahoma, "Liberation Sans", Arial, sans-serif;
+  --skin-field: #fff;
+  --skin-field-shadow: inset 1px 1px #808080;
   --skin-heading: linear-gradient(90deg, #000080, #1084d0);
   --skin-heading-text: #fff;
   --skin-frame: 2px solid;
@@ -30,7 +86,7 @@
   --raised: #0c2210;
   --stage: #010602;
   --text: #80e88b;
-  --muted: #4d995b;
+  --muted: #6fb67b;
   --line: #286b36;
   --accent: #8aff80;
   --accent-text: #020903;
@@ -38,6 +94,10 @@
   --error: #ffb454;
   --green: #8aff80;
   --checker: #07140a;
+  --warning: #ffb454;
+  --skin-radius: 0px;
+  --skin-rule: dashed;
+  --skin-field: #020903;
   --skin-heading: #0d2512;
   --skin-heading-text: #8aff80;
   --skin-shadow: inset 0 0 0 3px #020903, inset 0 0 0 4px #286b36;
@@ -60,6 +120,11 @@
   --error: #ff6bac;
   --green: #00ff80;
   --checker: #0e0a30;
+  --warning: #ffcf80;
+  --skin-radius: 0px;
+  --skin-rule: double;
+  --font-meta: "Times New Roman", "Liberation Serif", serif;
+  --skin-field: #fff;
   --skin-heading: linear-gradient(90deg, #000080, #800080);
   --skin-heading-text: #ffff00;
   --skin-frame: 3px ridge #9b82d2;
@@ -83,6 +148,10 @@
   --error: #a0184e;
   --green: #067b80;
   --checker: #5b6e92;
+  --warning: #835000;
+  --font-meta: "Trebuchet MS", "Liberation Sans", sans-serif;
+  --skin-field: #f7faff;
+  --skin-field-shadow: inset 0 2px 3px #60739b40;
   --skin-heading: linear-gradient(#fff 0%, #dfe7f6 44%, #a1b0cd 48%, #d5dff0 100%);
   --skin-heading-text: #27315b;
   --skin-radius: 12px;
@@ -98,7 +167,7 @@
   --raised: #e8dcc2;
   --stage: #b8aa8e;
   --text: #282319;
-  --muted: #78684d;
+  --muted: #695a42;
   --line: #8d7c5e;
   --accent: #9d3024;
   --accent-text: #fff6df;
@@ -106,6 +175,10 @@
   --error: #9d3024;
   --green: #486039;
   --checker: #b1a286;
+  --warning: #82521d;
+  --skin-radius: 0px;
+  --skin-rule: double;
+  --skin-field: #fff8e7;
   --skin-heading: #f5ecd8;
   --skin-heading-text: #282319;
   --skin-shadow: 3px 4px 0 #46382235;
@@ -128,6 +201,9 @@
   --error: #ff6177;
   --green: #42f4ed;
   --checker: #140b21;
+  --warning: #ffcf32;
+  --skin-radius: 0px;
+  --skin-field: #080410;
   --skin-heading: linear-gradient(#502061, #260f3c);
   --skin-heading-text: #ffcf32;
   --skin-frame: 2px solid #a63fa1;
@@ -139,62 +215,202 @@
 }
 
 /* Shared structure, with each era supplying its own materials. */
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"])
+:root
   :is(button, input, select, textarea, .composer, .segmented, .message.user,
-    .step-number, .approval-card, .studio-card, .retro-grid article, .search, .toast) {
+    .step-number, .approval-card, .studio-card, .retro-grid article, .search, .toast,
+    .artifact-thumb, .count, .pick-hint, .error-notice, .inline-error, .parameter-conflict,
+    .rjsf fieldset.rjsf-field-array, .rjsf .panel-danger, .update-notice, .drop-overlay) {
   border-radius: var(--skin-radius, 0px);
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"])
+:root
   :is(.pane, .modal, .dropdown, .share-dialog) {
   border: var(--skin-frame, 1px solid var(--line));
   border-radius: var(--skin-radius, 0px);
   box-shadow: var(--skin-shadow);
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"]) button {
+:root button {
   background: var(--skin-button);
   box-shadow: var(--skin-button-shadow);
   transition: none;
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"])
+:root
   button:where(:not(.primary, .export, .send, .active, [aria-pressed="true"])):hover:not(:disabled) {
   background: var(--hover);
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"])
+:root
   button:is(.primary, .export, .send, .active, [aria-pressed="true"]) {
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--skin-action);
+  color: var(--skin-action-text);
   text-shadow: none;
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"]) button:active:not(:disabled) {
+:root button:active:not(:disabled) {
   box-shadow: inset 1px 1px 2px #0008;
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"])
+:root
   :is(.pane-heading, .modal-heading) {
   background: var(--skin-heading);
   color: var(--skin-heading-text);
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"]) .modal-heading {
+:root .modal-heading {
   padding: 12px;
-  margin: -20px -20px 20px;
+  margin: 0 0 20px;
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"])
+:root
   :is(.pane-heading .muted, .modal-heading p, .pane-heading .connection-dot) {
   color: inherit;
 }
-:root:is([data-theme="classic"], [data-theme="terminal"], [data-theme="geocities"],
-  [data-theme="y2k"], [data-theme="paper"], [data-theme="arcade"]) .modal-backdrop {
+:root .modal-backdrop:not(.pick-active) {
   backdrop-filter: none;
   background: #0008;
 }
+
+/* The skin continues through working states, not only the window frame. */
+:root :is(input, select, textarea, .composer, .search) {
+  background: var(--skin-field);
+  box-shadow: var(--skin-field-shadow);
+}
+:root :is(.composer textarea, .search input) { background: transparent; box-shadow: none; }
+:root :is(.pane-heading, .viewer-foot, .app-footer, .message-name, .step-number,
+  .tool-groups h3, .detail-heading, .source-bar) { font-family: var(--font-meta); }
+:root :is(.viewer-tools, .artifact-strip, .chat-foot) { background: var(--raised); }
+:root :is(.studio-card, .retro-grid article, .quick-form, .rjsf fieldset.rjsf-field-array) {
+  border-style: var(--skin-rule);
+}
+:root :is(.studio-tabs, .tool-groups h3) {
+  border-bottom: 1px var(--skin-rule) var(--line);
+  padding-bottom: 9px;
+}
+:root :is(.result pre, .provider-events pre, .recipe-editor) {
+  border: 1px var(--skin-rule) var(--line);
+  border-radius: var(--skin-radius);
+  background: var(--skin-field);
+}
+:root .approval-card { border-left-width: 4px; }
+:root .step { box-shadow: none; background: transparent; }
+:root .step.selected {
+  background: color-mix(in srgb, var(--raised) 85%, var(--accent));
+  box-shadow: inset 3px 0 var(--accent);
+}
+:root :is(.dropdown button, .tool-option, .back-link) { box-shadow: none; background: transparent; }
+:root :is(.theme-card, .quick-cards button)[aria-pressed="true"] {
+  background: var(--raised);
+  color: var(--text);
+  border-color: var(--accent);
+}
+:root :is(.theme-card, .quick-cards button)[aria-pressed="true"] small { color: var(--muted); }
+:root .theme-card { box-shadow: none; }
+:root .theme-card > strong { display: flex; justify-content: space-between; gap: 8px; }
+:root .theme-card[aria-pressed="true"] > strong::after { content: "✓"; color: var(--accent); }
+
+/* BadShop's own workbench: a paste-up desk with label-maker controls. */
+:root:is([data-theme="dark"], [data-theme="light"]) .app-header {
+  min-height: 62px;
+  padding-block: 10px;
+  border-bottom: 2px solid var(--line);
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .brand {
+  font-family: Impact, "Roboto Condensed", "Arial Narrow", "Nimbus Sans Narrow", sans-serif;
+  text-transform: uppercase;
+  font-size: 2.3rem;
+  font-weight: 900;
+  letter-spacing: -.04em;
+  gap: 7px;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .brand > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 29px;
+  background: var(--skin-action);
+  color: var(--skin-action-text);
+  font: bold 32px/1 Arial, sans-serif;
+  transform: rotate(-7deg);
+  margin: 0;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .workbench { padding: 10px 10px 8px; }
+:root:is([data-theme="dark"], [data-theme="light"]) .pane { border-radius: 0; box-shadow: none; }
+:root:is([data-theme="dark"], [data-theme="light"]) .pane-heading {
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: .8462rem;
+  border-bottom: 2px solid var(--line);
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .pane-heading button {
+  text-transform: none;
+  letter-spacing: 0;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .connection-dot { text-transform: none; letter-spacing: 0; }
+:root:is([data-theme="dark"], [data-theme="light"]) .chat-welcome h1 {
+  font-family: Impact, "Roboto Condensed", "Arial Narrow", "Nimbus Sans Narrow", sans-serif;
+  font-size: 2.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 1.04;
+  letter-spacing: -.035em;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .chat-welcome h1 span { color: var(--accent); }
+:root:is([data-theme="dark"], [data-theme="light"]) .example-prompts { gap: 0; margin-top: 22px; }
+:root:is([data-theme="dark"], [data-theme="light"]) .example-prompts button {
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  padding: 10px 0;
+  background: transparent;
+  box-shadow: none;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .welcome-note { border-top: 1px dashed var(--line); padding-top: 12px; }
+:root:is([data-theme="dark"], [data-theme="light"]) .message.user {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .composer { border-top: 3px solid var(--line); }
+:root:is([data-theme="dark"], [data-theme="light"]) .composer:focus-within { border-color: var(--accent); }
+:root:is([data-theme="dark"], [data-theme="light"]) .cut-paper {
+  border: 2px dashed var(--line);
+  padding: 16px;
+  box-shadow: 8px 8px 0 #0003;
+  color: var(--text);
+  transform: rotate(-3deg);
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .cut-paper span {
+  font-family: var(--font-meta);
+  font-size: 1.0769rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .run-tool {
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+  background: transparent;
+  box-shadow: none;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .modal-heading {
+  border-bottom: 2px solid var(--accent);
+  padding: 0 0 14px;
+  background: transparent;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) h2 {
+  font-family: Impact, "Roboto Condensed", "Arial Narrow", "Nimbus Sans Narrow", sans-serif;
+  letter-spacing: .01em;
+  text-transform: uppercase;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .app-footer {
+  padding: 5px 12px;
+  height: auto;
+  border-top: 1px solid var(--line);
+  font-size: .7692rem;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .footer-brand { font-size: inherit; text-transform: uppercase; letter-spacing: .06em; }
+:root:is([data-theme="dark"], [data-theme="light"]) .quick-cards { gap: 12px 9px; }
+:root:is([data-theme="dark"], [data-theme="light"]) .quick-cards button {
+  padding: 0 0 8px;
+  background: var(--panel);
+  box-shadow: 2px 2px 0 #0003;
+}
+:root:is([data-theme="dark"], [data-theme="light"]) .quick-cards :is(strong, span) { margin-inline: 8px; }
+:root:is([data-theme="dark"], [data-theme="light"]) .quick-cards strong { font-family: var(--font-meta); }
+:root:is([data-theme="dark"], [data-theme="light"]) .quick-cards img { border-bottom: 1px solid var(--line); height: 112px; }
 
 /* 1995: every panel is a little application window. */
 :root[data-theme="classic"] .app { background: #008080; }
@@ -226,6 +442,9 @@
   padding: 4px 10px;
 }
 :root[data-theme="classic"] .step.selected { background: #000080; color: #fff; --muted: #ddd; }
+:root[data-theme="classic"] :is(.studio-tabs, .settings-body nav) { gap: 2px; }
+:root[data-theme="classic"] .studio-card { border: 2px groove #fff; }
+:root[data-theme="classic"] :is(.result pre, .recipe-editor) { border: 2px inset #dfdfdf; }
 :root[data-theme="classic"] :is(button, input, select, textarea):focus-visible {
   outline: 1px dotted currentColor;
   outline-offset: -5px;
@@ -252,6 +471,9 @@
 :root[data-theme="terminal"] .quick-form { border-top-style: dashed; }
 :root[data-theme="terminal"] .connection-dot::before { border-radius: 0; box-shadow: 0 0 6px var(--green); }
 :root[data-theme="terminal"] .app-footer { border-top: 1px solid var(--line); padding-top: 4px; }
+:root[data-theme="terminal"] :is(.studio-card, .retro-grid article, .quick-form) { border-color: var(--line); }
+:root[data-theme="terminal"] .tool-groups h3::before { content: "./"; }
+:root[data-theme="terminal"] .detail-heading h3::before { content: "> "; }
 
 /* 1997: table borders, stars, hot links and a proudly overdone masthead. */
 :root[data-theme="geocities"] .app {
@@ -284,6 +506,9 @@
 :root[data-theme="geocities"] :is(.quick-form, .studio-import) { border-top: 5px ridge #a98ae3; }
 :root[data-theme="geocities"] .quick-cards strong { color: #00ffff; text-decoration: underline; }
 :root[data-theme="geocities"] .app-footer { color: #ffff00; border-top: 2px ridge #a98ae3; padding-top: 5px; }
+:root[data-theme="geocities"] :is(.studio-card, .retro-grid article) { border: 3px double #7457b4; }
+:root[data-theme="geocities"] .tool-groups h3 { color: #ffff00; border-bottom: 3px ridge #a98ae3; }
+:root[data-theme="geocities"] .settings-body nav { border-right: 3px ridge #a98ae3; }
 
 /* 2001: chrome shells, gel controls and molded plastic tabs. */
 :root[data-theme="y2k"] .app {
@@ -315,6 +540,12 @@
 }
 :root[data-theme="y2k"] .step.selected { background: linear-gradient(90deg, #cfc1ef, #e5eaf4); }
 :root[data-theme="y2k"] .connection-dot::before { width: 7px; height: 7px; background: #1eb5c3; box-shadow: inset 0 1px #fff, 0 0 4px #0df; }
+:root[data-theme="y2k"] :is(.studio-card, .retro-grid article, .quick-form) {
+  background: linear-gradient(110deg, #fff8, transparent 60%), var(--panel);
+  box-shadow: inset 0 1px #fff;
+  padding: 12px;
+}
+:root[data-theme="y2k"] .studio-tabs { padding: 7px; background: #b7c5de; border-radius: 18px; box-shadow: inset 0 1px 3px #465a8050; }
 
 /* 1932: a broadsheet, with typography doing the work of window chrome. */
 :root[data-theme="paper"] :is(.app-header, .pane, .modal, .share-dialog) {
@@ -341,6 +572,9 @@
 :root[data-theme="paper"] .quick-cards strong { font: bold 1.15rem/1.2 Georgia, serif; }
 :root[data-theme="paper"] .quick-cards span { font-family: Georgia, serif; font-style: italic; }
 :root[data-theme="paper"] .app-footer { border-top: 3px double var(--text); padding-top: 5px; text-transform: uppercase; }
+:root[data-theme="paper"] .tool-groups h3 { color: var(--text); border-bottom: 3px double var(--text); font-weight: bold; }
+:root[data-theme="paper"] :is(.studio-card, .retro-grid article) { border-width: 3px; }
+:root[data-theme="paper"] .message-name { border-bottom: 1px solid var(--line); padding-bottom: 5px; }
 
 /* 1988: cabinet marquee, hard neon trim and tactile controls. */
 :root[data-theme="arcade"] .app {
@@ -370,6 +604,8 @@
 :root[data-theme="arcade"] .step.selected { background: #351544; border-left: 3px solid #42f4ed; }
 :root[data-theme="arcade"] .step-number { background: #080410; color: #ffcf32; border: 1px solid #cf3fa5; }
 :root[data-theme="arcade"] .app-footer { color: #42f4ed; border-top: 2px solid #cf3fa5; padding-top: 5px; text-transform: uppercase; }
+:root[data-theme="arcade"] :is(.studio-card, .retro-grid article) { border: 2px solid #67408a; box-shadow: 3px 3px #080410; }
+:root[data-theme="arcade"] .tool-groups h3 { color: #42f4ed; text-transform: uppercase; }
 
 /* Choose a skin by its actual materials, not just three color swatches. */
 .theme-grid {
@@ -402,6 +638,7 @@
   text-shadow: none;
   letter-spacing: 0;
   text-transform: none;
+  font-family: var(--font-ui);
 }
 .theme-preview-title {
   display: flex;
@@ -424,6 +661,16 @@
 .theme-preview[data-skin="geocities"] .theme-preview-canvas { background: radial-gradient(#fff 1px, transparent 1px) 0 0 / 17px 19px, #000028; text-shadow: 2px 2px #f0f; }
 .theme-preview[data-skin="paper"] .theme-preview-title { border-bottom: 3px double var(--text); text-transform: uppercase; }
 .theme-preview[data-skin="arcade"] .theme-preview-canvas { text-shadow: 2px 2px #cf3fa5; border-color: #42f4ed; }
+.theme-preview:is([data-skin="dark"], [data-skin="light"]) .theme-preview-title {
+  font-family: var(--font-meta);
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--accent);
+}
+.theme-preview:is([data-skin="dark"], [data-skin="light"]) .theme-preview-canvas {
+  font-family: Impact, "Roboto Condensed", "Arial Narrow", "Nimbus Sans Narrow", sans-serif;
+  color: var(--text);
+  background: repeating-conic-gradient(var(--checker) 0% 25%, var(--stage) 0% 50%) 0 0 / 12px 12px;
+}
 
 /* Theme icons are local SVG artwork; never inherit effects into session images. */
 .theme-icon { display: inline-block; flex: 0 0 auto; vertical-align: -.15em; overflow: visible; }
@@ -449,6 +696,11 @@
 .theme-icon[data-icon-skin="terminal"] text { font: bold 11px "Courier New", monospace; }
 .theme-icon .icon-print { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: square; stroke-linejoin: miter; }
 .theme-icon .icon-gel { fill: none; stroke: #2e226e; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.theme-icon:is([data-icon-skin="dark"], [data-icon-skin="light"], [data-icon-skin="system"]) {
+  --icon-ink: currentColor;
+  --icon-color: var(--panel);
+  --icon-paper: currentColor;
+}
 .pane-title { display: inline-flex; align-items: center; gap: 7px; }
 .theme-preview-menu i { display: flex; align-items: center; justify-content: center; height: 14px; }
 

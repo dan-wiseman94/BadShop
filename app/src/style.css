@@ -1,6 +1,6 @@
 @import "tailwindcss";
 :root {
-  font-family: "Segoe UI", "Noto Sans", sans-serif;
+  font-family: var(--font-ui);
   font-size: 13px;
   line-height: 1.5;
   color: var(--text);
@@ -8,36 +8,6 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --bg: #24252b;
-  --panel: #2c2d34;
-  --raised: #34353e;
-  --stage: #202127;
-  --text: #e9e9ef;
-  --muted: #b0b1be;
-  --line: #41424c;
-  --accent: #bbb0ed;
-  --accent-text: #292138;
-  --hover: #3c3d48;
-  --error: #ffb6b0;
-  --green: #a2c6ac;
-  --checker: #282931;
-  color-scheme: dark;
-}
-:root[data-theme="light"] {
-  --bg: #eff0f5;
-  --panel: #fff;
-  --raised: #e8e9f1;
-  --stage: #d8dae5;
-  --text: #292b38;
-  --muted: #595c70;
-  --line: #ced0dc;
-  --accent: #6b55a3;
-  --accent-text: #fff;
-  --hover: #dedee9;
-  --error: #a9343a;
-  --green: #31623f;
-  --checker: #cfd1dd;
-  color-scheme: light;
 }
 * {
   box-sizing: border-box;
@@ -149,14 +119,14 @@ hr {
 }
 .primary,
 button.primary {
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--skin-action);
+  color: var(--skin-action-text);
   border-color: var(--accent);
   font-weight: 600;
 }
 .primary:hover:not(:disabled) {
   filter: brightness(1.07);
-  background: var(--accent);
+  background: var(--skin-action);
 }
 .muted {
   color: var(--muted);
@@ -277,7 +247,7 @@ button.primary {
 .pending-dot {
   width: 6px;
   height: 6px;
-  background: #e8c57d;
+  background: var(--warning);
   border-radius: 50%;
   display: inline-block;
 }
@@ -292,9 +262,9 @@ button.primary {
   gap: 8px;
 }
 .export {
-  background: var(--accent);
+  background: var(--skin-action);
   border-color: var(--accent);
-  color: var(--accent-text);
+  color: var(--skin-action-text);
   font-weight: 600;
   margin-left: 9px;
 }
@@ -372,7 +342,7 @@ button.primary {
   border-radius: 2px;
 }
 .resizer:hover span {
-  background: var(--accent);
+  background: var(--skin-action);
 }
 .connection-dot {
   display: flex;
@@ -402,19 +372,13 @@ button.primary {
 .chat-welcome {
   padding: 14px 4px 0;
 }
-.little-logo {
-  font-weight: 900;
-  font-size: 2.0769rem;
-  line-height: 1;
-  position: relative;
-  margin-bottom: 20px;
+.welcome-label {
+  font-family: var(--font-meta);
+  font-size: .7692rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
   color: var(--accent);
-}
-.little-logo span {
-  font-size: 1.7692rem;
-  position: absolute;
-  left: 15px;
-  top: -4px;
 }
 .chat-welcome h1 {
   font-size: 2.3077rem;
@@ -527,7 +491,7 @@ button.primary {
 .working span {
   width: 5px;
   height: 5px;
-  background: var(--accent);
+  background: var(--skin-action);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -573,8 +537,8 @@ button.primary {
 }
 .composer-actions .send {
   margin-left: auto;
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--skin-action);
+  color: var(--skin-action-text);
   border: 0;
   width: 29px;
   height: 29px;
@@ -623,17 +587,17 @@ button.primary {
 }
 .approval-card {
   padding: 12px;
-  border: 1px solid #a08b5f;
+  border: 1px solid var(--warning);
   border-radius: 7px;
   margin: 15px 0;
-  background: color-mix(in srgb, var(--panel) 88%, #e8c57d);
+  background: color-mix(in srgb, var(--panel) 92%, var(--warning));
 }
 .approval-heading {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 0.9231rem;
-  color: #e8c57d;
+  color: var(--warning);
   margin-bottom: 9px;
 }
 .approval-card h3 {
@@ -953,8 +917,8 @@ button.primary {
   background: color-mix(in srgb, var(--green) 8%, transparent);
 }
 .step-number.proposed {
-  color: #e8c57d;
-  border-color: #a08b5f;
+  color: var(--warning);
+  border-color: var(--warning);
 }
 .step-copy {
   min-width: 0;
@@ -978,7 +942,7 @@ button.primary {
   color: var(--green);
 }
 .step-status.proposed {
-  color: #e8c57d;
+  color: var(--warning);
 }
 .step-status.error {
   color: var(--error);
@@ -1217,7 +1181,9 @@ button.primary {
   white-space: normal;
 }
 .tool-option strong {
-  width: 83px;
+  width: 28%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   flex-shrink: 0;
   font-weight: 550;
   font-size: 0.9231rem;
@@ -1409,8 +1375,8 @@ button.primary {
   padding: 9px 12px;
 }
 .settings-body nav button.active {
-  background: var(--raised);
-  color: var(--accent);
+  background: var(--skin-action);
+  color: var(--skin-action-text);
 }
 .settings-content {
   flex: 1;
@@ -2192,7 +2158,7 @@ button.primary {
 .studio { width: min(1000px, 94vw); max-height: 88vh; overflow-y: auto; }
 .studio-tabs, .studio-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .studio-tabs { margin: 12px 0 20px; }
-.studio-tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+.studio-tabs button[aria-pressed="true"] { background: var(--skin-action); color: var(--skin-action-text); }
 .studio-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; align-items: end; }
 .studio label { display: flex; flex-direction: column; gap: 5px; }
 .studio .check-label { flex-direction: row; align-items: center; }
@@ -2238,7 +2204,7 @@ button.primary {
 .quick-content details button { margin: 4px; white-space: normal; }
 .workspace-switch { flex-wrap: wrap; }
 .workspace-switch button { transition: none; }
-.workspace-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+.workspace-switch button[aria-pressed="true"] { background: var(--skin-action); color: var(--skin-action-text); }
 .share-dialog { max-height: 90dvh; max-width: min(620px,95vw); overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 22px; color: var(--text); background: var(--panel); }
 .share-dialog::backdrop { background: #0009; }
 .share-dialog > button { float: right; }

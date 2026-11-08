@@ -819,7 +819,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                 />
                 <div className="theme-grid" aria-label="Interface skins">
                   {themes
-                    .filter((item) => !["system", "dark", "light"].includes(item.id))
+                    .filter((item) => item.id !== "system")
                     .map((item) => (
                       <button
                         type="button"

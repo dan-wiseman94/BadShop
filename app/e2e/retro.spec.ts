@@ -60,7 +60,33 @@ test("retro catalog, persisted defaults, recipes and credited export use real co
   expect(offline.error?.message).toContain("disabled");
 });
 
+test("default workbench follows the desktop until an explicit skin is saved", async ({ page, emptyCore }) => {
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.screenshot({ path: test.info().outputPath("default-dark-empty.png") });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.screenshot({ path: test.info().outputPath("default-light-empty.png") });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.locator(".theme-card").filter({ has: page.getByText("Dark", { exact: true }) }).click();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  // Returning to Follow system uses the current desktop, not the previous skin.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption("system");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+});
+
 for (const [theme, name] of [
+  ["dark", "Dark"],
+  ["light", "Light"],
   ["classic", "Classic Desktop"],
   ["terminal", "Terminal"],
   ["geocities", "GeoCities"],
@@ -94,6 +120,7 @@ for (const [theme, name] of [
   await expect(page.getByRole("button", { name: "Replay all steps", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Run a tool", exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath(`theme-${theme}-tools.png`) });
   await page.getByRole("button", { name: "Close tools", exact: true }).click();
   await page.getByRole("button", { name: "Images & directions", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Images & directions", exact: true })).toBeVisible();
@@ -118,7 +145,7 @@ for (const [theme, name] of [
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   // Both selectors use the same saved preference.
   await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption("dark");
-  await expect(page.getByRole("button", { name: "Close settings", exact: true }).locator(".theme-icon")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Close settings", exact: true }).locator("svg")).toHaveAttribute("data-icon-skin", "dark");
   await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption(theme);
   await page.getByRole("combobox", { name: "Motion", exact: true }).selectOption("reduced");
   await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("130");

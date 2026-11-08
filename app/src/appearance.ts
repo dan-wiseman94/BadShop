@@ -10,14 +10,14 @@ export const themes = [
   {
     id: "dark",
     name: "Dark",
-    description: "The original workbench",
-    era: "The workbench",
+    description: "Charcoal, acid yellow, hard edges. The BadShop workbench.",
+    era: "Cut · Paste · Repeat",
   },
   {
     id: "light",
     name: "Light",
-    description: "A bright workbench",
-    era: "The workbench",
+    description: "Warm stock, black ink, yellow labels. Lights on in the shop.",
+    era: "Cut · Paste · Repeat",
   },
   {
     id: "classic",

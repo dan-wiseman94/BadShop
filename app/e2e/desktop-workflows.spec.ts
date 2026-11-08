@@ -29,6 +29,8 @@ test("coordinate instructions keep the Fit image visible and pickable at the min
   const dialog = page.getByRole("dialog", { name: "Run a tool" });
   await dialog.getByRole("button", { name: "Pick on image" }).click();
   await expect(page.locator(".pick-hint")).toBeVisible();
+  await expect(page.locator(".pick-active")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await page.screenshot({ path: test.info().outputPath("coordinate-workbench-900.png") });
   const surface = page.locator(".image-surface");
   const stage = page.locator(".viewer-stage");
   await expect
