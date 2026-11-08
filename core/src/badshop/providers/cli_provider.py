@@ -32,12 +32,30 @@ def find_executable(cli: str, executable: str | None = None) -> str | None:
     found = shutil.which(cli)
     if found:
         return found
-    # GUI processes on macOS often lack the login shell's PATH.
-    for folder in (Path.home() / ".local/bin", Path.home() / ".npm-global/bin",
-                   Path("/opt/homebrew/bin"), Path("/usr/local/bin")):
-        path = folder / (cli + (".exe" if os.name == "nt" else ""))
-        if path.is_file() and os.access(path, os.X_OK):
-            return str(path)
+    # Desktop launchers can inherit a PATH without user-installed CLI tools.
+    folders = [Path.home() / ".local/bin", Path.home() / ".npm-global/bin"]
+    windows = sys.platform == "win32"
+    if windows:
+        folders.append(Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")) / "npm")
+    else:
+        folders.extend((Path("/opt/homebrew/bin"), Path("/usr/local/bin")))
+    for folder in folders:
+        for suffix in ((".exe", ".cmd", ".bat") if windows else ("",)):
+            path = folder / (cli + suffix)
+            if path.is_file() and os.access(path, os.X_OK):
+                return str(path)
+    if windows and cli == "codex":
+        # Codex desktop keeps its CLI in versioned directories outside the user PATH.
+        local = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
+        candidates = []
+        for path in (local / "OpenAI/Codex/bin").glob("*/codex.exe"):
+            try:
+                if path.is_file() and os.access(path, os.X_OK):
+                    candidates.append((path.stat().st_mtime, str(path)))
+            except OSError:
+                continue  # An app update may remove an older copy during discovery.
+        if candidates:
+            return max(candidates)[1]
     return None
 
 
