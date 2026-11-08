@@ -16,6 +16,8 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   await page.getByLabel("Punchline", { exact: true }).fill("My last brain cell has left the meeting.");
   await page.getByRole("button", { name: "Make this shitpost" }).click();
   await expect(page.locator(".canvas-image")).toBeVisible();
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
+  await expect(page.getByRole("button", { name: "Change caption only" })).toBeEnabled();
   let session = await emptyCore.call("session.get") as Session;
   expect(session.steps).toHaveLength(1);
   const initial = session.steps[0];
@@ -23,7 +25,11 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   expect(session.provider_profile_id).toBeNull();
   await page.getByLabel("Revised punchline").fill("Brain cell unavailable. Please hold.");
   await page.getByRole("button", { name: "Change caption only" }).click();
-  await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0].outputs[0] ?? initial.outputs[0]).not.toBe(initial.outputs[0]);
+  await expect.poll(async () => {
+    const step = (await emptyCore.call("session.get") as Session).steps[0];
+    return step.status === "done" && (step.params.captions as string[] | undefined)?.[0] === "Brain cell unavailable. Please hold."
+      && !!step.outputs[0] && step.outputs[0] !== initial.outputs[0];
+  }).toBe(true);
   session = await emptyCore.call("session.get") as Session;
   const revised = session.steps[0];
   expect(revised.params.images).toEqual(originalImage);
@@ -68,7 +74,11 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   await expect(page.getByLabel("Revised punchline")).toHaveValue("Brain cell unavailable. Please hold.");
   await page.getByLabel("Revised punchline").fill("This pigeon has administrator privileges.");
   await page.getByRole("button", { name: "Change caption only" }).click();
-  await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0].outputs[0] ?? revised.outputs[0]).not.toBe(revised.outputs[0]);
+  await expect.poll(async () => {
+    const step = (await emptyCore.call("session.get") as Session).steps[0];
+    return step.status === "done" && (step.params.captions as string[] | undefined)?.[0] === "This pigeon has administrator privileges."
+      && !!step.outputs[0] && step.outputs[0] !== revised.outputs[0];
+  }).toBe(true);
   await page.getByText("Saved takes", { exact: true }).click();
   await page.getByRole("button", { name: "Original", exact: true }).click();
   await expect(page.getByLabel("Revised punchline")).toHaveValue("Brain cell unavailable. Please hold.");

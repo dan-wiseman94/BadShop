@@ -20,7 +20,8 @@ export function QuickStart({ onImport, onAdvanced }: { onImport: () => void; onA
   const step = session?.steps.find(s => s.id === selected && s.tool === "layout")
     ?? (selected === null ? session?.steps.slice().reverse().find(s => s.tool === "layout") : undefined);
   const [revision, setRevision] = useState("");
-  useEffect(() => { setRevision(String((step?.params.captions as string[] | undefined)?.[0] ?? "")); }, [step]);
+  const savedCaption = String((step?.params.captions as string[] | undefined)?.[0] ?? "");
+  useEffect(() => { setRevision(savedCaption); }, [step?.id, savedCaption]);
   const disabled = !ready || busy || !!session?.turn_running;
   const definitions = layouts.find(l => l.id === chosen?.template);
   const selectOutput = (output: string, stepId: string) => useUI.getState().set({ selectedArtifact: output, selectedStep: stepId });

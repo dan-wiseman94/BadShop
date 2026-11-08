@@ -134,8 +134,8 @@ an earlier full-suite result. Evidence contains source fingerprints where the ha
 | SBOM/notices | Final Linux inventory: **774 components, zero missing notices**, 21 explicit manual-review entries. cfworker MIT/derived-code notices come from its exact source commit. Generated inventory passed CycloneDX 1.6 schema validation. |
 
 The [corrected installed-desktop run](https://github.com/dan-wiseman94/BadShop/actions/runs/42439541174)
-validated candidate `0a9241a` on four native runners. Subsequent report/security-policy changes
-do not change the application or packaging implementation.
+validated candidate `0a9241a` on four native runners. The later caption-draft fix described below
+has focused component and real-core browser coverage; the tagged run repeats all platform gates.
 
 | Installed target | Observed result |
 | --- | --- |
@@ -172,6 +172,14 @@ Windows packaging also exposed locale-dependent decoding of pnpm's UTF-8 license
 collector now parses UTF-8 bytes directly. A subprocess regression reproduced the corrupted
 metadata on Windows before the fix; all four release-integrity tests pass on Windows and Linux
 afterward. Neither fix weakens the security or installer gates.
+
+A later browser run exposed a genuine caption-draft race: a user could type into Revised punchline
+while the first image was finishing, then lose that draft when the step's status changed. The UI
+now reloads the caption only when its stored text or selected step changes. A deterministic
+component regression failed before the fix and passes afterward; switching steps and replay-error
+retry still work. Both Quick ideas browser journeys pass against the real core. Their waits now
+require completed output with the intended caption, rather than accepting any changed output.
+Evidence is retained under `caption-race-before`, `caption-race-after` and `caption-race-browser`.
 
 ## Remaining gates for a professional free release
 
