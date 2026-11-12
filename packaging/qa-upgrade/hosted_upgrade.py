@@ -221,9 +221,18 @@ on run argv
         set frontmost of proc to true
         repeat with element in entire contents of window 1 of proc
             try
-                if role of element is "AXButton" and (name of element is wanted or description of element is wanted) then
-                    perform action "AXPress" of element
-                    return "pressed"
+                if role of element is "AXButton" then
+                    set matches to false
+                    try
+                        set matches to name of element is wanted
+                    end try
+                    try
+                        set matches to matches or description of element is wanted
+                    end try
+                    if matches then
+                        perform action "AXPress" of element
+                        return "pressed"
+                    end if
                 end if
             end try
         end repeat
@@ -325,11 +334,9 @@ end run
         print("Save folder files:", [x.name for x in path.parent.iterdir()], flush=True)
 
     def panel(self):
-        if not self.press("Settings"):
-            width, height = self.size
-            self.click(width - 144 if width >= 1300 else (378 if self.restarted else 438), 62 if width >= 1300 else 46, self.size)
+        wait(lambda: self.press("Settings"), "Accessible Settings button unavailable")
         if not self.press("Updates"):
-            self.text("Updates", click=True)
+            self.text("Updates", click=True, exact=True)
 
     def check(self, version, candidate):
         if candidate:
