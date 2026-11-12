@@ -6,9 +6,11 @@ import hashlib
 import io
 import json
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import psutil
@@ -122,7 +124,8 @@ async def observe_startup(pid: int):
 
 
 async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
-                background_removal: bool = False):
+                background_removal: bool = False, metrics: Path | None = None,
+                cycles: int = 5, metrics_kind: str = 'packaged'):
     with tempfile.TemporaryDirectory(prefix='badshop-smoke-') as folder:
         env = {**os.environ, 'BADSHOP_CONFIG_DIR': folder + '/config',
                'BADSHOP_DATA_DIR': folder + '/data', 'BADSHOP_OUT': folder + '/out',
@@ -130,14 +133,24 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
         env.pop('BADSHOP_FAKE_PROVIDER', None)
         if os.name == 'nt':
             env.setdefault('BADSHOP_SMOKE_TRACE', '1')  # set 0 to verify startup without instrumentation
+        started = time.perf_counter()
+        measurements = {}
+        evidence = {'schema': 1, 'kind': 'core-runtime', 'platform': platform.system(),
+                    'machine': platform.machine(), 'profile': f'{metrics_kind}-lifecycle-v1-{cycles}-cycles',
+                    'executable': str(executable.resolve()), 'status': 'failed', 'measurements': measurements}
         proc = await asyncio.create_subprocess_exec(str(executable.resolve()), 'serve',
                                                    stdin=asyncio.subprocess.PIPE,
                                                    stdout=asyncio.subprocess.PIPE,
                                                    stderr=asyncio.subprocess.PIPE, env=env)
         stderr = asyncio.create_task(proc.stderr.read())
         failed = False
+        children = []
+        def rss():
+            parent = psutil.Process(proc.pid)
+            return sum(p.memory_info().rss for p in [parent, *parent.children(recursive=True)])
         try:
             hello = json.loads(await asyncio.wait_for(proc.stdout.readline(), 45))
+            measurements['handshake_seconds'] = time.perf_counter() - started
             assert 0 < hello['port'] < 65536 and len(hello['token']) >= 16
             async with connect(f"ws://127.0.0.1:{hello['port']}", max_size=64 * 2**20) as ws:
                 await ws.send(json.dumps({'type': 'hello', 'token': hello['token'], 'actor': 'user'}))
@@ -161,6 +174,10 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                             return result['result']
                 tools = await rpc('tools.list')
                 assert {'find', 'view', 'paste'}.issubset({t['name'] for t in tools})
+                measurements['catalog_ready_seconds'] = time.perf_counter() - started
+                if metrics:
+                    await asyncio.sleep(.2)
+                    measurements['idle_rss_bytes'] = rss()
                 if keychain:
                     from smoke_keychain import exercise_keychain
                     await exercise_keychain(rpc)
@@ -220,6 +237,29 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 assert opened['id'] == snapshot['id'] and not opened['unsaved_changes']
                 restored = await rpc('artifacts.get', id=image['working']['id'])
                 assert hashlib.sha256(base64.b64decode(restored['data'])).hexdigest() == image['working']['id']
+                if metrics:
+                    for cycle in range(cycles):
+                        current = await rpc('session.get')
+                        await rpc('session.new', expected_revision=current['document_revision'], discard_unsaved=True)
+                        imported = await rpc('artifacts.import', path=str(source))
+                        edited = await rpc('tools.run', tool='filter',
+                                           params={'image': imported['working']['id'], 'names': ['invert']})
+                        assert edited['status'] == 'done'
+                        output = edited['outputs'][0]
+                        current = await rpc('session.get')
+                        await rpc('session.save_as', path=str(destination), expected_revision=current['document_revision'])
+                        await rpc('session.new', expected_revision=current['document_revision'])
+                        current = await rpc('session.get')
+                        reopened = await rpc('session.open', path=str(destination), expected_revision=current['document_revision'])
+                        assert reopened['steps'][0]['outputs'] == [output]
+                        actual = await rpc('artifacts.get', id=output)
+                        assert hashlib.sha256(base64.b64decode(actual['data'])).hexdigest() == output
+                        await rpc('session.new', expected_revision=reopened['document_revision'])
+                        await asyncio.sleep(.2)
+                        measurements[f'cycle_{cycle + 1}_rss_bytes'] = rss()
+                    measurements['retained_rss_delta_bytes'] = (
+                        measurements[f'cycle_{cycles}_rss_bytes'] - measurements['cycle_1_rss_bytes'])
+                    children = psutil.Process(proc.pid).children(recursive=True)
             if crash:
                 proc.kill()
             else:
@@ -228,6 +268,7 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
             assert crash or code == 0
             _, alive = await asyncio.to_thread(psutil.wait_procs, children, timeout=15)
             assert not [p for p in alive if p.status() != psutil.STATUS_ZOMBIE], 'orphaned core worker'
+            evidence['status'] = 'passed'
             print('Frozen core smoke passed: handshake, tools, spawned find, guarded save/open, ' +
                   ('forced core death' if crash else 'clean EOF exit') + ' and no orphan worker')
         except BaseException:
@@ -242,8 +283,16 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
             raise
         finally:
             if proc.returncode is None:
+                children = psutil.Process(proc.pid).children(recursive=True)
                 proc.kill()
                 await proc.wait()
+            for child in children:
+                try:
+                    if child.is_running() and child.status() != psutil.STATUS_ZOMBIE:
+                        child.kill()
+                except psutil.NoSuchProcess:
+                    pass
+            await asyncio.to_thread(psutil.wait_procs, children, timeout=5)
             errors = (await stderr).decode(errors='replace')
             if failed or (proc.returncode and not crash):
                 print(errors[-8000:])
@@ -255,10 +304,16 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                         print(trace.read_text(encoding='utf-8', errors='replace')[-16000:])
                     except OSError as error:
                         print(f'could not read frozen trace: {type(error).__name__}')
+            if metrics:
+                metrics.parent.mkdir(parents=True, exist_ok=True)
+                metrics.write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
+                print(f'Runtime measurements: {metrics}', flush=True)
 
 
-async def main(executable: Path, keychain: bool = False, background_removal: bool = False):
-    await smoke(executable, keychain=keychain, background_removal=background_removal)
+async def main(executable: Path, keychain: bool = False, background_removal: bool = False,
+               metrics: Path | None = None, cycles: int = 5, metrics_kind: str = 'packaged'):
+    await smoke(executable, keychain=keychain, background_removal=background_removal,
+                metrics=metrics, cycles=cycles, metrics_kind=metrics_kind)
     await smoke(executable, crash=True)
 
 
@@ -268,5 +323,9 @@ if __name__ == '__main__':
     p.add_argument('--keychain', action='store_true', help='require a real OS keychain round-trip')
     p.add_argument('--background-removal', action='store_true',
                    help='download U2-Net and verify background removal in the frozen worker')
+    p.add_argument('--metrics', type=Path, help='retain advisory startup/RSS evidence from repeated project cycles')
+    p.add_argument('--cycles', type=int, choices=range(2, 21), default=5)
+    p.add_argument('--metrics-kind', choices=('source', 'packaged'), default='packaged')
     args = p.parse_args()
-    asyncio.run(main(args.executable, args.keychain, args.background_removal))
+    asyncio.run(main(args.executable, args.keychain, args.background_removal,
+                     args.metrics, args.cycles, args.metrics_kind))

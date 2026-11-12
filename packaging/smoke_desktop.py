@@ -181,6 +181,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
         env['BADSHOP_SMOKE_READY_FILE'] = str(ready_path)
         env['BADSHOP_SMOKE_NONCE'] = nonce
         log_path = root / 'desktop.log'
+        metrics = {'schema': 1, 'kind': 'desktop-runtime', 'profile': 'renderer-ready-v1',
+                   'platform': sys.platform, 'command': command, 'status': 'failed', 'measurements': {}}
+        started = time.perf_counter()
         with log_path.open('w') as log:
             proc = subprocess.Popen(isolated_command(command, root, env), env=env, stdout=log, stderr=subprocess.STDOUT)
             children = []
@@ -211,6 +214,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 print(json.dumps({'shell_pid': proc.pid, 'core_pid': core.pid,
                                   'core_executable': core.exe(), 'listen_ports': ports,
                                   'established_connections': connected, 'renderer_ready': True}), flush=True)
+                metrics['measurements']['renderer_ready_seconds'] = time.perf_counter() - started
+                metrics['measurements']['ready_process_tree_rss_bytes'] = sum(
+                    p.memory_info().rss for p in [psutil.Process(proc.pid), *children])
                 exercise_close = restart_core and sys.platform == 'linux'
                 session_id = None
                 if exercise_close:
@@ -307,6 +313,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if sys.platform == 'darwin':
                     assert 'native Quit routed through project close guard' in log_path.read_text(), \
                         'Native Quit bypassed the unsaved-project close guard'
+                metrics['status'] = 'passed'
                 print('Native desktop smoke passed: rendered window, authenticated session/catalog, clean close', flush=True)
             finally:
                 if proc.poll() is None:
@@ -328,6 +335,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 psutil.wait_procs(children, timeout=5)
                 if screenshot:
                     screenshot.parent.mkdir(parents=True, exist_ok=True)
+                    screenshot.with_suffix('.metrics.json').write_text(json.dumps(metrics, indent=2) + '\n', encoding='utf-8')
                     screenshot.with_suffix('.log').write_bytes(log_path.read_bytes())
                     if ready_path.exists():
                         screenshot.with_suffix('.ready.json').write_bytes(ready_path.read_bytes())

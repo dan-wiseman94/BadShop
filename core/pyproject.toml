@@ -33,7 +33,7 @@ build = [
     "pyinstaller>=6,<7",
 ]
 # jsonschema is used to validate the registry's generated schemas.
-dev = ["pytest>=8", "pytest-xdist>=3,<4", "ruff>=0.6", "jsonschema>=4"]
+dev = ["pytest>=8", "pytest-xdist>=3,<4", "ruff>=0.6", "jsonschema>=4", "hypothesis>=6.140,<7"]
 quality = [
     "import-linter>=2.16",
     "lizard>=1.25.1",

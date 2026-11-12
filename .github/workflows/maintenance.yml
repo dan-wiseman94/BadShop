@@ -1,6 +1,7 @@
 name: maintenance
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -57,7 +58,11 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then BASE=HEAD^; fi
-          uv run --project core --no-sync python scripts/maintenance_report.py --base "$BASE" --head HEAD --output artifacts/verification/maintenance/growth.md
+          uv run --project core --no-sync python scripts/maintenance_report.py --base "$BASE" --head HEAD --review-event "$GITHUB_EVENT_PATH" --output artifacts/verification/maintenance/growth.md
+      - name: Publish growth and safeguard report
+        if: ${{ !cancelled() }}
+        run: |
+          test -f artifacts/verification/maintenance/growth.md
           cat artifacts/verification/maintenance/growth.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()

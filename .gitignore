@@ -32,3 +32,5 @@ packaging/*.sbom.json
 artifacts/verification/
 .worktrees/
 .tooling/
+# Hypothesis failures include reproduction blobs in retained pytest logs.
+.hypothesis/

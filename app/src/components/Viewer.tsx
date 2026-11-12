@@ -16,7 +16,7 @@ export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: ()
     </button>
   );
 }
-function faceBoxes(data: Params | undefined): number[][] {
+function faceBoxes(data: Params | null | undefined): number[][] {
   if (!data) return [];
   const faces = data.faces;
   if (!Array.isArray(faces)) return [];

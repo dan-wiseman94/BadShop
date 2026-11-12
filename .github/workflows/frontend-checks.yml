@@ -16,12 +16,16 @@ jobs:
         with:
           version: 10
       - run: uv sync --project core --locked
+      - name: Shared wire schemas
+        run: uv run --project core --locked python scripts/generate_wire_types.py --check
       - run: pnpm --dir app install --frozen-lockfile
       - run: pnpm --dir app test
       - run: pnpm --dir app exec playwright install --with-deps chromium
       - run: ./verify.sh browser
+      - name: Frontend build size
+        run: uv run --project core --locked python scripts/resource_report.py frontend --output artifacts/verification/resources/frontend.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        if: failure()
+        if: always()
         with:
           name: browser-test-results
           path: artifacts/verification
