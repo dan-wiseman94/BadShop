@@ -1,56 +1,14 @@
 import type { RJSFSchema } from "@rjsf/utils";
+import type { Artifact, Message as WireMessage, Step as WireStep } from "./wire.generated";
+export type { Artifact } from "./wire.generated";
+// Core responses include these defaults. The remaining defaults may be omitted
+// by UI fixtures; field types and nullability still come from the core schemas.
+export type Step = WireStep & Required<Pick<WireStep, "outputs" | "result_text">>;
+export type Message = WireMessage & Required<Pick<WireMessage, "step_ids">>;
 export type Params = Record<string, unknown>;
 export type ApprovalMode = "auto" | "ask_changes" | "ask_all";
 export type NoveltyMode =
   "different-format" | "change-setting" | "another-era" | "avoid-recent";
-export interface Artifact {
-  frames?: number;
-  id: string;
-  label: string;
-  width: number;
-  height: number;
-  format: string;
-  mime: string;
-  produced_by?: string;
-  original_id?: string;
-  source?: {
-    kind: string;
-    url?: string;
-    page?: string;
-    license?: string;
-    creator?: string;
-    title?: string;
-  };
-}
-export interface Step {
-  id: string;
-  index: number;
-  tool: string;
-  params: Params;
-  actor: string;
-  status:
-    | "proposed"
-    | "approved"
-    | "running"
-    | "done"
-    | "error"
-    | "rejected"
-    | "stale";
-  outputs: string[];
-  result_text: string;
-  data?: Params;
-  reason?: string;
-  edited?: boolean;
-  error?: { message: string; hint?: string };
-  started_at?: number;
-  finished_at?: number;
-}
-export interface Message {
-  id: string;
-  role: "user" | "assistant" | "system_note";
-  content: { type: "text" | "image"; text?: string; artifact_id?: string }[];
-  step_ids: string[];
-}
 export interface Session {
   batch_running?: boolean;
   creative?: CreativePreferences;

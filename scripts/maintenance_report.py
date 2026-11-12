@@ -16,6 +16,58 @@ SOURCE_SUFFIXES = {'.py', '.ts', '.tsx', '.rs', '.css'}
 MANIFESTS = ('core/pyproject.toml', 'app/package.json', 'app/src-tauri/Cargo.toml')
 
 
+def safeguard_changes(root: Path, base: str, head: str | None) -> list[tuple[str, str]]:
+    """Review signals only: a changed assertion is not proof of weakened coverage."""
+    revisions = [base, head] if head else [base]
+    paths = git(root, 'diff', '--name-only', '-z', *revisions).rstrip('\0').split('\0')
+    if not head:
+        paths += git(root, 'ls-files', '--others', '--exclude-standard', '-z').rstrip('\0').split('\0')
+    signals = []
+    for path in sorted(set(paths) - {''}):
+        reason = None
+        if path.startswith('reference/'):
+            reason = 'Reference behavior or tool catalog changed'
+        elif path.startswith('core/tests/fixtures/'):
+            reason = 'Golden, provider transcript, or compatibility fixture changed'
+        elif path.startswith('.github/workflows/') or path in ('scripts/ci_scope.py', 'scripts/verify.py'):
+            reason = 'CI selection, execution, or enforcement changed'
+        elif path in ('.importlinter', 'app/knip.json', 'core/pyproject.toml', 'app/package.json',
+                      'app/playwright.config.ts', 'app/vitest.config.ts'):
+            reason = 'Analyzer, dependency, or test configuration changed'
+        elif path.startswith(('scripts/maintenance', 'scripts/prove_regression', 'scripts/generate_wire_types')):
+            reason = 'Maintenance guard or its negative control changed'
+        elif path in ('AGENTS.md', 'docs/diff-review.md', 'docs/development.md', '.github/pull_request_template.md'):
+            reason = 'Development or safeguard-review policy changed'
+        elif path.endswith('conftest.py'):
+            reason = 'Shared test setup or collection changed'
+        elif path.startswith(('core/tests/', 'app/tests/', 'app/e2e/', 'scripts/tests/')):
+            diff = git(root, 'diff', '--no-ext-diff', '--unified=0', *revisions, '--', path)
+            if not head and not diff and (root / path).is_file():
+                diff = '\n'.join('+' + line for line in (root / path).read_text(encoding='utf-8').splitlines())
+            if re.search(r'^-[^-].*\b(assert|expect|raises|assert\w+)\b', diff, re.M):
+                reason = 'Assertions removed or rewritten; identify remaining failure coverage'
+            if re.search(r'^\+[^+].*(\b(skip|skipif|xfail|only)\b|noqa|istanbul ignore|v8 ignore)', diff, re.M):
+                reason = 'Test selection, skip, or suppression added'
+        if reason:
+            signals.append((path, reason))
+    return signals
+
+
+def safeguards_report(signals: list[tuple[str, str]]) -> str:
+    text = '\n## Safeguard changes requiring review\n\n'
+    text += ('These are change signals, not findings. Explain intentional baseline/coverage changes in\n'
+             'the PR’s **Safeguard changes** section, including why the remaining check catches the failure.\n\n')
+    return text + ('\n'.join(f'- `{path}`: {reason}' for path, reason in signals) or 'None.') + '\n'
+
+
+def review_note(body: str) -> str:
+    match = re.search(r'^## Safeguard changes\s*\n(.*?)(?=^## |\Z)', body, re.M | re.S)
+    if not match:
+        return ''
+    note = re.sub(r'<!--.*?-->', '', match[1], flags=re.S).strip()
+    return '' if note.lower() in ('none', 'n/a', 'todo', 'none.', 'n/a.') else note
+
+
 def git(root: Path, *args: str) -> str:
     return subprocess.check_output(['git', '-C', str(root), *args], text=True, encoding='utf-8')
 
@@ -111,17 +163,25 @@ def main() -> None:
     parser.add_argument('--base', required=True, help='PR base SHA or local base ref; compare from its merge-base')
     parser.add_argument('--head', help='Commit to inspect; omit to inspect current tracked/untracked source')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--review-event', type=Path, help='PR event JSON; require a safeguard explanation when flagged')
     args = parser.parse_args()
     base = git(ROOT, 'rev-parse', '--verify', args.base + '^{commit}').strip()
     head = git(ROOT, 'rev-parse', '--verify', (args.head or 'HEAD') + '^{commit}').strip()
     base = git(ROOT, 'merge-base', base, head).strip()
     text = f'Base: `{base}`; head: `{head if args.head else "working tree"}`\n\n'
     text += report(snapshot(ROOT, base), snapshot(ROOT, head if args.head else None))
+    signals = safeguard_changes(ROOT, base, head if args.head else None)
+    text += safeguards_report(signals)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text, encoding='utf-8')
     else:
         print(text, end='')
+    if args.review_event and signals:
+        event = json.loads(args.review_event.read_text(encoding='utf-8'))
+        if 'pull_request' in event and not review_note(event['pull_request'].get('body') or ''):
+            raise SystemExit('Explain flagged changes under "## Safeguard changes" in the PR body. '
+                             'This checks presence; the reviewer must assess the explanation.')
 
 
 if __name__ == '__main__':

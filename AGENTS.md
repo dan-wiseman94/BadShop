@@ -2,6 +2,8 @@
 
 - The design spec is `docs/superpowers/specs/2026-09-26-badshop-app-design.md`. Read it
   before doing anything; it records the decisions and why.
+- Then use `docs/README.md` to find current contracts and implementation guidance.
+  Dated plans and superseded design details are history, not current requirements.
 - `reference/badshop.py` is the proven engine (single-file CLI, PEP 723 deps). Its port
   lives in `core/src/badshop/` (src layout: `engine/`, `tools/`, `cli/`); do not rewrite
   its pixel logic. `reference/tool-catalog.md` lists every command and parameter; the
@@ -64,6 +66,14 @@
   build as a tested installer. See `docs/releasing.md` for packaged-platform validation.
 
 ## Keep changes lean
+
+- Keep one observable behavior change per PR, including removal of the path it replaces.
+  Separate unrelated cleanup. Explain each new dependency, setting, process or abstraction
+  using a current requirement and caller in the PR's maintenance-cost section.
+- Explain flagged safeguard changes in the PR's `Safeguard changes` section. A changed
+  golden, removed assertion, skip, or analyzer exception needs a reason and evidence that
+  the remaining check still detects its intended failure. Never update expected outputs
+  solely to make a failure pass. Review the final diff independently using `docs/diff-review.md`.
 
 - Before implementation, identify the existing owner and callers of the behavior.
   Reuse that path; new abstractions need current callers or a concrete isolation boundary.

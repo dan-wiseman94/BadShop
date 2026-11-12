@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { action, importBlob, queries } from "../src/data";
 import { rpc } from "../src/rpc";
 import { useUI } from "../src/store";
-import type { Session } from "../src/types";
+import type { Artifact, Session } from "../src/types";
 
 const session = {
   id: "same-session",
@@ -32,7 +32,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 it("does not return an old import result for selection after document replacement", async () => {
-  const artifact = {
+  const artifact: Artifact = {
     id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
   };
   vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });
@@ -52,7 +52,7 @@ it("rejects an image read that finishes after document replacement", async () =>
     readAsDataURL() { finishRead = () => this.onload?.(); }
   }
   vi.stubGlobal("FileReader", DelayedReader);
-  const artifact = {
+  const artifact: Artifact = {
     id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
   };
   const request = vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });

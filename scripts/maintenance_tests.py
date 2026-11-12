@@ -6,11 +6,70 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from maintenance_report import ROOT, report, snapshot
+import maintenance_report
+from maintenance_report import ROOT, report, review_note, safeguard_changes, safeguards_report, snapshot
 
 
 class MaintenanceTests(unittest.TestCase):
+    def test_safeguard_report_detects_changed_oracles_selection_and_removed_assertions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            def git(*args):
+                subprocess.run(['git', '-C', str(root), *args], check=True, capture_output=True)
+            git('init')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            files = {'core/tests/fixtures/golden.json': '{}', '.importlinter': 'guard',
+                     'core/tests/test_guard.py': 'def test_guard():\n    assert result == expected\n',
+                     '.github/workflows/core.yml': 'required check', 'core/src/a.py': 'print(1)\n'}
+            for path, content in files.items():
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
+            git('add', '.')
+            git('commit', '-m', 'baseline')
+            self.assertEqual(safeguard_changes(root, 'HEAD', None), [])
+            for path in files:
+                (root / path).write_text('changed\n')
+            signals = dict(safeguard_changes(root, 'HEAD', None))
+            self.assertEqual(set(signals), set(files) - {'core/src/a.py'})
+            self.assertIn('Assertions removed', signals['core/tests/test_guard.py'])
+            (root / 'core/tests/test_new.py').write_text('@pytest.mark.skip\ndef test_new(): pass\n')
+            self.assertIn('core/tests/test_new.py', dict(safeguard_changes(root, 'HEAD', None)))
+            self.assertIn('not findings', safeguards_report(list(signals.items())))
+            git('add', '.')
+            git('commit', '-m', 'candidate')
+            self.assertEqual(dict(safeguard_changes(root, 'HEAD^', 'HEAD'))['.importlinter'], signals['.importlinter'])
+
+    def test_safeguard_explanation_ignores_template_comments_and_empty_answers(self):
+        for body in ('', '## Safeguard changes\n<!-- explain -->\n', '## Safeguard changes\nNone\n## Validation\npassed'):
+            self.assertEqual(review_note(body), '')
+        self.assertEqual(review_note('## Safeguard changes\nUpdated encoder hashes; pixel hashes still checked.\n## Validation\npassed'),
+                         'Updated encoder hashes; pixel hashes still checked.')
+
+    def test_pr_gate_retains_report_before_refusing_an_unexplained_change(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for args in (['init'], ['config', 'user.name', 'Fixture'],
+                         ['config', 'user.email', 'fixture@example.invalid']):
+                subprocess.run(['git', '-C', folder, *args], check=True, capture_output=True)
+            guard = root / '.importlinter'
+            guard.write_text('original guard')
+            subprocess.run(['git', '-C', folder, 'add', '.'], check=True, capture_output=True)
+            subprocess.run(['git', '-C', folder, 'commit', '-m', 'base'], check=True, capture_output=True)
+            guard.write_text('changed guard')
+            event, output = root / 'event.json', root / 'report.md'
+            event.write_text(json.dumps({'pull_request': {'body': '## Safeguard changes\nNone'}}))
+            arguments = ['report', '--base', 'HEAD', '--review-event', str(event), '--output', str(output)]
+            with patch.object(maintenance_report, 'ROOT', root), patch('sys.argv', arguments):
+                with self.assertRaisesRegex(SystemExit, 'Explain flagged changes'):
+                    maintenance_report.main()
+                self.assertIn('.importlinter', output.read_text(encoding='utf-8'))
+                event.write_text(json.dumps({'pull_request': {'body': '## Safeguard changes\nNarrow false positive; negative control retained.'}}))
+                maintenance_report.main()
+
     def run_tool(self, args, cwd, **env):
         return subprocess.run(args, cwd=cwd, env=os.environ | env, capture_output=True, text=True)
 

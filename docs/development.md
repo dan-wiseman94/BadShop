@@ -1,5 +1,7 @@
 # Development and testing
 
+[Current documentation index](README.md) identifies the owner of each behavior.
+
 On Windows, follow the [source setup](windows.md#run-from-source) and double-click
 `start.cmd`. On Linux and macOS, use `./start.sh`. Run the checks below from the repository
 folder. Verification exits nonzero if a requested check fails or is blocked.
@@ -369,3 +371,101 @@ code at the merge-base; no existing candidate is silently suppressed.
 Use the questions in [diff-review.md](diff-review.md): what can this delete, is there
 another source of truth, and does each abstraction remove actual duplication or isolate
 a real boundary? Dependencies need an actual use and should be removed with that use.
+
+### Safeguards and review scope
+
+The growth report also lists changed reference/golden/project fixtures, CI selection,
+analyzer configuration, removed assertions, added skips and the maintenance guards
+themselves. These are review signals, not proof of weakened coverage. For flagged PRs,
+CI requires text under `## Safeguard changes` in the PR body. Template comments and
+`None` do not count. Editing the PR body reruns maintenance. The reviewer must still
+assess the explanation and remaining failure coverage; presence of prose is not approval.
+
+Use the PR template: one observable change, focused evidence, safeguard rationale,
+and the current use for each added dependency/setting/process/abstraction. Keep the
+deletion required by a replacement in the same PR; separate unrelated cleanup.
+Run the independent second pass on the final diff and reproduce actionable findings.
+Avoid repeated open-ended cleanup passes without a concrete defect or responsibility to remove.
+
+On GitHub, require the existing `maintenance`, `core-result`, `desktop-result`, and
+`audit` checks for `main`, including administrators, and require resolution of review
+conversations. Use the aggregate result checks: they validate intentional CI selection
+without requiring a skipped platform job. Do not add a required reviewer count to a
+single-maintainer repository without arranging another reviewer. Agents sharing a human
+account cannot provide independently enforced human approval. Changes to these gates
+and to their workflow code still need maintainer review.
+
+### Shared wire types
+
+`Artifact`, `Step` and `Message`, including their nested records, come from the core's
+serialized Pydantic schemas. Session/UI state remains in `app/src/types.ts`.
+After changing a shared model, regenerate and type-check:
+
+```sh
+uv run --project core --locked python scripts/generate_wire_types.py
+uv run --project core --locked python scripts/generate_wire_types.py --check
+pnpm --dir app build
+```
+
+Frontend CI checks regeneration. Unsupported schema forms fail explicitly. Defaults
+are optional in generated DTOs for partial UI fixtures; the UI requires the default
+collections it iterates. Nullable serialized fields retain `null`. This is a compile-time
+contract, not runtime RPC validation. `scripts/tests/test_maintenance_evidence.py`
+changes an authoritative model and proves the drift check fails before regeneration.
+
+### Generated session sequences
+
+`core/tests/test_session_sequences.py` explores bounded sequences of edits/replay,
+imports, branch creation/switching, rejection, save/reopen and injected failed saves.
+Its independent model checks pixels, dependency remapping and branch ownership;
+failed writes preserve the prior file and leave no temporary output. Hypothesis is a
+development dependency. The default 20 examples × 20 actions is deterministic for
+unchanged inputs/dependency versions and runs in private temporary directories.
+Failure output includes the reduced sequence and reproduction blob. Retain the pytest
+log; add a named regression for a discovered bug rather than growing every sequence.
+
+```sh
+./verify.sh python --python-test core/tests/test_session_sequences.py
+```
+
+### Resource baselines
+
+Existing frontend and installer workflows retain advisory size reports alongside
+their build evidence. Native smoke screenshots get `.metrics.json` siblings recording
+time to the authenticated renderer and RSS of the owned process tree. Core smoke can
+add five fixed import/edit/save/reopen/new cycles, with content-hash checks and worker
+cleanup. No provider calls or model downloads are needed for these measurements.
+
+```sh
+uv run --project core --locked python scripts/resource_report.py frontend --output artifacts/verification/resources/frontend.json
+uv run --project core --locked python scripts/resource_report.py packages --output artifacts/verification/resources/packages.json
+uv run --project core --locked python packaging/smoke_core.py core/.venv/bin/badshop-core --metrics-kind source --metrics artifacts/verification/resources/core-runtime.json
+```
+
+The package command measures existing installers and fails if they are missing; do
+not rebuild installers just to get a size report for an unrelated change. On Windows,
+use the private environment's `Scripts/badshop-core.exe` for source measurement.
+Release jobs measure the frozen executable and label it `packaged`.
+
+Size reports accept `--baseline previous.json` and refuse incompatible platform,
+architecture or measurement profiles. Retain two initial runtime runs on the same
+machine, build kind, lockfiles and cycle count before evaluating changes. Compare
+cycles after the first worker initialization; RSS sums can count shared pages more
+than once and are not unique memory. Warm-cache startup differs from a cold install.
+Missing/failed measurements are not zero or passing baselines. Reports are advisory;
+set budgets only after establishing ordinary variation on the target platform.
+
+### Dependency refreshes
+
+`dependency-check.yml` runs separate Python, frontend and Rust candidates weekly.
+Python runs offline core tests; frontend runs component/build and real browser/core
+checks; Rust builds the frontend and runs native Rust tests with source configuration.
+Each job retains logs, status, source revision, lockfiles and a candidate patch even
+on failure. This does not establish installer or live-provider compatibility.
+
+Manual dispatch can select one stack and package. Prefer that targeted path when
+promoting a change; the weekly broad candidates reveal upcoming compatibility work.
+Candidates never commit, merge or publish. Review lock/manifest changes, run the
+relevant checks and exact-lock security gates on the resulting PR, and keep unrelated
+stack upgrades in separate PRs. Preserve compatibility pins until their documented
+platform constraint is removed and verified.
