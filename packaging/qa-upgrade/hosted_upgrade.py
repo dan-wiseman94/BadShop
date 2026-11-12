@@ -447,6 +447,7 @@ def main(old, asset, root, evidence):
             original_artifacts = artifacts(project)
             shutil.copyfile(project, evidence / "pre-upgrade.badshop")
             import_color((230, 75, 12, 255))
+            print("Project after second import:", digest(project), "Saved baseline:", before, flush=True)
             ui.panel()
             ui.check("0.4.1", True)
             children = psutil.Process(start["shell_pid"]).children(recursive=True)
@@ -458,7 +459,9 @@ def main(old, asset, root, evidence):
                 ui.error(expected)
                 ui.shot(mode)
                 assert state()["shell_pid"] == start["shell_pid"]
-                assert digest(executable) == old_exe and digest(project) == before
+                current_exe, current_project = digest(executable), digest(project)
+                print("Rejected update digests:", mode, current_exe, old_exe, current_project, before, flush=True)
+                assert current_exe == old_exe and current_project == before
 
             feed.mode = "valid"
             ui.attempt()
@@ -511,6 +514,8 @@ def main(old, asset, root, evidence):
                 "old_installer_sha256": digest(old), "new_updater_sha256": digest(asset),
             }, indent=2))
         finally:
+            if project.is_file():
+                shutil.copyfile(project, evidence / "last-project.badshop")
             if hasattr(ui, "window"):
                 with contextlib.suppress(Exception):
                     ui.shot("last")

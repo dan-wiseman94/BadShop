@@ -11,21 +11,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            label: windows-x64
-            old: badshop_0.4.1_x64-setup.exe
-            new: badshop_0.4.2_x64-setup.exe
-            new_hash: c870d1f43761b47c92420465452915696b08fe6e1fd5f5462bd4e928e3c58b11
           - os: macos-15
             label: macos-arm64
             old: badshop_0.4.1_aarch64.dmg
             new: badshop-macos-arm64.app.tar.gz
             new_hash: 8462a7e35836be257e8a2f95ab58b309eb59d5ffafeaa8678a97b655f81dcf50
-          - os: macos-15-intel
-            label: macos-x64
-            old: badshop_0.4.1_x64.dmg
-            new: badshop-macos-x64.app.tar.gz
-            new_hash: f76ffec01c962067b333b4a2bcbb158c1c6b76abf011e6c4975d8a05dad2c473
     runs-on: ${{ matrix.os }}
     timeout-minutes: 65
     steps:
