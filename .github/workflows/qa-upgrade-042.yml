@@ -35,7 +35,7 @@ jobs:
           OLD_ASSET: ${{ matrix.old }}
           NEW_ASSET: ${{ matrix.new }}
         run: |
-          gh run watch 43308481866 --exit-status --interval 30
+          gh run watch 43310138008 --exit-status --interval 30
           gh release download v0.4.1 --pattern "$OLD_ASSET" --pattern SHA256SUMS --dir qa-input/old
           gh release download v0.4.2 --pattern "$NEW_ASSET" --pattern "$NEW_ASSET.sig" --pattern SHA256SUMS --pattern latest.json --dir qa-input/candidate
           uv run --no-project --python 3.12 python packaging/qa-upgrade/verify_downloads.py qa-input/old qa-input/candidate
