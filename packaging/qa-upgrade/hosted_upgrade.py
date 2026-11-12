@@ -334,7 +334,11 @@ end run
         print("Save folder files:", [x.name for x in path.parent.iterdir()], flush=True)
 
     def panel(self):
-        wait(lambda: self.press("Settings"), "Accessible Settings button unavailable")
+        if not self.press("Settings"):
+            # 0.4.1's icon-only button is absent from this runner's AX tree.
+            # Locate the visible Export label; Settings is its adjacent control.
+            x, y = self.text("Export", exact=True)
+            self.click(x - 88, y, self.size)
         if not self.press("Updates"):
             self.text("Updates", click=True, exact=True)
 
