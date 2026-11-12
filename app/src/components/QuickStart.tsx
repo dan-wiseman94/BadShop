@@ -88,7 +88,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage }: {
       }); }}>
         <h3>Keep the picture. Fix the joke.</h3>
         {step.status === "error" && <p role="alert" className="error-text">{step.error?.message} {step.error?.hint} Edit the caption and retry, or open All tools for History.</p>}
-        <InputField label="Revised punchline" maxLength={1000} bind={[revision, setRevision]} />
+        <InputField label="Revised punchline" disabled={disabled} maxLength={1000} bind={[revision, setRevision]} />
         <button disabled={disabled}>Change caption only</button>
         <button type="button" disabled={disabled} onClick={() => void perform(async () => {
           const copy = await action("branches.create", { name: `Another take ${new Date().toLocaleTimeString()}`, expected_revision: session!.document_revision });
