@@ -335,10 +335,12 @@ end run
 
     def panel(self):
         if not self.press("Settings"):
-            # 0.4.1's icon-only button is absent from this runner's AX tree.
-            # Locate the visible Export label; Settings is its adjacent control.
-            x, y = self.text("Export", exact=True)
-            self.click(x - 88, y, self.size)
+            if not self.restarted:
+                self.text("Review update in Settings", click=True)
+            else:
+                # Observed 0.4.2 header: Settings is 144 px from the right edge.
+                width, height = self.size
+                self.click(width - 144, 58, self.size)
         if not self.press("Updates"):
             self.text("Updates", click=True, exact=True)
 
