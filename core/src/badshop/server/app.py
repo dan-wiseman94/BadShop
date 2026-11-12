@@ -405,7 +405,9 @@ class CoreApp:
     def _snapshot(self) -> dict:
         """The session as saved (SessionData by alias) plus what the app knows about it."""
         visible = self.session.visible_artifact_ids()
+        from badshop.session.session import BYPASS_TOOLS
         return {**self.session.data.model_dump(mode="json", by_alias=True),
+                "bypass_tools": sorted(BYPASS_TOOLS),
                 "artifacts": {aid: meta.model_dump(mode="json") for aid, meta in self.session.artifacts.meta.items()
                               if aid in visible},
                 "path": str(self.path) if self.path else None,
@@ -679,6 +681,9 @@ class CoreApp:
             ("session.set_approval_mode", self._session_set_approval_mode, "user"),
             ("chat.send", self._chat_send, "user"),
             ("chat.stop", self._chat_stop, "user"),
+            ("chat.pause", self._chat_pause, "user"),
+            ("chat.undo", self._chat_undo, "user"),
+            ("chat.finish_checkpoint", self._chat_finish_checkpoint, "user"),
             ("chat.retry", self._chat_retry, "user"),
             ("providers.list", self._providers_list, "user"),
             ("providers.save", self._providers_save, "user"),
@@ -692,6 +697,8 @@ class CoreApp:
             ("tools.list", self._tools_list, "any"),
             ("tools.run", self._tools_run, "any"),
             ("steps.edit", self._steps_edit, "user"),
+            ("steps.preview", self._steps_preview, "user"),
+            ("steps.controls", self._steps_controls, "user"),
             ("steps.replay_from", self._steps_replay_from, "user"),
             ("steps.delete", self._steps_delete, "user"),
             ("approval.respond", self._approval_respond, "user"),
@@ -982,6 +989,8 @@ class CoreApp:
             profile = self._profile(session.data.provider_profile_id)
             cfg.before_request = lambda: self._check_provider_network(profile)
         self._turn_cfg = cfg
+        if not retry:
+            branches.begin_turn(session)
         self._retry_session = None
         self._turn = self._spawn(self._turn_main(session, provider, text, ids, cfg, retry))
         return {"started": True}
@@ -998,6 +1007,25 @@ class CoreApp:
 
     async def _chat_stop(self, actor: str) -> dict:
         return {"stopped": await self._stop_turn("stopped by the user")}
+
+    async def _chat_pause(self, actor: str) -> dict:
+        if self._turn_cfg is None or self._turn is None:
+            raise EngineError("there is no running turn to pause")
+        self._turn_cfg.pause_requested = True
+        if self.gate.pending() or self._cli_gate.pending() or (self._cli_turn_actor and not self._cli_cancels):
+            await self._stop_turn("paused for manual corrections")
+        return {"requested": True}
+
+    async def _chat_undo(self, actor: str) -> dict:
+        return await self._change_branch(lambda: branches.undo_turn(self.session), None)
+
+    async def _chat_finish_checkpoint(self, actor: str, enabled: bool) -> dict:
+        def change() -> None:
+            self._check_idle()
+            self.session.data.pause_before_finish = enabled
+            self._changed()
+        await self._blocking(change)
+        return self._snapshot()
 
     # --- methods: tools and steps ---------------------------------------------------------------
 
@@ -1025,6 +1053,10 @@ class CoreApp:
         generation = self._approval_generation
 
         def propose() -> Step:
+            if actor == self._cli_turn_actor and self._turn_cfg is not None:
+                if self._turn_cfg.pause_requested or (self.session.data.pause_before_finish and tool in {"deepfry", "save", "animate", "animate_sticker", "export", "export_profile"}):
+                    self._turn_cfg.pause_requested = True
+                    raise EngineError("paused for manual corrections")
             if actor == self._cli_turn_actor and self._cli_remaining is not None:
                 if self._cli_remaining <= 0:
                     raise EngineError("this turn's tool budget is used up", hint="ask the user to continue")
@@ -1043,7 +1075,7 @@ class CoreApp:
         try:
             step = await self._blocking(propose)
             session, edited = got["session"], None
-            if approval.needs_approval(registry.get(tool), session.data.approval_mode):
+            if step.lock_review or approval.needs_approval(registry.get(tool), session.data.approval_mode):
                 if generation != self._approval_generation or session is not self.session:
                     step = await self._blocking(self._settle, session, step.id,
                                                 "the session changed or the user disconnected")
@@ -1053,6 +1085,7 @@ class CoreApp:
                     step = await self._blocking(self._settle, session, step.id, decision.note)
                     return step.model_dump(mode="json")
                 edited = decision.params if decision.decision == "edit" else None
+                step.lock_approved = True
             task = asyncio.create_task(self._blocking(self._run_or_reject, session, step.id, edited, got["cancel"]))
             got["task"] = task
             step = await asyncio.shield(task)
@@ -1073,6 +1106,12 @@ class CoreApp:
         finally:
             if "step" in got:
                 self._cli_cancels.pop(got["step"].id, None)
+            if actor == self._cli_turn_actor and self._turn_cfg is not None and self._turn_cfg.pause_requested:
+                paused_turn = self._turn
+                async def finish_pause() -> None:
+                    if self._turn is paused_turn:
+                        await self._stop_turn("paused for manual corrections")
+                self._spawn(finish_pause())
 
     @staticmethod
     def _settle(session: Session, step_id: str, note: str | None) -> Step:
@@ -1093,6 +1132,37 @@ class CoreApp:
             if params is None:  # a proposed step runs on its own params: nothing to fall back to
                 raise
             return session.reject(step_id, f"the edited parameters were refused: {e.message}")
+
+    async def _steps_preview(self, actor: str, step_id: str, params: dict) -> list[str]:
+        def preview() -> list[str]:
+            self._check_idle()
+            return [base64.b64encode(record.data).decode("ascii")
+                    for record in self.session.preview_edit(step_id, params)]
+        return await self._blocking(preview)
+
+    async def _steps_controls(self, actor: str, step_id: str,
+                              locked_fields: list[str] | None = None, bypassed: bool | None = None) -> dict:
+        def change() -> dict:
+            from badshop.session.session import BYPASS_TOOLS
+            self._check_idle()
+            step = self.session.step(step_id)
+            self.session._refuse_busy(self.session.data.steps)
+            if locked_fields is not None and (len(locked_fields) > 30 or any(key not in step.params for key in locked_fields)):
+                raise EngineError("choose existing parameter names to lock")
+            if bypassed is not None and step.tool not in BYPASS_TOOLS:
+                raise EngineError("this tool cannot be bypassed")
+            if bypassed and self.session.artifacts.meta[step.params["image"]].frames > 1:
+                raise EngineError("bypass is only available for still images")
+            if locked_fields is not None:
+                step.locked_fields = list(dict.fromkeys(locked_fields))
+                self.session.changes.append(f"the user locked settings on step {step.index}: {step.locked_fields}")
+            if bypassed is not None and bypassed != step.bypassed:
+                self.session.edit(step_id, step.params)
+                step.bypassed = bypassed
+                self.session.replay_from(step_id)
+            self._changed()
+            return self._snapshot()
+        return await self._blocking(change)
 
     async def _steps_edit(self, actor: str, step_id: str, params: dict) -> dict:
         def edit() -> tuple[Session, list[Step], list[Step]]:

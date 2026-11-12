@@ -1,4 +1,5 @@
 import { Button } from "./Button";
+import { CorrectionControls } from "./CorrectionControls";
 import { useEffect, useId, useRef, useState } from "react";
 import Form from "@rjsf/core";
 import { customizeValidator } from "@rjsf/validator-cfworker";
@@ -333,13 +334,18 @@ export function ToolForm({
   onSubmit,
   submitLabel = "Run tool",
   disabled = false,
+  stepId,
 }: {
   tool: Tool;
   initial?: Params;
   onSubmit: (params: Params) => Promise<unknown>;
   submitLabel?: string;
   disabled?: boolean;
+  stepId?: string;
 }) {
+  const [preview, setPreview] = useState<string[]>([]);
+  const [divider, setDivider] = useState(50);
+  const [previewBackground, setPreviewBackground] = useState("#888888");
   const formId = useId().replaceAll(":", "");
   const [formData, setFormData] = useState<Params>(() => cleanParams(initial));
   const baseline = useRef(cleanParams(initial));
@@ -355,6 +361,7 @@ export function ToolForm({
   const submitting = useRef(false);
   useEffect(() => {
     if (initialSignature === baselineSignature.current || submitting.current) return;
+    setPreview([]);
     const merged = mergeParameterDraft(formData, baseline.current, source.current.data);
     setFormData(merged.data);
     setConflicts((previous) => [
@@ -370,6 +377,8 @@ export function ToolForm({
   }, [initialSignature, busy]);
   const schema = normalizeSchema(tool.schema);
   const { data: session } = useSession();
+  const originalId = session?.steps.find((step) => step.id === stepId)?.outputs[0];
+  const { data: original } = useArtifact(originalId ?? null);
   const imageFields = Object.entries(schema.properties ?? {}).filter(
     ([, field]) =>
       typeof field === "object" &&
@@ -397,7 +406,7 @@ export function ToolForm({
       widgets={{ ImagePicker, ColorPicker, Seed }}
       templates={{ ButtonTemplates: arrayButtons }}
       formData={formData}
-      onChange={(event) => setFormData(event.formData ?? {})}
+      onChange={(event) => { setFormData(event.formData ?? {}); setPreview([]); }}
       onSubmit={(event) =>
         run(async () => {
           setBusy(true);
@@ -406,6 +415,7 @@ export function ToolForm({
           const previousSource = source.current.signature;
           try {
             await onSubmit(submitted);
+            setPreview([]);
             setFormData(source.current.signature !== previousSource ? source.current.data : submitted);
             baseline.current = source.current.data;
             baselineSignature.current = source.current.signature;
@@ -424,6 +434,9 @@ export function ToolForm({
         arrayMinItems: { populate: "requiredOnly" },
       }}
     >
+      <CorrectionControls tool={tool.name} stepId={stepId} value={formData}
+        disabled={disabled || busy || conflicts.length > 0}
+        change={(next) => { setFormData(next); setPreview([]); }} />
       {!!conflicts.length && (
         <div className="parameter-conflict" role="alert">
           <p>
@@ -444,6 +457,35 @@ export function ToolForm({
         </div>
       )}
       {formData.model === "birefnet-general" && <p className="model-memory-note">{BIREFNET_MEMORY_NOTE}</p>}
+      {stepId && <div>
+        <Button type="button" label="Preview changes" disabled={disabled || busy || conflicts.length > 0}
+          onClick={() => run(async () => {
+            setBusy(true);
+            const requestedSource = source.current.signature;
+            try {
+              const images = await action("steps.preview", { step_id: stepId, params: formData });
+              if (source.current.signature === requestedSource) setPreview(images);
+            }
+            finally { setBusy(false); }
+          })} />
+        <Button type="button" label="Cancel changes" disabled={disabled || busy}
+          onClick={() => { setFormData(source.current.data); setConflicts([]); setPreview([]); }} />
+        {!!preview.length && <>
+          <label>Preview background <select value={previewBackground} onChange={(event) => setPreviewBackground(event.target.value)}>
+            <option value="#888888">Gray</option><option value="#ffffff">White</option><option value="#000000">Black</option>
+            <option value="#ff00ff">Magenta</option>
+          </select></label>
+          {original && <label>Before / after divider <input type="range" min={0} max={100} value={divider}
+            onChange={(event) => setDivider(Number(event.target.value))} /></label>}
+        </>}
+        {preview.map((bytes, index) => <div key={index} style={{ position: "relative", background: previewBackground }}>
+          <img alt={`Uncommitted preview ${index + 1}`} src={`data:image/png;base64,${bytes}`}
+            style={{ width: "100%", display: "block", imageRendering: "pixelated" }} />
+          {index === 0 && original && <img alt="Before correction" src={imageUrl(original)}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain",
+              imageRendering: "pixelated", clipPath: `inset(0 ${100 - divider}% 0 0)` }} />}
+        </div>)}
+      </div>}
       <Button
         type="submit"
         className="primary form-run"

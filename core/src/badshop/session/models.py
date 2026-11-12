@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from badshop.engine.result import EXT as OUTPUT_EXT
 from badshop.session.preferences import CreativePreferences
 
-SCHEMA = 3  # v3 adds portable per-direction creative preferences; v1/v2 use defaults
+SCHEMA = 4  # v4 adds correction locks, bypass and turn recovery; older formats use defaults
 
 ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF"]
 EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff"}  # tool outputs keep their CLI extensions
@@ -72,6 +72,10 @@ class Step(BaseModel):
     # stale steps after it still reference. The next replay that gets past it maps them to its new
     # outputs; it is saved with the session, so reopening a project in between loses nothing.
     previous_outputs: list[str] = []
+    locked_fields: list[str] = Field(default_factory=list, max_length=30)
+    bypassed: bool = False
+    lock_review: bool = False
+    lock_approved: bool = False
 
 
 class Part(BaseModel):
@@ -119,6 +123,8 @@ class SessionData(BaseModel):
     branches: dict[str, BranchSnapshot] = {}
     creative: CreativePreferences = Field(default_factory=CreativePreferences)
     recipes: list[dict] = Field(default_factory=list,max_length=50)
+    undo_branch_id: str | None = None
+    pause_before_finish: bool = False
 
     @field_validator('recipes')
     @classmethod

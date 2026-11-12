@@ -11,6 +11,9 @@ export type NoveltyMode =
   "different-format" | "change-setting" | "another-era" | "avoid-recent";
 export interface Session {
   batch_running?: boolean;
+  undo_branch_id?: string | null;
+  pause_before_finish?: boolean;
+  bypass_tools?: string[];
   creative?: CreativePreferences;
   recipes?: Recipe[];
   unsaved_changes: boolean;
@@ -254,6 +257,11 @@ export interface MethodMap {
   "tools.list": [undefined, Tool[]];
   "tools.run": [{ tool: string; params: Params }, Step];
   "steps.edit": [{ step_id: string; params: Params }, { stale: string[] }];
+  "steps.preview": [{ step_id: string; params: Params }, string[]];
+  "steps.controls": [{ step_id: string; locked_fields?: string[]; bypassed?: boolean }, Session];
+  "chat.pause": [undefined, { requested: boolean }];
+  "chat.undo": [undefined, Session];
+  "chat.finish_checkpoint": [{ enabled: boolean }, Session];
   "steps.replay_from": [{ step_id: string; use_cache?: boolean }, Step[]];
   "steps.delete": [{ step_id: string }, { deleted: string }];
   "approval.respond": [

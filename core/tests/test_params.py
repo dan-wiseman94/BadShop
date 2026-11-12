@@ -11,6 +11,7 @@ from memstore import MemoryStore
 
 # The fewest fields each tool needs to validate (image refs are never loaded when validation fails).
 BASE = {
+    "transform": {"image": "a.png"},
     'retro_layout': {}, 'canvas': {}, 'pattern': {},
     'palette': {'image': 'a.png'}, 'bitmap_text': {'image':'a.png','text':'hi'},
     'animate_sticker': {'image':'a.png','sticker':'b.png'}, 'export_profile': {'image':'a.png'},

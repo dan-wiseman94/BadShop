@@ -94,6 +94,8 @@ def switch(session, id: str) -> None:
         return
     _remember(session)
     _activate(session, session.data.branches[id])
+    if id == session.data.undo_branch_id:
+        create(session, "Checkpoint edits")
 
 
 def rename(session, id: str, name: str) -> dict:
@@ -105,6 +107,8 @@ def rename(session, id: str, name: str) -> dict:
 
 
 def remove(session, id: str) -> dict:
+    if id == session.data.undo_branch_id:
+        raise EngineError("this direction is the last AI turn's undo checkpoint")
     if id == session.data.active_branch_id:
         raise EngineError("switch to another direction before removing this one")
     if id not in session.data.branches:
@@ -112,3 +116,31 @@ def remove(session, id: str) -> dict:
     del session.data.branches[id]
     session._changed()
     return listing(session)
+
+
+def begin_turn(session) -> None:
+    """Preserve the current direction and give this turn its own recoverable branch."""
+    if any(step.status in ("proposed", "approved", "running") for step in session.data.steps):
+        session.data.undo_branch_id = None
+        session.changes.append("turn undo is unavailable while another caller owns a pending step")
+        session._changed()
+        return
+    _idle(session)
+    changes = list(session.changes)
+    create(session, "Before AI turn")
+    checkpoint = session.data.active_branch_id
+    create(session, "AI turn")
+    session.changes = changes
+    session.data.undo_branch_id = checkpoint
+    session._changed()
+
+
+def undo_turn(session) -> None:
+    checkpoint = session.data.undo_branch_id
+    if checkpoint is None or checkpoint not in session.data.branches:
+        raise EngineError("there is no AI turn to undo")
+    _idle(session)
+    _remember(session)
+    _activate(session, session.data.branches[checkpoint])
+    session.data.undo_branch_id = None
+    session._changed()

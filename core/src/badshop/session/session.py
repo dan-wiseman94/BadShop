@@ -5,6 +5,7 @@ approvals, edits and replay work the same for every caller. Engine rules still h
 and every failure a caller can act on is an EngineError."""
 
 import copy
+import io
 import json
 import re
 import threading
@@ -15,6 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 from pydantic import TypeAdapter, ValidationError
+from PIL.PngImagePlugin import PngInfo
 
 from badshop import files
 from badshop.engine.errors import EngineError
@@ -28,6 +30,7 @@ from badshop.session.models import ArtifactMeta, Message, Part, SessionData, Sou
 from badshop.tools import registry, runner
 
 Emit = Callable[[str, dict], None]
+BYPASS_TOOLS = frozenset({"filter", "deepfry", "save", "eyes", "sparkle", "flare", "watermark", "warp", "censor", "palette"})
 
 RUNNABLE = ("proposed", "approved")  # a step waiting to run; anything else has run, failed or been rejected
 _MARKS = {"done": "✓", "error": "✗"}  # summary() writes every other status as its name
@@ -287,6 +290,17 @@ class Session:
         params = self._resolved(runner.validate(tool, raw, actor))
         step = Step(id=self._next_id("s"), index=len(self.data.steps) + 1, tool=tool, params=params,
                     actor=actor, status="proposed", reason=reason)
+        if not runner.is_trusted(actor) and registry.get(tool).mutates:
+            ancestry = set(_image_refs(step))
+            for previous in reversed(self.data.steps):
+                if ancestry.intersection(previous.outputs):
+                    ancestry.update(_image_refs(previous))
+            step.lock_review = any(previous.locked_fields and (
+                ancestry.intersection(previous.outputs) or
+                (previous.tool == tool and ancestry.intersection(_image_refs(previous)))
+            ) for previous in self.data.steps)
+            if step.lock_review:
+                step.reason = "Review required: this operation may change a result with pinned settings. " + (reason or "")
         self.data.steps.append(step)
         self._emit("step.proposed", step)
         self._changed()
@@ -300,6 +314,8 @@ class Session:
         if step.status not in RUNNABLE:
             raise EngineError(f"step {step.id} is {step.status}, so it can't run",
                               hint="only a proposed step runs; edit a finished step and replay it instead")
+        if step.lock_review and not step.lock_approved and not runner.is_trusted(step.actor):
+            raise EngineError("this operation requires review of pinned settings")
         if raw is not None:
             params = self.validate_step_params(step_id, raw)
             if params != step.params:
@@ -330,10 +346,21 @@ class Session:
         stem = self._stem(step)
         step.status, step.started_at, step.finished_at = "running", time.time(), None
         step.outputs, step.result_text, step.data, step.error = [], "", None, None
-        step.cache_key = cache_key(step.tool, step.params)
+        step.cache_key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
         self._emit("step.started", step)  # no on_change here: an autosave never holds a running step
         try:
-            if registry.get(step.tool).writes_files:
+            if step.bypassed:
+                if step.tool not in BYPASS_TOOLS:
+                    raise EngineError("this tool cannot be bypassed")
+                if self.artifacts.meta[step.params["image"]].frames > 1:
+                    raise EngineError("bypass is only available for still images")
+                source = self.artifacts.image(step.params["image"])
+                buffer = io.BytesIO()
+                metadata = PngInfo()
+                metadata.add_text("badshop-bypass", step.id)
+                source.save(buffer, "PNG", pnginfo=metadata)
+                outcome = ToolOutcome(True, [OutputRecord("result", buffer.getvalue(), "result.png")])
+            elif registry.get(step.tool).writes_files:
                 outcome = self._run_here(step, stem, cancel)
             else:
                 inputs = {id: self.artifacts.data(self.artifacts.resolve(id)) for id in _image_refs(step)}
@@ -451,6 +478,10 @@ class Session:
             line = f"{step.index}. {step.tool} by {step.actor} {_MARKS.get(step.status, step.status)}"
             if step.edited:
                 line += " (edited)"
+            if step.bypassed:
+                line += " (bypassed)"
+            if step.locked_fields:
+                line += " locked settings: " + json.dumps({key: step.params.get(key) for key in step.locked_fields})
             if step.outputs:
                 line += " → " + ", ".join(self._named(i) for i in step.outputs)
             if step.error is not None:
@@ -505,6 +536,25 @@ class Session:
         params = self._resolved(runner.validate(step.tool, raw, "user"))
         self._refuse_later(step, pos, params)
         return params
+
+    def preview_edit(self, step_id: str, raw: dict) -> list[OutputRecord]:
+        """Render one local step without publishing artifacts, history or change events."""
+        step = self.step(step_id)
+        self._refuse_busy(self.data.steps)
+        if step.bypassed:
+            raise EngineError("enable this effect before previewing its settings")
+        spec = registry.get(step.tool)
+        if spec.network or spec.writes_files:
+            raise EngineError("preview requires a local image tool")
+        params = self.validate_step_params(step_id, raw)
+        draft = step.model_copy(update={"params": params})
+        inputs = {aid: self.artifacts.data(aid) for aid in _image_refs(draft)}
+        outcome = self.executor.run(ToolCall(
+            step.tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True,
+        ))
+        if not outcome.ok:
+            raise EngineError(outcome.error_message or "preview failed", hint=outcome.error_hint)
+        return outcome.outputs
 
     def edit(self, step_id: str, raw: dict) -> list[Step]:
         """Give a finished (or failed, stale or rejected) step new params, as the user. It and every later
@@ -571,7 +621,7 @@ class Session:
             if remap:
                 step.params = _map_refs(step.tool, step.params, lambda id: remap.get(id, id))
             old = list(step.outputs or step.previous_outputs)
-            key = cache_key(step.tool, step.params)
+            key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
             hit = cache.get(key)
             if hit is not None and all(id in self.artifacts for id in hit.outputs):
                 self._reuse(step, hit, key)

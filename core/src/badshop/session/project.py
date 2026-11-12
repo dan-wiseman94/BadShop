@@ -112,7 +112,11 @@ def export_recipe(session: Session) -> dict:
         spec = REGISTRY.get(step.tool)
         if step.status != "done" or spec is None or not spec.mutates or spec.network or spec.writes_files:
             continue
-        params = map_image_refs(spec.params, step.params, path_of)
+        raw = step.params
+        if step.bypassed:
+            spec = REGISTRY["transform"]
+            raw = {"image": step.params["image"]}
+        params = map_image_refs(spec.params, raw, path_of)
         argv = to_argv(spec, params)
         if step.outputs:  # before any "--": after it, "-o" would be read as a positional value
             at = argv.index("--") if "--" in argv else len(argv)
