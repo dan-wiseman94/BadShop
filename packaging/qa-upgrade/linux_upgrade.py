@@ -89,11 +89,12 @@ def main(root, evidence, downloads):
         (root / "server.ext").write_text("subjectAltName=DNS:github.com\nextendedKeyUsage=serverAuth\n")
         subprocess.run(["openssl", *args], cwd=root, check=True, capture_output=True)
 
+    (root / "chain.pem").write_bytes((root / "server.pem").read_bytes() + (root / "ca.pem").read_bytes())
     feed = StagedFeed(root, downloads)
     appimage = root / "badshop.AppImage"
     shutil.copy2(root.parent / appimage.name, appimage)
     print("AppImage before:", digest(appimage), flush=True)
-    assert digest(appimage) == "b7446fdcab8c4f9b7744dff5574ac7cbfa65822caf5e4d70988a767f08933e4b"
+    assert digest(appimage) == "620ceeeb6ca2409d8a899150827cf92513975229c0014035eaee17f787790ec5"
     ready = root / "ready.json"
     nonce = secrets.token_hex(12)
     env = {**os.environ,
@@ -190,7 +191,7 @@ def main(root, evidence, downloads):
                 ui.find(expected, timeout=5)
                 screenshot(ui.window, evidence / f"{mode}-rejected.png")
                 assert state()["shell_pid"] == old_pid and digest(project) == before
-                assert digest(appimage) == "b7446fdcab8c4f9b7744dff5574ac7cbfa65822caf5e4d70988a767f08933e4b"
+                assert digest(appimage) == "620ceeeb6ca2409d8a899150827cf92513975229c0014035eaee17f787790ec5"
 
             feed.mode = "valid"
             ui.find("install update", click=True)
