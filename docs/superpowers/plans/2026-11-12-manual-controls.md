@@ -80,4 +80,7 @@ Reviewed intervening changes: release/update work has no implementation overlap.
 The newer generated-wire-types migration overlaps app/src/types.ts and widens
 Viewer.faceBoxes nullability. At integration, retain that migration and regenerate
 wire types from the new Step model so bypass/pin fields remain schema-owned.
-This worktree remains based on the recorded task baseline; upstream is not merged.
+The branch was subsequently rebased onto 01e6f0c, preserving the generated-type
+migration and the newer canvas-selection behavior. Wire types were regenerated.
+The basic manual toolbar browser journey also passed (20261112T230409Z-650),
+checking resized/rotated output dimensions and identical bytes after save/reopen.

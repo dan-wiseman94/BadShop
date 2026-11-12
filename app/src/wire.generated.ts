@@ -52,6 +52,10 @@ export type Step = {
   finished_at?: number | null;
   cache_key?: string | null;
   previous_outputs?: Array<string>;
+  locked_fields?: Array<string>;
+  bypassed?: boolean;
+  lock_review?: boolean;
+  lock_approved?: boolean;
 };
 
 export type StepError = {
