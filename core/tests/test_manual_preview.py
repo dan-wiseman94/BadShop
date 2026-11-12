@@ -52,7 +52,8 @@ def test_transform_preserves_exact_pixels_and_rejects_bad_crop():
     params = TransformParams(image="source", width=4, flip_horizontal=True, rotate=90)
     result = transform(params, image).outputs[0].image
     assert result.size == (2, 4)
-    assert {result.getpixel((x, y)) for x in range(result.width) for y in range(result.height)} == {(255, 0, 0), (0, 0, 255)}
+    assert [result.getpixel((x, y)) for y in range(result.height) for x in range(result.width)] == [
+        (255, 0, 0)] * 4 + [(0, 0, 255)] * 4
     with pytest.raises(EngineError, match="crop"):
         transform(TransformParams(image="source", crop=[0, 0, 3, 1]), image)
 

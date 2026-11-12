@@ -38,6 +38,8 @@ ALL_FILTERS = ["emboss", "edges", "contour", "solarize", "posterize", "invert", 
 
 # id -> (tool, params, needs a downloaded asset). Image parameters name fixture files.
 CASES = {
+    'transform': ('transform', {'image': L, 'crop': [20, 30, 220, 330], 'width': 80,
+                               'height': 120, 'rotate': 90, 'flip_horizontal': True}, False),
     'retro-forum': ('retro_layout', {'style':'forum','images':[L,J],'title':'MY POST','caption':'HELLO','seed':7}, False),
     'retro-canvas': ('canvas', {'image':J,'width':64,'height':64,'tile':True}, False),
     'retro-pattern': ('pattern', {'width':128,'height':128,'seed':7}, False),

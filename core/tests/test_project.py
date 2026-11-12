@@ -50,7 +50,7 @@ RICH = {
     "view": {"image": "a.png", "grid": True, "max": 512},
     "find": {"image": "a.png", "what": "cats", "detector": "haar", "min_score": 0.35},
     "text": {"image": "a.png", "text": "-_- WHEN\nTHE CODE ✓", "style": "wordart", "bottom": True, "at": [-5, 300],
-             "size": 48, "color": "#ff00ff", "rotate": -1e-05, "margin": 0, "font": "ComicNeue-Bold.ttf"},
+             "size": 48, "color": "#ff00ff", "rotate": -1e-05, "margin": 0, "font": "ComicNeue-Bold.ttf", "fit_exact": True},
     "cutout": {"image": "a.png", "box": [10, 20, 110, 220], "model": "isnet-anime", "threshold": 200, "grow": 3,
                "no_ai": True, "oval": True, "sticker": 4, "sticker_color": "black"},
     "paste": {"base": "a.png", "piece": "b.png", "at": [-10, 20], "anchor": "bottom", "width": 120.5,
