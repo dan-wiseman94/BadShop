@@ -11,10 +11,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - os: windows-latest
+            label: windows-x64
+            old: badshop_0.4.1_x64-setup.exe
+            new: badshop_0.4.2_x64-setup.exe
+            new_hash: c870d1f43761b47c92420465452915696b08fe6e1fd5f5462bd4e928e3c58b11
+          - os: macos-15
+            label: macos-arm64
+            old: badshop_0.4.1_aarch64.dmg
+            new: badshop-macos-arm64.app.tar.gz
+            new_hash: 8462a7e35836be257e8a2f95ab58b309eb59d5ffafeaa8678a97b655f81dcf50
           - os: macos-15-intel
             label: macos-x64
             old: badshop_0.4.1_x64.dmg
             new: badshop-macos-x64.app.tar.gz
+            new_hash: f76ffec01c962067b333b4a2bcbb158c1c6b76abf011e6c4975d8a05dad2c473
     runs-on: ${{ matrix.os }}
     timeout-minutes: 65
     steps:
@@ -26,12 +37,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OLD_ASSET: ${{ matrix.old }}
           NEW_ASSET: ${{ matrix.new }}
+          NEW_HASH: ${{ matrix.new_hash }}
+          LABEL: ${{ matrix.label }}
         run: |
-          gh run watch 43310138008 --exit-status --interval 30
+          test "$(gh run view 43310138008 --json conclusion --jq .conclusion)" = success
           gh release download v0.4.1 --pattern "$OLD_ASSET" --pattern SHA256SUMS --dir qa-input/old
-          gh release download v0.4.2 --pattern "$NEW_ASSET" --pattern "$NEW_ASSET.sig" --pattern SHA256SUMS --pattern latest.json --dir qa-input/candidate
-          uv run --no-project --python 3.12 python packaging/qa-upgrade/verify_downloads.py qa-input/old qa-input/candidate
-          cp qa-input/candidate/latest.json packaging/qa-upgrade/latest.json
+          gh run download 43310138008 --name "badshop-$LABEL" --dir qa-input/artifacts
+          uv run --no-project --python 3.12 python packaging/qa-upgrade/verify_downloads.py qa-input/old
+          uv run --no-project --python 3.12 python packaging/qa-upgrade/prepare_candidate.py qa-input/artifacts qa-input/candidate "$NEW_ASSET" "$NEW_HASH"
       - if: runner.os == 'macOS'
         name: Install screenshot text reader
         run: command -v tesseract || brew install tesseract

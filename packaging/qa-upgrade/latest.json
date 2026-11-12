@@ -1,0 +1,21 @@
+{
+  "version": "0.4.2",
+  "platforms": {
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRVm5JYm5xcnpkemVudUJoNll6QWhSR09USzc3TmlFdnZPc0hjNFhMT1VqY0tiaGNBNnVnUExBZHRsdnZLdGUzbzZGL25NMndSMGNieFhmclRuZFRhc3lKaEk4WWZZdFFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE5MjI0CWZpbGU6YmFkc2hvcF8wLjQuMl9hbWQ2NC5BcHBJbWFnZQl2ZXJzaW9uOjAuNC4yCkIwU0dtN3VHcHVzRFM0UVRic3VSeERwM3I0ajhMaitvNkRYWGhLN3ozR0owTTBzVHRHOHZjUWtUVFlKdVFrSUJ4WVA0ek9wenJiaUV5R3FKRFBhTkJRPT0K",
+      "url": "https://github.com/dan-wiseman94/BadShop/releases/download/v0.4.2/badshop_0.4.2_amd64.AppImage"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRVm5JYm5xcnpkemFVcFF3QitnaThHdTF1T3lxVE1KU2hpczliU3ZZc2VQTG5nTHBCcmFIZHJ1UGtDdzNsTjYzSzNlTmpBc3AwUnlkZ2tTK1RtdjN5UUZlcXdQdFpCQ0E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE5NTYzCWZpbGU6YmFkc2hvcF8wLjQuMl94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjIKQXRkcG5KeWJhZEdJVEhzMHRaVGxUM2QxQUE5ajIvbzNvL1hwN3FyYWlVeVVwUkM5VCtvQ1JyeURKM21nZkxIdk5RRHZHZmRsbDVjNkdYWk1hZGU3Q2c9PQo=",
+      "url": "https://github.com/dan-wiseman94/BadShop/releases/download/v0.4.2/badshop_0.4.2_x64-setup.exe"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRVm5JYm5xcnpkelN6QkhwbXFKb0xZOGw0cnJiNEdSemRnbGpvcDBQOUhuSk9tWG5KdVlpeG1QOEdGcC9XWDl1VFpNTFdrVmtPeG83eXg3MzNHSjBBSXJQU3RJVG8yY0F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE5MzE0CWZpbGU6YmFkc2hvcC5hcHAudGFyLmd6CXZlcnNpb246MC40LjIKdFZUUWRGOG5zN2REME13NVI4Q1h2cXFudFkrRVpUUzFvWTZyTnk2NGV2a05maDRlSVAwUmxIcHpwVDBuMUFmYXhJYTIzdHppZDZ0b243YmNuQ0J1QlE9PQo=",
+      "url": "https://github.com/dan-wiseman94/BadShop/releases/download/v0.4.2/badshop-macos-arm64.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRVm5JYm5xcnpkelUzWXNocjc4blJRTDB3NFJvNFVEMXF3THdjUEkyUEE5Z3l5SlA4ZnBoQk1qcm9uNHlZZ2swclpPWjdpeExQSlhTeGcxSlM1Ull5MDhsM3F4K0NKbWdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTIwMzY0CWZpbGU6YmFkc2hvcC5hcHAudGFyLmd6CXZlcnNpb246MC40LjIKcTU0b3h0L2R3eE9lSVNEcDhzaTlMUUhadWpscmhxcnc1dTNlTnlwczY5ZjM0U2JHMnNpSllrY2ZGZnA0RzA3M283T2g1QW0zdVpLVDBXWnkweU5wQnc9PQo=",
+      "url": "https://github.com/dan-wiseman94/BadShop/releases/download/v0.4.2/badshop-macos-x64.app.tar.gz"
+    }
+  }
+}
