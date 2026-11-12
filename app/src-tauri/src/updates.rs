@@ -1,10 +1,37 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 use tauri::{async_runtime::Mutex, Emitter, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateTrack {
+    Stable,
+    Nightly,
+}
+
+impl UpdateTrack {
+    fn endpoint(self) -> &'static str {
+        match self {
+            Self::Stable => {
+                "https://github.com/dan-wiseman94/BadShop/releases/latest/download/latest.json"
+            }
+            Self::Nightly => {
+                "https://github.com/dan-wiseman94/BadShop/releases/download/nightly/latest.json"
+            }
+        }
+    }
+
+    fn accepts(self, current_nightly: bool, remote_nightly: bool, newer: bool) -> bool {
+        match self {
+            Self::Stable => !remote_nightly && (current_nightly || newer),
+            Self::Nightly => remote_nightly && (!current_nightly || newer),
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct Updates {
@@ -31,6 +58,7 @@ pub struct UpdateInfo {
 pub async fn update_check(
     app: tauri::AppHandle,
     state: State<'_, Updates>,
+    track: UpdateTrack,
 ) -> Result<UpdateInfo, String> {
     let mut pending = state
         .pending
@@ -79,11 +107,14 @@ pub async fn update_check(
         async {
             app.updater_builder()
                 .pubkey(key.trim())
-                .endpoints(vec![
-                    "https://github.com/dan-wiseman94/BadShop/releases/latest/download/latest.json"
-                        .parse()
-                        .unwrap(),
-                ])
+                .version_comparator(move |current, remote| {
+                    track.accepts(
+                        current.pre.as_str().starts_with("nightly."),
+                        remote.version.pre.as_str().starts_with("nightly."),
+                        remote.version > current,
+                    )
+                })
+                .endpoints(vec![track.endpoint().parse().unwrap()])
                 .map_err(|e| e.to_string())?
                 .timeout(Duration::from_secs(30))
                 .on_before_exit(move || {
@@ -176,4 +207,26 @@ pub async fn update_install(
     app.state::<super::Core>().0.stop();
     state.restarting.store(true, Ordering::SeqCst);
     app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpdateTrack;
+
+    #[test]
+    fn tracks_allow_explicit_switches_but_never_offer_the_other_feed() {
+        assert!(UpdateTrack::Nightly.accepts(false, true, false));
+        assert!(UpdateTrack::Stable.accepts(true, false, false));
+        assert!(!UpdateTrack::Stable.accepts(false, true, true));
+        assert!(!UpdateTrack::Nightly.accepts(true, false, true));
+        assert!(!UpdateTrack::Nightly.accepts(true, true, false));
+        assert!(!UpdateTrack::Stable.accepts(false, false, false));
+        assert!(UpdateTrack::Nightly.accepts(true, true, true));
+        assert!(UpdateTrack::Stable.accepts(false, false, true));
+        assert_ne!(
+            UpdateTrack::Nightly.endpoint(),
+            UpdateTrack::Stable.endpoint()
+        );
+        assert!(serde_json::from_str::<UpdateTrack>("\"unknown\"").is_err());
+    }
 }

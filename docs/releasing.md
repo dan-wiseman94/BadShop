@@ -85,6 +85,51 @@ profile if a host CLI is unavailable there.
 
 ## Release workflow
 
+### Nightly builds
+
+`nightly.yml` builds main daily at 08:23 UTC (02:23 Central standard time,
+03:23 Central daylight time), or through **Actions → nightly → Run workflow**
+with main selected. The schedule becomes active when the workflow lands on main;
+GitHub may delay scheduled runs. Forks and dispatches from other branches skip it.
+
+Each successful run publishes a separate `nightly-YYYYMMDD-RUN_ID-ATTEMPT`
+GitHub prerelease containing Linux AppImage/deb/Flatpak, Windows x64 NSIS,
+and macOS arm64/x64 DMGs, plus SBOMs, SHA256SUMS and build attestations.
+The release links the exact source commit and verification run. Core, frontend,
+locked-dependency security and the existing installed-desktop matrix must all pass.
+Uploads are staged in a draft; upload failure leaves that draft unpublished.
+Reruns use a new tag, so published bytes are never overwritten. Prior nightlies
+remain available; no release/tag deletion is automated. CI evidence follows the
+existing artifact retention policy (failed installer artifacts: three days).
+
+Download from [all releases](https://github.com/dan-wiseman94/BadShop/releases),
+or select **Settings → Updates → Update track → Nightly** in an updater-enabled
+build. Stable is the default; the choice persists across restarts. A track change
+clears the previous offer and applies to both manual and automatic checks. Switching
+is disabled while checking, downloading or installing. Local only still blocks
+network access; installation still requires an explicit click and the existing
+save/discard/cancel flow after signature verification.
+
+Nightly builds use the same durable updater signing key as stable releases and
+require the same repository signing configuration. Desktop bundle versions are
+`BASE-nightly.RUN_ID`; Python/Cargo source package versions retain the base version.
+The native build stamps Tauri configuration after validating the source versions.
+The unique prerelease includes its signed `latest.json`; only after its assets are
+public does the workflow update the mutable `nightly` prerelease's `latest.json`
+pointer. That pointer references immutable dated downloads. The release body retains
+the promoted version even if replacing the feed file fails. Older run IDs cannot
+replace it; the same run may repair a missing feed file. A promotion failure
+leaves the dated downloads available and fails the job; rerun to retry promotion.
+
+Nightlies never become GitHub's latest stable release and never publish to PyPI.
+Stable users only see stable updates; Nightly users only see newer nightly builds.
+Switching tracks offers that track's latest build even when its version is lower,
+so returning to Stable does not require waiting for stable to catch up. Back up
+projects before testing or downgrading. Both tracks share the app identity and
+settings; there is no side-by-side install. Debian and Flatpak still require manual
+or package-manager installation. OS signing/notarization remains separate from
+updater signatures and is not provided by this workflow.
+
 ### In-app updates
 
 Settings → Updates provides manual checks and a persisted automatic-check toggle

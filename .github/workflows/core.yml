@@ -10,7 +10,7 @@ on:
         default: false
   workflow_dispatch:
 concurrency:
-  group: core-${{ github.event.pull_request.number || github.ref }}
+  group: core-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   scope:

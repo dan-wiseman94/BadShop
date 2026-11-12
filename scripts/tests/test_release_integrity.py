@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packaging"))
 from release_checksums import checksums
 from check_version import check_versions
 from release_inventory import command
+from update_manifest import can_promote_nightly, manifest, nightly_version
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
@@ -65,3 +66,66 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assertIn("packaging/release_checksums.py artifacts", workflow)
         self.assertIn("actions/attest-build-provenance@", workflow)
         self.assertIn("draft: true", workflow)
+
+    def test_nightly_publication_is_gated_and_isolated_from_stable(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/nightly.yml").read_text()
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("needs: [prepare, core, frontend, bundle, security]", workflow)
+        self.assertIn("full: true", workflow)
+        self.assertIn("uses: ./.github/workflows/native-desktop.yml", workflow)
+        self.assertIn("nightly: true", workflow)
+        self.assertIn("secrets: inherit", workflow)
+        self.assertIn("target_commitish: ${{ github.sha }}", workflow)
+        self.assertIn("${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}", workflow)
+        publish = workflow.split("  publish:", 1)[1]
+        self.assertIn("id: identity", publish)
+        self.assertIn("tag_name: ${{ steps.identity.outputs.tag }}", publish)
+        self.assertIn("packaging/release_checksums.py artifacts", workflow)
+        self.assertIn("actions/attest-build-provenance@", workflow)
+        self.assertIn("draft: true", workflow)
+        self.assertIn("prerelease: true", workflow)
+        self.assertIn("make_latest: 'false'", workflow)
+        self.assertIn('--draft=false --prerelease --latest=false', workflow)
+        self.assertIn('packaging/update_manifest.py artifacts', workflow)
+        self.assertLess(workflow.index('--draft=false --prerelease --latest=false'), workflow.index('tag_name: nightly'))
+        self.assertNotIn("pypi-publish", workflow)
+        core = (root / ".github/workflows/core.yml").read_text()
+        self.assertIn("group: core-${{ github.workflow }}-", core)
+        native = (root / ".github/workflows/native-desktop.yml").read_text()
+        self.assertIn("ref: ${{ inputs.source_ref || github.sha }}", native)
+        build = native.split("- name: Build native installers", 1)[1].split("- name:", 1)[0]
+        self.assertIn("BADSHOP_UPDATER_PUBLIC_KEY: ${{ vars.BADSHOP_UPDATER_PUBLIC_KEY }}", build)
+
+    def test_nightly_manifest_links_signed_immutable_artifacts_and_orders_promotion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for label, filename in (("linux-x64", "badshop.AppImage"), ("windows-x64", "badshop.exe"),
+                                    ("macos-arm64", "badshop-arm.app.tar.gz"), ("macos-x64", "badshop-x64.app.tar.gz")):
+                folder = root / f"badshop-{label}"
+                folder.mkdir()
+                (folder / filename).write_bytes(b"packaged application")
+                (folder / (filename + ".sig")).write_text("signed-payload")
+            version = nightly_version("0.4.2", "123")
+            feed = manifest(root, "nightly-20261112-123-1", "owner/repo", version)
+            self.assertEqual(feed["version"], "0.4.2-nightly.123")
+            self.assertEqual(len(feed["platforms"]), 4)
+            self.assertTrue(all('/download/nightly-20261112-123-1/' in p['url']
+                                and p['signature'] == 'signed-payload' for p in feed['platforms'].values()))
+            self.assertTrue(can_promote_nightly({"version": "0.4.2-nightly.122"}, feed))
+            self.assertFalse(can_promote_nightly(feed, feed))
+            self.assertFalse(can_promote_nightly({"version": "0.4.3-nightly.124"}, feed))
+            (root / "badshop-linux-x64/badshop.AppImage.sig").unlink()
+            with self.assertRaises(FileNotFoundError):
+                manifest(root, "nightly-123", "owner/repo", version)
+
+    def test_nightly_version_rejects_ambiguous_or_invalid_identifiers(self):
+        for base, run in (("0.4.2-beta.1", "123"), ("0.4.2", "01"), ("0.4.2", "x")):
+            with self.subTest(base=base, run=run), self.assertRaises(ValueError):
+                nightly_version(base, run)
+
+    def test_missing_nightly_feed_can_be_repaired_without_rolling_back(self):
+        previous = {"version": "0.4.3-nightly.200"}
+        self.assertFalse(can_promote_nightly(previous, {"version": "0.4.2-nightly.100"}, feed_missing=True))
+        self.assertTrue(can_promote_nightly(previous, previous, feed_missing=True))
+        self.assertFalse(can_promote_nightly(previous, previous))

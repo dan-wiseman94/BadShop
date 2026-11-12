@@ -100,7 +100,7 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
                 : [],
       ) as never,
   );
-  render(<Settings updates={{ automatic: true, info: null, phase: "idle", error: "", progress: null,
+  render(<Settings updates={{ automatic: true, track: "stable", setTrack: () => {}, info: null, phase: "idle", error: "", progress: null,
     check: async () => {}, install: async () => {}, cancel: async () => {}, localOnly: false, setAutomatic: () => {} }} />, { wrapper });
   expect(screen.getByText(/provider may charge/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Check setup" }));

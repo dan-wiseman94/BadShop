@@ -5,8 +5,10 @@ import { native, openLink } from "./native";
 import { readPreference, savePreference } from "./appearance";
 
 type UpdateInfo = { currentVersion: string; version: string | null; notes: string | null; unavailable: string | null };
+type UpdateTrack = "stable" | "nightly";
 export function useUpdates(confirmInstall: () => Promise<boolean>, localOnly = false) {
   const [automatic, setAutomatic] = useState(() => readPreference("automaticUpdates", "true") === "true");
+  const [track, setTrack] = useState<UpdateTrack>(() => readPreference("updateTrack", "stable") === "nightly" ? "nightly" : "stable");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [phase, setPhase] = useState<"idle" | "checking" | "downloading" | "confirming" | "installing">("idle");
   const [error, setError] = useState("");
@@ -16,10 +18,10 @@ export function useUpdates(confirmInstall: () => Promise<boolean>, localOnly = f
     if (!native || working.current) return;
     working.current = true;
     setPhase("checking"); setError("");
-    try { setInfo(await invoke<UpdateInfo>("update_check")); }
+    try { setInfo(await invoke<UpdateInfo>("update_check", { track })); }
     catch (e) { setInfo(null); setError(`Could not check for updates: ${String(e)}`); }
     finally { working.current = false; setPhase("idle"); }
-  }, []);
+  }, [track]);
   useEffect(() => {
     if (!automatic || !native || localOnly) return;
     // Delay also prevents duplicate startup checks under React StrictMode.
@@ -45,7 +47,12 @@ export function useUpdates(confirmInstall: () => Promise<boolean>, localOnly = f
     try { await invoke("update_cancel"); }
     catch (e) { setError(`Could not cancel update: ${String(e)}`); }
   };
-  return { automatic, info, phase, error, progress, check, install, cancel, localOnly,
+  return { automatic, track, info, phase, error, progress, check, install, cancel, localOnly,
+    setTrack(value: UpdateTrack) {
+      if (working.current || value === track) return;
+      savePreference("updateTrack", value); setTrack(value);
+      setInfo(null); setError(""); setProgress(null);
+    },
     setAutomatic(value: boolean) { savePreference("automaticUpdates", String(value)); setAutomatic(value); },
   };
 }
@@ -54,6 +61,12 @@ export function UpdateSettings({ updates: u }: { updates: ReturnType<typeof useU
   return <section>
     <h3>App updates</h3>
     {u.info && <p>Installed version: {u.info.currentVersion}</p>}
+    <label>Update track <select aria-label="Update track" value={u.track} disabled={u.phase !== "idle"}
+      onChange={e => u.setTrack(e.target.value as UpdateTrack)}>
+      <option value="stable">Stable</option><option value="nightly">Nightly</option>
+    </select></label>
+    {u.track === "nightly" ? <p>Nightly builds include the newest changes and may have bugs. Back up your projects before installing.</p>
+      : <p className="muted">Stable releases are recommended. Switching back from Nightly may install an older version.</p>}
     <label><input type="checkbox" checked={u.automatic} disabled={!native}
       onChange={e => u.setAutomatic(e.target.checked)} /> Automatically check for updates</label>
     <p className="muted">Checks on launch and every six hours when Local only is off. Updates install only when you choose.</p>
@@ -71,7 +84,7 @@ export function UpdateSettings({ updates: u }: { updates: ReturnType<typeof useU
       </> : u.info && <p>You’re up to date.</p>}
     </div>
     {u.error && <p role="alert" className="error-text">{u.error}</p>}
-    <button onClick={() => void openLink("https://github.com/dan-wiseman94/BadShop/releases/latest")}>View releases</button>
+    <button onClick={() => void openLink(u.track === "nightly" ? "https://github.com/dan-wiseman94/BadShop/releases" : "https://github.com/dan-wiseman94/BadShop/releases/latest")}>View releases</button>
   </section>;
 }
 

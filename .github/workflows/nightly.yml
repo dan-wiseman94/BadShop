@@ -1,0 +1,134 @@
+name: nightly
+on:
+  schedule:
+    - cron: '23 8 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+jobs:
+  prepare:
+    # Dispatch from main only; all called workflows check out this event's SHA.
+    if: github.repository == 'dan-wiseman94/BadShop' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Building main at $GITHUB_SHA"
+  security:
+    needs: prepare
+    uses: ./.github/workflows/security.yml
+  core:
+    needs: prepare
+    uses: ./.github/workflows/core.yml
+    with:
+      full: true
+  frontend:
+    needs: prepare
+    uses: ./.github/workflows/frontend-checks.yml
+  bundle:
+    needs: prepare
+    uses: ./.github/workflows/native-desktop.yml
+    secrets: inherit
+    with:
+      nightly: true
+  publish:
+    needs: [prepare, core, frontend, bundle, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      # Generate here so re-running only publish also receives a fresh tag.
+      - name: Name this immutable nightly
+        id: identity
+        shell: bash
+        run: echo "tag=nightly-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          path: artifacts
+          pattern: badshop-*
+      - name: Check versions and hash every asset
+        run: |
+          python packaging/check_version.py
+          python packaging/update_manifest.py artifacts "$NIGHTLY_TAG" "$GITHUB_REPOSITORY" --nightly-run "$GITHUB_RUN_ID"
+          python packaging/release_checksums.py artifacts
+        env:
+          NIGHTLY_TAG: ${{ steps.identity.outputs.tag }}
+      - name: Attest nightly asset provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/**/*
+      - name: Stage complete prerelease
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.identity.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: BadShop ${{ steps.identity.outputs.tag }}
+          files: artifacts/**/*
+          fail_on_unmatched_files: true
+          draft: true
+          prerelease: true
+          make_latest: 'false'
+          body: |
+            Automated development build of main. May contain regressions.
+
+            Source: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+            Build and platform verification: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+
+            Select Nightly in Settings → Updates to receive signed nightly updates. Stable users are never offered nightlies.
+            This replaces an existing installation and shares its settings. Back up projects before testing.
+            OS code signing/notarization is not provided. SHA256SUMS and GitHub provenance cover the attached downloads.
+      - name: Publish only after every asset was uploaded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_TAG: ${{ steps.identity.outputs.tag }}
+        run: gh release edit "$NIGHTLY_TAG" --draft=false --prerelease --latest=false
+      - name: Refuse to move the nightly feed backwards
+        id: promote
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          import json, os, re, sys
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+          sys.path.insert(0, 'packaging')
+          from update_manifest import can_promote_nightly
+          candidate = json.loads(Path('artifacts/latest.json').read_text())
+          url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/releases/tags/nightly"
+          request = Request(url, headers={'Authorization': f"Bearer {os.environ['GH_TOKEN']}", 'Accept': 'application/vnd.github+json'})
+          try:
+              with urlopen(request, timeout=30) as response:
+                  release = json.load(response)
+              version = re.search(r'^Nightly version: (\S+)$', release.get('body') or '', re.MULTILINE)
+              if not version:
+                  raise ValueError('Existing nightly release has no version marker; refusing to replace it')
+              missing = not any(asset['name'] == 'latest.json' for asset in release['assets'])
+              promote = can_promote_nightly({'version': version[1]}, candidate, feed_missing=missing)
+          except HTTPError as error:
+              if error.code != 404:
+                  raise
+              promote = True
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'promote={str(promote).lower()}\n')
+              output.write(f"version={candidate['version']}\n")
+      - name: Promote the signed feed after immutable downloads are public
+        if: steps.promote.outputs.promote == 'true'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: nightly
+          target_commitish: ${{ github.sha }}
+          name: Nightly update feed
+          # The action saves this marker before replacing the asset, preserving the
+          # high-water mark even if upload fails after deleting the previous file.
+          body: |
+            Mutable update feed. Download installers from the dated nightly prereleases.
+            Nightly version: ${{ steps.promote.outputs.version }}
+          files: artifacts/latest.json
+          fail_on_unmatched_files: true
+          prerelease: true
+          make_latest: 'false'

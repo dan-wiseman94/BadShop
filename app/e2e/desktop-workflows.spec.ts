@@ -13,6 +13,28 @@ const connect = async (
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 };
 
+test("update track selection persists after reload and can return to stable", async ({ page, core }) => {
+  await connect(page, core);
+  const openUpdates = async () => {
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Updates", exact: true }).click();
+  };
+  await openUpdates();
+  await expect(page.getByLabel("Update track")).toHaveValue("stable");
+  await page.getByLabel("Update track").selectOption("nightly");
+  await expect(page.getByText(/Nightly builds include the newest changes/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await openUpdates();
+  await expect(page.getByLabel("Update track")).toHaveValue("nightly");
+  await page.screenshot({ path: test.info().outputPath("nightly-track.png") });
+  await page.getByLabel("Update track").selectOption("stable");
+  await page.reload();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await openUpdates();
+  await expect(page.getByLabel("Update track")).toHaveValue("stable");
+});
+
 test("coordinate instructions keep the Fit image visible and pickable at the minimum window size", async ({
   page,
   core,

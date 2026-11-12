@@ -96,7 +96,36 @@ it("suppresses automatic network checks while Local only is on", async () => {
   expect(mocks.invoke).not.toHaveBeenCalled();
   rerender({ local: false });
   await act(() => vi.advanceTimersByTimeAsync(5000));
-  expect(mocks.invoke).toHaveBeenCalledWith("update_check");
+  expect(mocks.invoke).toHaveBeenCalledWith("update_check", { track: "stable" });
+});
+
+it("persists the selected track, discards the previous offer, and checks the new track", async () => {
+  mocks.invoke.mockResolvedValue(available);
+  const first = renderHook(() => useUpdates(async () => true));
+  await act(() => first.result.current.check());
+  expect(mocks.invoke).toHaveBeenLastCalledWith("update_check", { track: "stable" });
+  act(() => first.result.current.setTrack("nightly"));
+  expect(first.result.current.info).toBeNull();
+  await act(() => first.result.current.install());
+  expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  first.unmount();
+  const next = renderHook(() => useUpdates(async () => true));
+  expect(next.result.current.track).toBe("nightly");
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(mocks.invoke).toHaveBeenLastCalledWith("update_check", { track: "nightly" });
+});
+
+it("rejects track changes during an active check and uses stable for invalid preferences", async () => {
+  localStorage.setItem("badshop.updateTrack", "unknown");
+  let finish!: (value: typeof available) => void;
+  mocks.invoke.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const { result } = renderHook(() => useUpdates(async () => false));
+  let checking!: Promise<void>;
+  await act(async () => { checking = result.current.check(); });
+  act(() => result.current.setTrack("nightly"));
+  expect(result.current.track).toBe("stable");
+  await act(async () => { finish(available); await checking; });
+  expect(result.current.info).toEqual(available);
 });
 
 it("cancels an active download, removes progress, and permits an explicit retry", async () => {

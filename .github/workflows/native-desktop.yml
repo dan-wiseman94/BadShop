@@ -7,6 +7,11 @@ on:
         required: true
         type: string
   workflow_call:
+    inputs:
+      nightly:
+        description: Build versioned nightly packages with signed updates
+        type: boolean
+        default: false
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
         required: false
@@ -41,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || github.sha }}
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - name: Verify application version agreement
         run: uv run --no-project --python 3.12 python packaging/check_version.py
@@ -97,21 +102,26 @@ jobs:
       - name: Bundle dependency inventory and license notices
         run: uv run --project core --locked --group build python packaging/release_inventory.py --label ${{ matrix.label }}
       - name: Configure signed release updates
-        if: startsWith(inputs.source_ref || github.ref, 'refs/tags/v')
+        if: inputs.nightly || startsWith(inputs.source_ref || github.ref, 'refs/tags/v')
         shell: python
         env:
           BADSHOP_UPDATER_PUBLIC_KEY: ${{ vars.BADSHOP_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           SOURCE_REF: ${{ inputs.source_ref || github.ref }}
+          NIGHTLY: ${{ inputs.nightly }}
         run: |
-          import json, os
+          import json, os, sys
           from pathlib import Path
+          sys.path.insert(0, 'packaging')
           for key in ('BADSHOP_UPDATER_PUBLIC_KEY', 'TAURI_SIGNING_PRIVATE_KEY'):
               if not os.environ.get(key, '').strip():
                   raise SystemExit(f'Release updates require {key}')
           config = Path('app/src-tauri/tauri.conf.json')
           value = json.loads(config.read_text())
-          if os.environ['SOURCE_REF'] != f"refs/tags/v{value['version']}":
+          if os.environ['NIGHTLY'] == 'true':
+              from update_manifest import nightly_version
+              value['version'] = nightly_version(value['version'], os.environ['GITHUB_RUN_ID'])
+          elif os.environ['SOURCE_REF'] != f"refs/tags/v{value['version']}":
               raise SystemExit('Release tag must match the application version')
           value['bundle']['createUpdaterArtifacts'] = True
           value['plugins']['updater']['pubkey'] = os.environ['BADSHOP_UPDATER_PUBLIC_KEY'].strip()
@@ -124,7 +134,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Give Mac updater archives distinct architecture names
-        if: runner.os == 'macOS' && startsWith(inputs.source_ref || github.ref, 'refs/tags/v')
+        if: runner.os == 'macOS' && (inputs.nightly || startsWith(inputs.source_ref || github.ref, 'refs/tags/v'))
         shell: python
         env:
           UPDATE_LABEL: ${{ matrix.label }}

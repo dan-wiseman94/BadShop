@@ -14,6 +14,9 @@ Start. The installer includes the image tools. In the release candidate, choose
 
 [Mac installation help](docs/macos.md) · [All downloads](https://github.com/dan-wiseman94/BadShop/releases/latest) · [Windows installation help](docs/windows.md)
 
+For development builds, see the [nightly track](docs/releasing.md#nightly-builds)
+and [GitHub prereleases](https://github.com/dan-wiseman94/BadShop/releases).
+
 ![badshop desktop with chat, image viewer, and editable timeline](docs/screenshots/badshop.png)
 
 ## Make your first edit
