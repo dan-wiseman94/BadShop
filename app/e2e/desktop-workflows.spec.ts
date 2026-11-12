@@ -150,7 +150,7 @@ test("replay refreshes a selected step input while preserving an active paramete
       return step.status === "done" && remapped !== first.outputs[0];
     })
     .toBe(true);
-  await expect(detail.getByLabel("Image", { exact: false })).toHaveValue(
+  await expect(detail.getByRole("combobox", { name: "Image", exact: false })).toHaveValue(
     remapped,
   );
   await expect(detail.getByLabel("Seed", { exact: false })).toHaveValue("99");
