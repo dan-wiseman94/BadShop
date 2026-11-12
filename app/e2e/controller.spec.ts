@@ -82,6 +82,7 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await steps.getByRole("button", { name: "Apply & replay" }).click();
   await expect(steps.getByText("edited", { exact: true })).toBeVisible();
   await steps.getByRole("button", { name: "Replay from here" }).click();
+  await expect(steps.getByRole("button", { name: "Replay from here" })).toBeEnabled();
   await page
     .getByRole("button", { name: "Coordinate grid", exact: true })
     .click();
@@ -91,7 +92,8 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   const project = path.join(core.folder, "test.badshop");
   page.once("dialog", (dialog) => dialog.accept(project));
   await page.getByRole("button", { name: "Save session", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Saved to");
+  await expect.poll(async () => (await core.call("session.get") as Session).unsaved_changes).toBe(false);
+  expect((await readFile(project)).length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
   await page.getByRole("textbox", { name: "Search tools" }).fill("info");
   await page.getByRole("button", { name: /info print an image/ }).click();
