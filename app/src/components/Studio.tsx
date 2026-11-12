@@ -54,6 +54,14 @@ export function Studio({
 }) {
   const { busy, error, setError, perform } = useOperation();
   const [tab, setTab] = useState("discover");
+  const generation = useUI((s) => s.documentGeneration);
+  const [visited, setVisited] = useState<string[]>([]);
+  useEffect(() => { setVisited([tab]); }, [generation]);
+  function showTab(value: string) {
+    setTab(value);
+    setVisited((previous) => previous.includes(value) ? previous : [...previous, value]);
+    setError("");
+  }
 
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
@@ -170,8 +178,7 @@ export function Studio({
               key={id}
               aria-pressed={tab === id}
               onClick={() => {
-                setTab(id);
-                setError("");
+                showTab(id);
               }}
               label={label}
             />
@@ -583,17 +590,21 @@ export function Studio({
             </div>
           </>
         )}
-        {tab === "layouts" && <LayoutsPacks key={session?.id} onAttach={onAttach} />}
-        {tab === "retro" && (
+        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={generation} onAttach={onAttach} /></div>}
+        {visited.includes("retro") && <div hidden={tab !== "retro"}>
           <RetroStudio
-            key={`${session?.id}-${useUI.getState().documentGeneration}`}
+            key={generation}
             onAttach={onAttach}
             onDraft={onDraft}
+            onInspect={(id) => {
+              useUI.getState().set({ selectedArtifact: id, selectedStep: null, viewerZoom: 1 });
+              onClose();
+            }}
           />
-        )}
-        {tab === "ideas" && (
+        </div>}
+        {visited.includes("ideas") && <div hidden={tab !== "ideas"}>
           <IdeaMixer
-            key={`${session?.id}-${useUI.getState().documentGeneration}`}
+            key={generation}
             onDraft={onDraft}
             onSearch={(value) => {
               setQuery(value);
@@ -605,18 +616,18 @@ export function Studio({
               setCandidates([]);
               setSheet(null);
               setNotes("");
-              setTab("discover");
+              showTab("discover");
             }}
           />
-        )}
-        {tab === "sheets" && (
-          <SpriteSheet key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />
-        )}
-        {tab === "local" && <LocalMedia key={session?.id} onAttach={onAttach} />}
-        {tab === "pairs" && (
-          <ImagePairs key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />
-        )}
-        {tab === "recent" && <RecentChoices />}
+        </div>}
+        {visited.includes("sheets") && <div hidden={tab !== "sheets"}>
+          <SpriteSheet key={generation} onAttach={onAttach} />
+        </div>}
+        {visited.includes("local") && <div hidden={tab !== "local"}><LocalMedia key={generation} onAttach={onAttach} /></div>}
+        {visited.includes("pairs") && <div hidden={tab !== "pairs"}>
+          <ImagePairs key={generation} onAttach={onAttach} />
+        </div>}
+        {visited.includes("recent") && <div hidden={tab !== "recent"}><RecentChoices key={generation} /></div>}
       </section>
     </div>
   );

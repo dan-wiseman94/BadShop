@@ -14,7 +14,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { action, run, useCoreQuery, useSession } from "../data";
-import { useSelectedArtifact, useUI } from "../store";
+import { useCanvasArtifact, useUI } from "../store";
 import { copyText, openLink } from "../native";
 import { ToolForm, normalizeSchema } from "./ToolForm";
 import { ArtifactThumb } from "./Viewer";
@@ -38,7 +38,6 @@ export function cliCommand(step: Step, tool?: Tool) {
     const schema = normalized?.properties?.[name];
     if (
       value === null ||
-      value === false ||
       value === undefined ||
       (typeof schema === "object" && JSON.stringify(schema.default) === JSON.stringify(value))
     )
@@ -51,6 +50,11 @@ export function cliCommand(step: Step, tool?: Tool) {
       continue;
     }
     const flag = tool?.cli_flags?.[name] ?? `--${name.replaceAll("_", "-")}`;
+    if (value === false) {
+      if (typeof schema === "object" && schema.default === true)
+        flags.push(`--no-${flag.replace(/^--/, "")}`);
+      continue;
+    }
     if (value === true) {
       flags.push(flag);
       continue;
@@ -305,7 +309,7 @@ export function ToolPalette() {
   const defaults = useRef<Params>({});
   const { data: tools } = useCoreQuery("tools.list");
   const { data: session } = useSession();
-  const selectedArtifact = useSelectedArtifact(session?.steps);
+  const { id: selectedArtifact } = useCanvasArtifact(session);
   const groups = (tools ?? [])
     .filter((t) => `${t.name} ${t.summary} ${t.category}`.toLowerCase().includes(search.toLowerCase()))
     .reduce<Record<string, Tool[]>>(
@@ -375,15 +379,7 @@ export function ToolPalette() {
                       key={t.name}
                       className="tool-option"
                       onClick={() => {
-                        const selected =
-                          selectedArtifact ??
-                          session?.steps.at(-1)?.outputs[0] ??
-                          Object.values(session?.artifacts ?? {}).find(
-                            (artifact) =>
-                              !Object.values(session?.artifacts ?? {}).some(
-                                (other) => other.original_id === artifact.id,
-                              ),
-                          )?.id;
+                        const selected = selectedArtifact;
                         const schema = normalizeSchema(t.schema);
                         defaults.current = Object.fromEntries(
                           Object.entries(schema.properties ?? {}).flatMap<[string, unknown]>(

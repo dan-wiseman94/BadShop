@@ -49,8 +49,10 @@ beforeEach(() => {
     return vi.fn();
   });
   mocks.action.mockImplementation(async (method, params) => {
-    if (method === "session.save" || method === "session.save_as")
+    if (method === "session.save" || method === "session.save_as") {
       session = { ...session, unsaved_changes: false };
+      return { path: params.path ?? session.path };
+    }
     if (method === "chat.stop")
       session = {
         ...session,
@@ -94,12 +96,21 @@ it("does not close when new unsaved changes arrive immediately after Save", asyn
   await waitFor(() => expect(result.current.pending).not.toBeNull());
   mocks.action.mockImplementation(async () => {
     session = { ...session, document_revision: 2, unsaved_changes: true };
+    return { path: "/projects/one.badshop" };
   });
   await act(() => result.current.decide("save"));
   expect(result.current.pending).not.toBeNull();
   expect(useUI.getState().error).toMatch(/changed|unsaved/i);
   act(() => result.current.cancel());
   await expect(closed).resolves.toBe(false);
+});
+
+it("reports the canonical filename returned when Save as adds the project extension", async () => {
+  mocks.projectPath.mockResolvedValue("/projects/one");
+  mocks.action.mockResolvedValue({ path: "/projects/one.badshop" });
+  const { result } = renderHook(useSessionActions);
+  await act(async () => { expect(await result.current.save(true)).toBe(true); });
+  expect(useUI.getState().notice).toBe("Saved to /projects/one.badshop");
 });
 
 it("does not save a different document from the one in the pending decision", async () => {

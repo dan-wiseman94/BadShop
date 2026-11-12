@@ -205,6 +205,25 @@ def test_failed_profile_write_preserves_previous_key(env, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_explicitly_clearing_a_saved_key_does_not_reuse_it_for_a_new_endpoint(env, monkeypatch):
+    keychain = Keychain()
+    monkeypatch.setattr(profiles, "_keyring", lambda: keychain)
+
+    async def scenario():
+        app = CoreApp(Settings(), executor_factory=lambda **_: InProcessExecutor())
+        try:
+            saved = await app._providers_save("user", sample(), "private-test-key")
+            # The editor clears credentials when the user changes provider or server.
+            saved.update(api_base="http://localhost:4321/v1", api_key_ref=None)
+            changed = await app._providers_save("user", saved)
+            assert changed["api_key_ref"] is None
+            assert profiles.resolve_key(profiles.load_profiles()["local"]) is None
+            assert not keychain.values
+        finally:
+            await app.close()
+    asyncio.run(scenario())
+
+
 def test_corrupt_profiles_do_not_prevent_session_access_or_get_overwritten(env):
     profiles.profiles_path().parent.mkdir(parents=True)
     profiles.profiles_path().write_text("broken")

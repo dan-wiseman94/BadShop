@@ -1,7 +1,7 @@
 import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
 import { InputField, SelectField } from "./Fields";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Plus,
   Trash2,
@@ -38,10 +38,10 @@ const kindNames = {
   cli: "CLI subscription",
 };
 const kindHints = {
-  api: "Connect with an API key from your model provider.",
-  local: "Use a vision model running on your own computer.",
-  openai_compatible: "Connect any OpenAI-compatible model server.",
-  cli: "Use your existing Claude, Codex, or Gemini login.",
+  api: "Use a provider's API key. Prompts and images go to that provider; API usage may be billed separately from a chat subscription.",
+  local: "Connect a vision model server you already run on this computer. For a built-in download, choose On-device AI instead.",
+  openai_compatible: "Connect a running OpenAI-compatible server using its URL and model ID. Remote servers receive your prompts and images.",
+  cli: "Use an installed Claude Code, Codex, or Gemini command-line app that you have signed into. Gemini support is experimental.",
 };
 const icons = {
   api: KeyRound,
@@ -63,9 +63,11 @@ export function ProfileEditor({
   initial,
   kind,
   onSaved,
+  onKindChange,
 }: {
   initial?: Profile;
   kind?: Profile["kind"];
+  onKindChange?: (kind: Profile["kind"]) => void;
   onSaved: (profile: Profile) => void | Promise<void>;
 }) {
   const [profile, setProfile] = useState<Partial<Profile>>(
@@ -79,9 +81,14 @@ export function ProfileEditor({
   const [key, setKey] = useState("");
   const [keyMode, setKeyMode] = useState(initial?.api_key_env ? "environment" : "keychain");
   const [busy, setBusy] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [cliStatus, setCLIStatus] = useState("");
   const [presetLabel, setPresetLabel] = useState("");
-  const update = (patch: Partial<Profile>) => setProfile({ ...profile, ...patch });
+  const update = (patch: Partial<Profile>) => setProfile(previous => ({ ...previous, ...patch }));
+  const clearCredentials = () => {
+    setKey("");
+    return { api_key_ref: null, api_key_env: null };
+  };
   const isCLI = profile.kind === "cli";
   const cloudPreset = profile.kind === "api" && !profile.id
     ? cloudProviders.find(({ label }) => label === presetLabel)
@@ -94,6 +101,7 @@ export function ProfileEditor({
       model,
       api_base: null,
       allow_insecure_http: false,
+      api_key_ref: null,
       api_key_env: keyMode === "environment" ? preset?.keyEnv : undefined,
       capability_overrides: {},
     });
@@ -135,13 +143,17 @@ export function ProfileEditor({
         });
       }}
     >
+      <fieldset className="profile-fields" disabled={busy || detecting}>
       <SelectField
         label="Provider type"
         value={profile.kind}
         onChange={(event) => {
           const kind = event.target.value as Profile["kind"];
-          if (cloudPreset) applyCloudPreset(undefined, "", kind);
-          else update({ kind });
+          setPresetLabel("");
+          setCLIStatus("");
+          update({ kind, model: "", cli: kind === "cli" ? "claude" : undefined, executable: null,
+            api_base: null, allow_insecure_http: false, capability_overrides: {}, ...clearCredentials() });
+          onKindChange?.(kind);
         }}
         options={Object.entries(kindNames).map(([value, label]) => [value, label] as const)}
       />
@@ -166,7 +178,10 @@ export function ProfileEditor({
           <SelectField
             label="Command line tool"
             value={profile.cli ?? "claude"}
-            onChange={(e) => update({ cli: e.target.value as Profile["cli"] })}
+            onChange={(e) => {
+              setCLIStatus("");
+              update({ cli: e.target.value as Profile["cli"], executable: null, model: "" });
+            }}
             options={[
               ["claude", "Claude Code"] as const,
               ["codex", "Codex"] as const,
@@ -177,19 +192,23 @@ export function ProfileEditor({
             type="button"
             onClick={() =>
               run(async () => {
-                const detected = await action("providers.detect");
-                const cli = detected.find((item) => item.cli === (profile.cli ?? "claude"));
-                if (cli?.available && cli.supported) {
-                  update({ executable: cli.executable });
-                  setCLIStatus(cli.version ?? "CLI detected");
-                } else setCLIStatus(cli?.error ?? "CLI not found. Install it or enter its path below.");
+                setDetecting(true);
+                setCLIStatus("");
+                try {
+                  const detected = await action("providers.detect");
+                  const cli = detected.find((item) => item.cli === (profile.cli ?? "claude"));
+                  if (cli?.available && cli.supported) {
+                    update({ executable: cli.executable });
+                    setCLIStatus(`${cli.version ?? "CLI detected"}. Installation found; login has not been checked.`);
+                  } else setCLIStatus(cli?.error ?? "CLI not found. Install it or enter its path below.");
+                } finally { setDetecting(false); }
               })
             }
-            label="Detect installed CLI"
+            label={detecting ? "Detecting CLI…" : "Detect installed CLI"}
             icon={Terminal}
             iconSize={14}
           />
-          {cliStatus && <p className="field-description">{cliStatus}</p>}
+          {cliStatus && <p role="status" className="field-description">{cliStatus}</p>}
           <InputField
             label="Executable path (optional)"
             value={profile.executable ?? ""}
@@ -203,8 +222,8 @@ export function ProfileEditor({
             onChange={(e) => update({ model: e.target.value })}
           />
           <p className="field-description">
-            Sign in using the CLI in your terminal first. badshop supplies the tools and asks for approvals
-            here.
+            Install and sign in to the selected command-line app in your terminal first.
+            Detection checks the installation, not your account or login. badshop supplies the editing tools.
           </p>
         </>
       ) : (
@@ -218,7 +237,8 @@ export function ProfileEditor({
               const model = e.target.value;
               if (cloudPreset && model.split("/")[0] !== cloudPreset.model.split("/")[0])
                 applyCloudPreset(undefined, model);
-              else update({ model });
+              else update({ model, ...(model.split("/")[0] !== profile.model?.split("/")[0]
+                ? { ...clearCredentials(), capability_overrides: {} } : {}) });
             }}
           />
           <label>
@@ -228,9 +248,13 @@ export function ProfileEditor({
               required={profile.kind === "openai_compatible"}
               value={profile.api_base ?? ""}
               placeholder={profile.kind === "local" ? "http://localhost:11434" : "https://api.example.com/v1"}
-              onChange={(e) => update({ api_base: e.target.value || null, allow_insecure_http: false })}
+              onChange={(e) => update({ api_base: e.target.value || null, allow_insecure_http: false, ...clearCredentials() })}
             />
           </label>
+          <p className="field-description">
+            Use the model ID expected by your server. Changing the provider type or server address clears credentials;
+            enter the key for the new destination below.
+          </p>
           {profile.api_base?.startsWith("http://") && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(profile.api_base) &&
             <label className="checkbox-row"><input type="checkbox" checked={profile.allow_insecure_http ?? false}
               onChange={e => update({ allow_insecure_http: e.target.checked })} />
@@ -249,7 +273,7 @@ export function ProfileEditor({
           {keyMode === "keychain" ? (
             <label>
               API key{" "}
-              {initial?.api_key_ref ? "(leave blank to keep saved key)" : "(optional for local models)"}
+              {profile.api_key_ref ? "(leave blank to keep saved key)" : profile.kind === "local" ? "(optional for local models)" : "(or use a provider key from your environment)"}
               <input
                 type="password"
                 autoComplete="new-password"
@@ -268,6 +292,9 @@ export function ProfileEditor({
               onChange={(e) => update({ api_key_env: e.target.value })}
             />
           )}
+          {keyMode === "environment" && <p className="field-description">
+            Enter the variable's name, not the secret key. Set it before starting badshop; restart the app after changing it.
+          </p>}
           <p className="field-description">
             If your keychain is locked or unavailable, unlock it or use an environment variable. Keys never
             enter saved sessions.
@@ -305,9 +332,17 @@ export function ProfileEditor({
               </label>
             ))}
           </fieldset>
+          <p className="field-description">
+            The model must support images. Leave capabilities on automatic unless your local or custom model is not recognized.
+          </p>
+          {profile.capability_overrides?.vision === false && <p role="alert" className="error-text">
+            This model cannot direct image edits without image support. Choose a vision-capable model to continue.
+          </p>}
         </>
       )}
-      <Button className="primary" type="submit" disabled={busy} label={busy ? "Saving…" : "Save provider"} />
+      <p className="field-description">Saving stores these settings; it does not test the connection or your login.</p>
+      <Button className="primary" type="submit" disabled={busy || (!isCLI && profile.capability_overrides?.vision === false)} label={busy ? "Saving…" : "Save provider"} />
+      </fieldset>
     </form>
   );
 }
@@ -371,8 +406,8 @@ export function AssetRow({ asset, active = false }: { asset: Asset; active?: boo
 }
 const isLocalVision = (asset: Asset) => asset.name.startsWith("local-vision/");
 
-function LocalVisionDownload({ onLater }: { onLater?: () => void }) {
-  const { data: assets, error } = useCoreQuery("assets.status");
+function LocalVisionDownload({ onLater, onReady }: { onLater?: () => void; onReady?: () => void }) {
+  const { data: assets, error, refetch } = useCoreQuery("assets.status");
   const { data: downloads } = useQuery<DownloadActivities>({
     queryKey: ["downloads"],
     queryFn: () => ({}),
@@ -404,7 +439,9 @@ function LocalVisionDownload({ onLater }: { onLater?: () => void }) {
         Ask for basic photo edits like captions, filters, or laser eyes.
         Your photos stay on this computer. No account or key needed.
       </p>
-      {error && <p className="error-text">{error.message}</p>}
+      <p className="field-description">This downloads a model and its runtime once. It does not connect to a separate local model server. For a different model, add a provider in Settings → Providers.</p>
+      {error && <><p role="alert" className="error-text">Could not check on-device availability: {error.message}</p>
+        <Button onClick={() => void refetch()} label="Check availability again" /></>}
       {assets && !supported ? (
         <p className="muted">On-device AI is unavailable on this computer.</p>
       ) : (
@@ -418,7 +455,8 @@ function LocalVisionDownload({ onLater }: { onLater?: () => void }) {
                   await action("assets.download", { name: asset.name });
                 }
                 await action("providers.on_device");
-                onLater?.();
+                useUI.getState().set({ error: null, errorAction: null });
+                onReady?.();
               } finally {
                 setDownloading(false);
               }
@@ -429,7 +467,7 @@ function LocalVisionDownload({ onLater }: { onLater?: () => void }) {
             ? `Downloading ${active.label}…`
             : downloading
               ? "Setting up…"
-              : ready
+              : !assets ? "Checking on-device availability…" : ready
                 ? selected ? "On-device AI is active" : "Use on-device AI"
                 : `Download and use on-device AI${downloadMiB ? ` (about ${downloadMiB} MiB)` : ""}`}
         </button>
@@ -451,7 +489,7 @@ function LocalVisionDownload({ onLater }: { onLater?: () => void }) {
           <button onClick={onLater} disabled={downloading || !!active}>
             {selected ? "Continue" : "Download later"}
           </button>
-          <p className="muted">Available anytime in Settings → Assets.</p>
+          <p className="muted">Download later opens Quick ideas without AI. To connect another provider now, choose an option below. On-device setup is available anytime in Settings → Assets.</p>
         </>
       )}
     </div>
@@ -500,11 +538,40 @@ function Assets() {
     </div>
   );
 }
+function ProviderChecks({ profile }: { profile: Profile }) {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<{ message: string; failed: boolean } | null>(null);
+  const check = async (probe = false) => {
+    setChecking(true);
+    setResult({ message: probe ? "Testing connection…" : "Checking setup…", failed: false });
+    try {
+      const checked = await action("providers.test", { profile_id: profile.id, ...(probe ? { probe: true } : {}) });
+      setResult({
+        failed: checked.status !== "ready",
+        message: checked.status === "ready"
+          ? [checked.probed ? "Connection succeeded." : profile.kind === "cli"
+              ? "Installation checked. Login has not been tested."
+              : "Setup checked. No test request was sent.", ...(checked.warnings ?? [])].join(" ")
+          : checked.error ?? "Provider check failed. Edit this provider and try again.",
+      });
+    } catch (error) {
+      setResult({ message: error instanceof Error ? error.message : String(error), failed: true });
+    } finally { setChecking(false); }
+  };
+  return <div className="provider-checks">
+    {result && <p role={result.failed ? "alert" : "status"} className={result.failed ? "error-text" : ""}>{result.message}</p>}
+    <Button disabled={checking} onClick={() => void check()} label={profile.kind === "cli" ? "Check installation" : "Check setup"} />
+    {profile.kind !== "cli" && <>
+      <Button disabled={checking} onClick={() => void check(true)} label="Test connection" />
+      <p className="probe-notice">Check setup is offline. Test connection sends a short request; your provider may charge.</p>
+    </>}
+    {profile.kind === "cli" && <p className="probe-notice">Checks the installed app, not your login. Sign in to it in a terminal before chatting.</p>}
+  </div>;
+}
+
 export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }) {
   const [tab, setTab] = useState(updates.info?.version ? "updates" : "providers");
   const [edit, setEdit] = useState<Profile | null | undefined>(undefined);
-  const [test, setTest] = useState<Record<string, { message: string; failed: boolean }>>({});
-  const [checking, setChecking] = useState(false);
   const [detected, setDetected] = useState<CLIDetection[] | null>(null);
   const { data: profiles } = useCoreQuery("providers.list");
   const { data: settings } = useCoreQuery("settings.get");
@@ -512,48 +579,16 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
   const theme = useUI((s) => s.theme);
   const appearance = useUI();
   const update = (values: Partial<SettingsType>) => run(() => action("settings.set", { values }));
-  const checkProvider = async (profile: Profile, probe = false) => {
-    setChecking(true);
-    setTest((previous) => ({
-      ...previous,
-      [profile.id]: {
-        message: probe ? "Testing connection…" : "Checking setup…",
-        failed: false,
-      },
-    }));
-    try {
-      const result = await action("providers.test", {
-        profile_id: profile.id,
-        ...(probe ? { probe: true } : {}),
-      });
-      setTest((previous) => ({
-        ...previous,
-        [profile.id]: {
-          message:
-            result.status === "ready"
-              ? [
-                  result.probed
-                    ? "Connection succeeded."
-                    : profile.kind === "cli"
-                      ? "Installation checked."
-                      : "Setup checked. No test request was sent.",
-                  ...(result.warnings ?? []),
-                ].join(" ")
-              : (result.error ?? "Provider check failed."),
-          failed: result.status !== "ready",
-        },
-      }));
-    } catch (error) {
-      setTest((previous) => ({
-        ...previous,
-        [profile.id]: {
-          message: error instanceof Error ? error.message : String(error),
-          failed: true,
-        },
-      }));
-    } finally {
-      setChecking(false);
+  const saveNumber = (input: HTMLInputElement, field: "step_budget" | "tool_timeout_s" | "tool_memory_mb", label: string) => {
+    if (!input.value || !input.validity.valid) {
+      input.value = String(settings?.[field] ?? "");
+      useUI.getState().set({ error: `${label} must be a whole number from ${input.min} to ${input.max}. Your previous saved value is unchanged.`, errorAction: null });
+      return;
     }
+    run(async () => {
+      await action("settings.set", { values: { [field]: Number(input.value) } });
+      useUI.getState().set({ error: null, errorAction: null });
+    });
   };
   return (
     <div
@@ -621,14 +656,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                               ? "Runs on this computer"
                               : `${kindNames[profile.kind]} / ${profile.model || profile.cli}`}
                           </span>
-                          {test[profile.id] && (
-                            <small
-                              role={test[profile.id].failed ? "alert" : "status"}
-                              className={test[profile.id].failed ? "error-text" : ""}
-                            >
-                              {test[profile.id].message}
-                            </small>
-                          )}
+
                         </div>
                         <div>
                           <Button
@@ -652,18 +680,6 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                             }
                           />
                           {profile.id !== ON_DEVICE && <Button onClick={() => setEdit(profile)} label="Edit" />}
-                          <Button
-                            disabled={checking}
-                            onClick={() => void checkProvider(profile)}
-                            label={profile.kind === "cli" ? "Check installation" : "Check setup"}
-                          />
-                          {profile.kind !== "cli" && (
-                            <Button
-                              disabled={checking}
-                              onClick={() => void checkProvider(profile, true)}
-                              label="Test connection"
-                            />
-                          )}
                           <button
                             aria-label={`Delete ${profile.label}`}
                             onClick={() =>
@@ -677,11 +693,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                             <Trash2 size={14} />
                           </button>
                         </div>
-                        {profile.kind !== "cli" && (
-                          <small className="probe-notice">
-                            Test connection sends a short test request; your provider may charge.
-                          </small>
-                        )}
+                        <ProviderChecks profile={profile} />
                       </div>
                     ))}
                     {!profiles?.length && (
@@ -750,6 +762,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
             )}
             {tab === "preferences" && settings && (
               <div className="preferences">
+                <p className="field-description">Changes save automatically. Number fields save when you leave the field. The default approval mode applies to new projects.</p>
                 <SelectField
                   label="Default approval mode"
                   value={settings.approval_mode}
@@ -773,10 +786,8 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                   min="1"
                   max="500"
                   defaultValue={settings.step_budget}
-                  onBlur={(e) => {
-                    if (e.target.validity.valid && e.target.value)
-                      update({ step_budget: Number(e.target.value) });
-                  }}
+                  required
+                  onBlur={(e) => saveNumber(e.target, "step_budget", "Maximum steps per turn")}
                 />
                 <label>
                   Output folder
@@ -892,9 +903,8 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                     min="1"
                     max="3600"
                     defaultValue={settings.tool_timeout_s}
-                    onBlur={(e) => {
-                      if (e.target.validity.valid) update({ tool_timeout_s: Number(e.target.value) });
-                    }}
+                    required
+                    onBlur={(e) => saveNumber(e.target, "tool_timeout_s", "Timeout in seconds")}
                   />
                   <InputField
                     label="Tool memory (MB)"
@@ -902,9 +912,8 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
                     min="256"
                     max="65536"
                     defaultValue={settings.tool_memory_mb}
-                    onBlur={(e) => {
-                      if (e.target.validity.valid) update({ tool_memory_mb: Number(e.target.value) });
-                    }}
+                    required
+                    onBlur={(e) => saveNumber(e.target, "tool_memory_mb", "Tool memory (MB)")}
                   />
                 </details>
                 <SourceSettings />
@@ -917,24 +926,25 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
     </div>
   );
 }
-export function Welcome({ onClose, onManual = onClose }: { onClose: () => void; onManual?: () => void }) {
+export function Welcome({ onQuick, onAdvanced }: { onQuick: () => void; onAdvanced: () => void }) {
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
   const [step, setStep] = useState(1);
+  const [editorVersion, setEditorVersion] = useState(0);
   const [kind, setKind] = useState<Profile["kind"]>("api");
   const { data: assets } = useCoreQuery("assets.status");
   const { data: profiles } = useCoreQuery("providers.list");
   const { data: session } = useSession();
   const [choosing, setChoosing] = useState(false);
-  useEffect(() => {
-    if (
-      session?.provider_profile_id &&
-      profiles?.some((profile) => profile.id === session.provider_profile_id)
-    )
-      setStep(3);
-  }, [session?.provider_profile_id, profiles]);
+  const selectedProfile = profiles?.find(profile => profile.id === session?.provider_profile_id);
   const chooseProfile = async (profile: Profile) => {
     setChoosing(true);
     try {
       await action("providers.select", { profile_id: profile.id });
+      useUI.getState().set({ error: null, errorAction: null });
       setStep(3);
     } finally {
       setChoosing(false);
@@ -959,23 +969,25 @@ export function Welcome({ onClose, onManual = onClose }: { onClose: () => void; 
             ? "Make your first shitpost."
             : step === 2
               ? "Make the connection."
-              : "Bring your own bad taste."}
+              : "Your provider is saved."}
         </h2>
         <p>
           {step === 1
             ? "Start with a quick idea and a free sample. Add your own punchline, then copy it straight into the group chat."
             : step === 2
-              ? "The model makes the decisions. badshop does the pixel work."
-              : "Download the essentials now, or let badshop fetch them when needed."}
+              ? "The model directs the edit. badshop changes the pixels. Choose the service you already use, then enter its connection details."
+              : "Your provider is saved, but its connection has not been tested. Check it below, or continue and test it later in Settings → Providers."}
         </p>
         <ErrorNotice />
         {step === 1 ? (
           <>
-            <button className="primary" onClick={onClose}>Start with a quick idea<ArrowRight size={16} /></button>
-            <button onClick={onManual}>
+            <button className="primary" onClick={onQuick}>Start with a quick idea<ArrowRight size={16} /></button>
+            <p className="field-description">Pick a ready-made format and change the caption. No account, AI provider, or model download required.</p>
+            <button onClick={onAdvanced}>
               Edit a photo without AI
               <ArrowRight size={16} />
             </button>
+            <p className="field-description">Opens Art director. Import a photo and choose Run tool to edit it yourself using parameter controls.</p>
             {!!profiles?.length && (
               <div className="saved-provider-choice">
                 <h3>Use a saved provider</h3>
@@ -994,8 +1006,9 @@ export function Welcome({ onClose, onManual = onClose }: { onClose: () => void; 
                 <p>Or connect another provider below.</p>
               </div>
             )}
-            <LocalVisionDownload onLater={onClose} />
-            <h3>Connect an AI model</h3>
+            <LocalVisionDownload onLater={onQuick} onReady={() => { if (active.current) onAdvanced(); }} />
+            <h3>Connect your own AI service</h3>
+            <p className="field-description">Choose one option below. You can add or change providers later in Settings → Providers.</p>
             <div className="kind-grid">
               {Object.entries(kindNames).map(([value, label]) => {
                 const Icon = icons[value as Profile["kind"]];
@@ -1003,7 +1016,11 @@ export function Welcome({ onClose, onManual = onClose }: { onClose: () => void; 
                   <button
                     key={value}
                     className={kind === value ? "selected" : ""}
-                    onClick={() => setKind(value as Profile["kind"])}
+                    aria-pressed={kind === value}
+                    onClick={() => {
+                      if (kind !== value) setEditorVersion(version => version + 1);
+                      setKind(value as Profile["kind"]);
+                    }}
                   >
                     <Icon size={23} />
                     <strong>{label}</strong>
@@ -1017,10 +1034,14 @@ export function Welcome({ onClose, onManual = onClose }: { onClose: () => void; 
               <ArrowRight size={16} />
             </button>
           </>
-        ) : step === 2 ? (
-          <ProfileEditor kind={kind} onSaved={chooseProfile} />
-        ) : (
+        ) : step === 3 ? (
           <>
+            {selectedProfile && <>
+              <h3>{selectedProfile.label}</h3>
+              <ProviderChecks key={selectedProfile.id} profile={selectedProfile} />
+            </>}
+            <h3>Optional editing downloads</h3>
+            <p className="field-description">Fonts, face detection and background removal download when a tool first needs them. Download now to prepare for offline editing, or start without them.</p>
             <div className="welcome-assets">
               {assets
                 ?.filter(
@@ -1033,13 +1054,20 @@ export function Welcome({ onClose, onManual = onClose }: { onClose: () => void; 
                   <AssetRow asset={asset} key={asset.name} />
                 ))}
             </div>
-            <button className="primary" onClick={onClose}>
+            <button className="primary" onClick={onAdvanced}>
               Start making badshops
               <ArrowRight size={16} />
             </button>
           </>
-        )}
-        {step === 2 && <Button className="back-link" onClick={onManual} label="Edit a photo without AI" />}
+        ) : null}
+        <div hidden={step !== 2}>
+          <ProfileEditor key={editorVersion} kind={kind} onKindChange={setKind} onSaved={chooseProfile} />
+        </div>
+        {step === 2 && <>
+          <Button className="back-link" onClick={() => setStep(1)} label="Back" />
+          <Button className="back-link" onClick={onAdvanced} label="Edit a photo without AI" />
+        </>}
+        {step === 3 && <Button className="back-link" onClick={() => { setEditorVersion(value => value + 1); setStep(1); }} label="Choose another way to start" />}
       </section>
     </div>
   );

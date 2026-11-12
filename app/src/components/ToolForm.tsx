@@ -7,7 +7,7 @@ import { Crosshair, FolderOpen, Shuffle, Plus, Trash2, ArrowUp, ArrowDown, Copy,
 import type { Params, Tool, Artifact } from "../types";
 import { action, run, useSession, useArtifact, imageUrl } from "../data";
 import { native, pickImages } from "../native";
-import { useUI } from "../store";
+import { useUI, type PickRequest } from "../store";
 import { BIREFNET_MEMORY_NOTE } from "../constants";
 const validator = customizeValidator({
   draft: "7", // normalizeSchema converts Pydantic tuples to draft-7 items for RJSF.
@@ -206,6 +206,11 @@ export function Coordinates(props: FieldProps) {
   const { schema, formData, onChange, disabled, fieldPathId } = props;
   const context = props.registry?.formContext as ToolFormContext | undefined;
   const targetImage = context?.coordinateImageId;
+  const ownedPick = useRef<PickRequest | null>(null);
+  useEffect(() => () => {
+    if (ownedPick.current && useUI.getState().pick === ownedPick.current)
+      useUI.getState().set({ pick: null });
+  }, [targetImage, fieldPathId.$id]);
   const path = fieldPathId.path;
   const itemIndex = path.map((part) => typeof part === "number").lastIndexOf(true);
   const title =
@@ -247,17 +252,17 @@ export function Coordinates(props: FieldProps) {
       <Button
         type="button"
         disabled={disabled || !targetImage}
-        onClick={() =>
-          targetImage &&
-          useUI.getState().set({
-            pick: {
-              kind,
-              artifactId: targetImage,
-              label: context?.coordinateImageLabel,
-              complete: (next) => change(schema.format === "badshop-spot" ? [...next, value[2] ?? 20] : next),
-            },
-          })
-        }
+        onClick={() => {
+          if (!targetImage) return;
+          const request: PickRequest = {
+            kind,
+            artifactId: targetImage,
+            label: context?.coordinateImageLabel,
+            complete: (next) => change(schema.format === "badshop-spot" ? [...next, value[2] ?? 20] : next),
+          };
+          ownedPick.current = request;
+          useUI.getState().set({ pick: request });
+        }}
         label="Pick on image"
         icon={Crosshair}
         iconSize={14}

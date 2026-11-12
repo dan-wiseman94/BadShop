@@ -1427,7 +1427,11 @@ button.primary {
   font-size: 0.9231rem;
   padding: 5px 8px;
 }
-.profile-editor > label,
+.profile-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.provider-checks { flex-basis: 100%; }
+.provider-checks > button { margin-right: 8px; }
+.provider-checks > p { margin: 8px 0; }
+.profile-fields > label,
 .preferences > label,
 .preferences details > label {
   display: flex;
@@ -1443,11 +1447,11 @@ button.primary {
   width: 100%;
   font-size: 0.9231rem;
 }
-.profile-editor > p {
+.profile-fields > p {
   font-size: 0.9231rem;
   margin: -4px 0 17px;
 }
-.profile-editor > .primary {
+.profile-fields > .primary {
   width: 100%;
   margin-top: 5px;
 }

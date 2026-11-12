@@ -1203,7 +1203,9 @@ class CoreApp:
                 new_ref = f"{p.id}:{uuid.uuid4().hex}"
                 profiles.store_key(new_ref, api_key)
                 p = p.model_copy(update={"api_key_ref": new_ref, "api_key_env": None})
-            elif p.kind != "cli" and old and old.api_key_ref and not p.api_key_env:
+            elif (p.kind != "cli" and old and old.api_key_ref and not p.api_key_env
+                  and "api_key_ref" not in profile):
+                # Omitted keeps the existing key; explicit null clears it, e.g. when the editor changes server.
                 p = p.model_copy(update={"api_key_ref": old.api_key_ref})
             if p.api_key_env:
                 p = p.model_copy(update={"api_key_ref": None})

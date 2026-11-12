@@ -34,6 +34,8 @@ export function Chat({
   const [novelty, setNovelty] = useState<NoveltyMode | "">("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
+  const currentAttachments = useRef(attachments);
+  currentAttachments.current = attachments;
   const lastDraft = useRef<string | null>(null);
   useEffect(() => {
     if (!draft || draft.id === lastDraft.current || sending) return;
@@ -74,8 +76,8 @@ export function Chat({
           attachments,
           ...(novelty ? { novelty } : {}),
         });
-        setText("");
-        onAttachments([]);
+        setText((current) => current === text ? "" : current);
+        onAttachments(currentAttachments.current.filter((id) => !attachments.includes(id)));
       } finally {
         setSending(false);
       }

@@ -3,7 +3,7 @@ import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
 import { Grid2X2, ScanFace, Maximize, ChevronDown } from "lucide-react";
 import { imageUrl, useArtifact, useSession, run } from "../data";
-import { useSelectedArtifact, useUI } from "../store";
+import { useCanvasArtifact, useUI } from "../store";
 import { useReducedMotion } from "../appearance";
 import { openLink } from "../native";
 import { CopyImage, ShareImage } from "./ShareImage";
@@ -29,42 +29,27 @@ function faceBoxes(data: Params | undefined): number[][] {
 export function Viewer({ onImport }: { onImport: () => void }) {
   const { data: session } = useSession();
   const selectedStep = useUI((s) => s.selectedStep);
-  const selectedArtifact = useSelectedArtifact(session?.steps);
+  const { id: canvasId, inputId } = useCanvasArtifact(session);
   const pick = useUI((s) => s.pick);
   const [grid, setGrid] = useState(false);
   const [boxes, setBoxes] = useState(false);
-  const [before, setBefore] = useState(false);
+  const before = useUI((state) => state.viewerBefore);
+  const setBefore = (viewerBefore: boolean) => useUI.getState().set({ viewerBefore });
   const [sharing, setSharing] = useState(false);
   const shareDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (sharing) shareDialog.current?.showModal();
     else shareDialog.current?.close();
   }, [sharing]);
-  const [zoom, setZoom] = useState<"fit" | number>("fit");
+  const zoom = useUI((state) => state.viewerZoom);
+  const setZoom = (viewerZoom: "fit" | number) => useUI.getState().set({ viewerZoom });
   const [size, setSize] = useState({ width: 600, height: 500 });
   const stage = useRef<HTMLDivElement>(null);
   const origin = useRef<number[] | null>(null);
   const [selection, setSelection] = useState<number[] | null>(null);
   const [cursor, setCursor] = useState<number[] | null>(null);
-  const selected = session?.steps.find((s) => s.id === selectedStep);
-  const latest = session?.steps
-    .slice()
-    .reverse()
-    .find((s) => s.outputs.length);
   const all = Object.values(session?.artifacts ?? {});
-  const afterId =
-    selectedArtifact ??
-    selected?.outputs[0] ??
-    latest?.outputs[0] ??
-    all.find((a) => a.original_id)?.id ??
-    all[0]?.id ??
-    null;
-  const inputId = selected
-    ? Object.values(selected.params)
-        .flatMap((value) => (Array.isArray(value) ? value : [value]))
-        .find((value): value is string => typeof value === "string" && !!session?.artifacts[value])
-    : undefined;
-  const id = pick?.artifactId ?? (before && inputId ? inputId : afterId);
+  const id = pick?.artifactId ?? canvasId;
   const motion = useUI((s) => s.motion);
   const reduced = useReducedMotion(motion);
   const [playing, setPlaying] = useState<boolean | null>(null);
@@ -88,7 +73,6 @@ export function Viewer({ onImport }: { onImport: () => void }) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    setBefore(false);
     setSelection(null);
   }, [selectedStep]);
   const scale = meta

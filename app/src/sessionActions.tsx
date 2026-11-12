@@ -72,9 +72,10 @@ export function useSessionActions() {
           "The session changed while choosing a file. Save the current session again.",
         );
       const guard = { expected_revision: latest.document_revision };
-      if (before.path && !as) await action("session.save", guard);
-      else await action("session.save_as", { path, ...guard });
-      useUI.getState().set({ notice: `Saved to ${path}` });
+      const saved = before.path && !as
+        ? await action("session.save", guard)
+        : await action("session.save_as", { path, ...guard });
+      useUI.getState().set({ notice: `Saved to ${saved.path}` });
       return true;
     },
     [],

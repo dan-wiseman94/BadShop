@@ -17,9 +17,11 @@ function finished(step: Step) {
 export function RetroStudio({
   onAttach,
   onDraft,
+  onInspect,
 }: {
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
+  onInspect: (id: string) => void;
 }) {
   const { busy, error, notice: message, setNotice: setMessage, perform } = useOperation();
   const { data: session } = useSession();
@@ -218,13 +220,14 @@ export function RetroStudio({
             />
             <Button
               disabled={!prefs || disabled}
-              onClick={() =>
+              onClick={() => {
+                if (!prefs) return;
                 run(() =>
                   action("settings.set", {
-                    values: { creative_defaults: prefs },
+                    values: { creative_defaults: { ...prefs, seed } },
                   }),
-                )
-              }
+                );
+              }}
               label="Use these defaults for new projects"
             />
             <SelectField
@@ -503,7 +506,7 @@ export function RetroStudio({
               <div key={id}>
                 <ArtifactThumb id={id} />
                 <Button
-                  onClick={() => useUI.getState().set({ selectedArtifact: id })}
+                  onClick={() => onInspect(id)}
                   label="Inspect full size"
                 />
               </div>

@@ -272,7 +272,7 @@ test("first run with saved profiles explicitly selects a provider before continu
     )
     .toBe(profile.id);
   await welcome.getByRole("button", { name: "Start making badshops" }).click();
-  await page.getByRole("button", { name: "All tools", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Chat", exact: true })).toBeVisible();
   await expect(
     page.getByRole("combobox", { name: "Active provider" }),
   ).toHaveValue(profile.id);

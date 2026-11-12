@@ -5,7 +5,11 @@ import { useOperation } from "../useOperation";
 import { InputField } from "./Fields";
 import starters from "../starters.json";
 
-export function QuickStart({ onImport, onAdvanced }: { onImport: () => void; onAdvanced: () => void }) {
+export function QuickStart({ onImport, onAdvanced, importedImage }: {
+  onImport: () => void;
+  onAdvanced: () => void;
+  importedImage?: { id: string } | null;
+}) {
   const { data: session } = useSession();
   const { data: layouts = [] } = useCoreQuery("layouts.list");
   const { data: branches } = useCoreQuery("branches.list");
@@ -15,6 +19,7 @@ export function QuickStart({ onImport, onAdvanced }: { onImport: () => void; onA
   const [caption, setCaption] = useState("");
   const [second, setSecond] = useState("");
   const [image, setImage] = useState("");
+  useEffect(() => { if (importedImage) setImage(importedImage.id); }, [importedImage]);
   const selected = useUI(s => s.selectedStep);
   const ready = useUI(s => s.status === "ready");
   const step = session?.steps.find(s => s.id === selected && s.tool === "layout")

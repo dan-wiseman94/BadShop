@@ -56,6 +56,14 @@ beforeEach(() =>
   }),
 );
 
+it("cancels coordinate picking when its parameter form closes", () => {
+  const view = render(<ToolForm tool={tool} initial={{ image: "a" }} onSubmit={vi.fn()} />, { wrapper });
+  fireEvent.click(screen.getByRole("button", { name: "Pick on image" }));
+  expect(useUI.getState().pick?.artifactId).toBe("a");
+  view.unmount();
+  expect(useUI.getState().pick).toBeNull();
+});
+
 it("preserves a conflicting edited input until the user explicitly chooses which parameters to use", () => {
   const { rerender } = render(
     <ToolForm tool={tool} initial={{ image: "a" }} onSubmit={vi.fn()} />,

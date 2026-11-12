@@ -101,6 +101,7 @@ export default function App() {
   const documents = useSessionActions();
   const { data: settings } = useCoreQuery("settings.get");
   const updates = useUpdates(() => documents.request({ kind: "close" }), settings?.no_remote ?? true);
+  const updateModalOpen = updates.phase === "downloading" || updates.phase === "installing";
   const [welcome, setWelcome] = useState(!localStorage.getItem("badshop.welcome"));
   // Existing users keep their workbench; first-time users begin with quick ideas.
   const [workspace, setWorkspace] = useState(() => readPreference("workspace", localStorage.getItem("badshop.welcome") ? "advanced" : "quick"));
@@ -108,6 +109,7 @@ export default function App() {
   const chooseWorkspace = (value: string) => { setWorkspace(value); savePreference("workspace", value); };
   const [menu, setMenu] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
+  const [importedImage, setImportedImage] = useState<{ id: string; generation: number } | null>(null);
   const [ideaDrafts, setIdeaDrafts] = useState<{ id: string; text: string; generation: number }[]>([]);
   const consumeIdeaDraft = useCallback((id: string) => {
     setIdeaDrafts((previous) => previous.filter((draft) => draft.id !== id));
@@ -181,6 +183,7 @@ export default function App() {
       const result = await action("artifacts.import", { path });
       setAttachments((previous) => [...previous, result.working.id]);
       useUI.getState().set({ selectedArtifact: result.working.id });
+      setImportedImage({ id: result.working.id, generation: useUI.getState().documentGeneration });
       return true;
     },
     [documents.request],
@@ -189,6 +192,7 @@ export default function App() {
     const result = await importBlob(blob, name);
     setAttachments((previous) => [...previous, result.working.id]);
     useUI.getState().set({ selectedArtifact: result.working.id });
+    setImportedImage({ id: result.working.id, generation: useUI.getState().documentGeneration });
   }, []);
   const importImages = useCallback(() => {
     if (native)
@@ -331,8 +335,10 @@ export default function App() {
     newSessionOpen,
     documents.pending,
     studioOpen,
+    updateModalOpen,
   ]);
-  const closeWelcome = () => {
+  const closeWelcome = (workspace: "quick" | "advanced") => {
+    chooseWorkspace(workspace);
     localStorage.setItem("badshop.welcome", "1");
     setWelcome(false);
   };
@@ -612,7 +618,7 @@ export default function App() {
           gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr)${workspace === "advanced" || history ? ` 6px ${widths.right}px` : ""}`,
         }}
       >
-        <QuickStart key={`quick-${ui.documentGeneration}`} onImport={importImages} onAdvanced={() => chooseWorkspace("advanced")} />
+        <QuickStart key={`quick-${ui.documentGeneration}`} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={importImages} onAdvanced={() => chooseWorkspace("advanced")} />
         <Chat
           key={`chat-${ui.documentGeneration}`}
           attachments={attachments}
@@ -661,7 +667,7 @@ export default function App() {
           }}
         />
       )}
-      {ui.settingsOpen && !documents.pending && <Settings updates={updates} />}
+      {ui.settingsOpen && !documents.pending && !updateModalOpen && <Settings updates={updates} />}
       {updates.info?.version && !ui.settingsOpen && !documents.pending && updates.phase === "idle" && (
         <div className="update-notice" role="status">
           badshop {updates.info.version} is available.
@@ -687,7 +693,7 @@ export default function App() {
       )}
       <SaveChangesDialog actions={documents} />
       {welcome && ui.status === "ready" && !ui.settingsOpen && !documents.pending && (
-        <Welcome onClose={closeWelcome} onManual={() => { chooseWorkspace("advanced"); closeWelcome(); }} />
+        <Welcome onQuick={() => closeWelcome("quick")} onAdvanced={() => closeWelcome("advanced")} />
       )}
       {dragging && (
         <div className="drop-overlay">
