@@ -1,0 +1,70 @@
+name: BadShop 0.4.2 signed upgrade QA
+on:
+  push:
+    branches: [codex/verify-0.4.2-upgrade]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            old: badshop_0.4.1_x64-setup.exe
+            new: badshop_0.4.2_x64-setup.exe
+          - os: macos-15
+            label: macos-arm64
+            old: badshop_0.4.1_aarch64.dmg
+            new: badshop-macos-arm64.app.tar.gz
+          - os: macos-15-intel
+            label: macos-x64
+            old: badshop_0.4.1_x64.dmg
+            new: badshop-macos-x64.app.tar.gz
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      - name: Wait for candidate gates and download exact packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD_ASSET: ${{ matrix.old }}
+          NEW_ASSET: ${{ matrix.new }}
+        run: |
+          gh run watch 43308481866 --exit-status --interval 30
+          gh release download v0.4.1 --pattern "$OLD_ASSET" --pattern SHA256SUMS --dir qa-input/old
+          gh release download v0.4.2 --pattern "$NEW_ASSET" --pattern "$NEW_ASSET.sig" --pattern SHA256SUMS --pattern latest.json --dir qa-input/candidate
+          uv run --no-project --python 3.12 python packaging/qa-upgrade/verify_downloads.py qa-input/old qa-input/candidate
+          cp qa-input/candidate/latest.json packaging/qa-upgrade/latest.json
+      - if: runner.os == 'macOS'
+        name: Install screenshot text reader
+        run: command -v tesseract || brew install tesseract
+      - name: Run signed upgrade and rollback recovery
+        shell: bash
+        env:
+          OLD_ASSET: ${{ matrix.old }}
+          NEW_ASSET: ${{ matrix.new }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+          PYTHONPATH: packaging
+          BADSHOP_SMOKE_WEBVIEW_POLICY: '1'
+        run: |
+          mkdir -p qa-evidence
+          set -o pipefail
+          if [ "$RUNNER_OS_NAME" = macOS ]; then
+            UV_ARGS="--no-project --python 3.12 --with psutil --with pillow --with cryptography --with pyobjc-framework-Cocoa --with pyobjc-framework-Quartz"
+          else
+            UV_ARGS="--project core --locked --python 3.12 --with playwright==1.58.0 --with pywinauto==0.6.9"
+          fi
+          uv run $UV_ARGS python packaging/qa-upgrade/hosted_upgrade.py "qa-input/old/$OLD_ASSET" "qa-input/candidate/$NEW_ASSET" qa-state qa-evidence | tee qa-evidence/run.log
+          uv run $UV_ARGS python packaging/qa-upgrade/hosted_rollback.py "qa-input/old/$OLD_ASSET" qa-evidence/pre-upgrade.badshop qa-evidence/post-upgrade.badshop qa-rollback-state qa-evidence/rollback | tee qa-evidence/rollback.log
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: signed-upgrade-${{ matrix.label }}
+          path: qa-evidence/
+          if-no-files-found: warn
+          retention-days: 7
