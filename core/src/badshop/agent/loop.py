@@ -29,6 +29,7 @@ class TurnConfig:
     step_budget: int = 40  # executed steps per turn
     max_invalid: int = 3  # consecutive invalid calls end the turn
     before_request: Callable[[], None] | None = None  # recheck the app's current network policy
+    pause_requested: bool = False
 
 
 def _arguments(call: ToolCallRequest) -> dict:
@@ -232,6 +233,8 @@ class _Turn:
                                + [Part(type="image", artifact_id=m.id) for m in images])
         tools = tool_definitions()
         while True:
+            if self.cfg.pause_requested:
+                return "paused"
             messages = await self.call(build_messages, self.session,
                                        getattr(self.provider, "full_image_ids", False),
                                        getattr(self.provider, "thought_signatures", False))
@@ -258,6 +261,9 @@ class _Turn:
             return "done"
         why = reply.text.strip()[:500] or None  # the model's stated reason, shown on approval cards
         for call in reply.tool_calls:
+            if self.cfg.pause_requested or (self.session.data.pause_before_finish and call.name in {"deepfry", "save", "animate", "animate_sticker", "export", "export_profile"}):
+                await self.answer_rest("not run: paused for manual corrections; wait for the user to resume")
+                return "paused"
             if self.executed >= self.cfg.step_budget:
                 await self.answer_rest(f"not run: this turn's budget of {self.cfg.step_budget} steps is used "
                                        "up; the user can send a message to continue")
@@ -284,13 +290,14 @@ class _Turn:
         if message is not None:  # the reply again, now listing the step: clients upsert messages by id
             self.emit("message.done", {"message": message})
         params = None
-        if needs_approval(spec, self.cfg.approval_mode):
+        if step.lock_review or needs_approval(spec, self.cfg.approval_mode):
             decision = await self.gate.request(step)
             if decision.decision == "reject":
                 content = await self.call(_reject, self.session, step.id, decision.note or "no reason given")
                 await self.answer(call.id, content)
                 return
             params = decision.params if decision.decision == "edit" else None
+            step.lock_approved = True
         self.stopping = threading.Event()  # one per step: it goes with this call and no other
         ran, content = await self.call(_execute, self.session, step.id, params, self.stopping)
         self.stopping = None

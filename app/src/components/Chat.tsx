@@ -84,6 +84,19 @@ export function Chat({
     });
   return (
     <section className="chat pane" aria-label="Chat">
+      <div className="manual-turn-controls">
+        <button disabled={!session?.turn_running} onClick={() => run(() => action("chat.pause"))}>Pause after operation</button>
+        <button disabled={session?.turn_running || !session?.undo_branch_id}
+          onClick={() => run(() => action("chat.undo"))}>Undo last AI turn</button>
+        <button disabled={session?.turn_running} onClick={() => run(async () => {
+          if (session?.pause_before_finish) await action("chat.finish_checkpoint", { enabled: false });
+          await action("chat.send", {
+            text: "Resume the previous request using the current corrected images and locked settings. Finishing effects are now allowed."
+          });
+        })}>Resume and allow finishing</button>
+        <label><input type="checkbox" checked={session?.pause_before_finish ?? false} disabled={session?.turn_running}
+          onChange={(event) => run(() => action("chat.finish_checkpoint", { enabled: event.target.checked }))} />Pause before finishing effects</label>
+      </div>
       <div className="pane-heading">
         <span>Art direction</span>
         <span className={`connection-dot ${ready ? "online" : ""}`}>

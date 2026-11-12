@@ -2219,5 +2219,18 @@ button.primary {
 .share-image button { white-space: normal; }
 .share-preview { max-width: 320px; width: 100%; max-height: 340px; object-fit: contain; background: var(--stage); image-rendering: pixelated; }
 .viewer-tools, .viewer-toggles { flex-wrap: wrap; height: auto; }
+.manual-tools { padding: 10px 16px; border-top: 1px solid var(--line); max-height: 38vh; overflow: auto; }
+.manual-tools summary { cursor: pointer; font-weight: 600; }
+.detail-actions { flex-wrap: wrap; }
+.detail-actions > details { flex-basis: 100%; order: 2; padding: 8px 0; }
+.detail-actions > button { white-space: normal; }
+.manual-tools [role="group"], .manual-turn-controls { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
+.manual-turn-controls { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.manual-turn-controls button { white-space: normal; }
+.manual-turn-controls label { display: flex; align-items: center; gap: 6px; }
+[aria-label="Quick corrections"] { display: grid; gap: 8px; margin: 12px 0; }
+[aria-label="Quick corrections"]:empty { display: none; }
+[aria-label="Quick corrections"] textarea { width: 100%; min-height: 70px; }
+[aria-label="Placement controls"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .pane-heading { height: auto; padding-top: 9px; padding-bottom: 9px; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 1100px) { .header-center { order: 3; width: 100%; justify-content: center; } }

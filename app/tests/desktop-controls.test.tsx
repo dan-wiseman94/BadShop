@@ -19,7 +19,7 @@ const images = Object.fromEntries(
 );
 function wrapper({ children }: { children: React.ReactNode }) {
   const client = new QueryClient();
-  client.setQueryData(["session.get"], { id: "s", artifacts: images });
+  client.setQueryData(["session.get"], { id: "s", artifacts: images, steps: [] });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 const tool: Tool = {

@@ -1,8 +1,9 @@
 import { Button } from "./Button";
+import { ManualTools } from "./ManualTools";
 import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
 import { Grid2X2, ScanFace, Maximize, ChevronDown } from "lucide-react";
-import { imageUrl, useArtifact, useSession, run } from "../data";
+import { action, imageUrl, useArtifact, useSession, run } from "../data";
 import { useCanvasArtifact, useUI } from "../store";
 import { useReducedMotion } from "../appearance";
 import { openLink } from "../native";
@@ -268,6 +269,19 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </div>
         )}
       </div>
+      {id && <ManualTools key={id} image={id} />}
+      {!!session?.steps.some((step) => session.bypass_tools?.includes(step.tool)) &&
+        <details className="manual-tools"><summary>Applied effects</summary>
+          {session.steps.filter((step) => session.bypass_tools?.includes(step.tool)).map((step) =>
+            <div key={step.id} className="manual-turn-controls">
+              <button onClick={() => useUI.getState().set({ selectedStep: step.id,
+                selectedArtifact: { stepId: step.id, outputIndex: 0 } })}>
+                {step.index}. {step.tool} {String(step.params.level ?? step.params.names ?? step.params.size ?? "")}
+              </button>
+              <label><input type="checkbox" checked={!step.bypassed} disabled={session.turn_running}
+                onChange={(event) => run(() => action("steps.controls", { step_id: step.id, bypassed: !event.target.checked }))} />Enabled</label>
+            </div>)}
+        </details>}
       {pick && (
         <div className="pick-hint" role="status">
           <div>

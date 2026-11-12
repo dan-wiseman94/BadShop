@@ -118,6 +118,32 @@ def test_build_messages_answers_dangling_calls(tmp_path):
     assert len(session.data.transcript) == 5  # the stored transcript is left alone
 
 
+def test_manual_pause_finishes_current_tool_and_answers_remaining_calls(tmp_path):
+    session, img, ev = new_session(tmp_path)
+    cfg = TurnConfig(approval_mode="auto")
+    session.on_change = lambda: setattr(cfg, "pause_requested", True) if any(
+        step.status == "done" for step in session.data.steps) else None
+    provider = ScriptedProvider([Reply(tool_calls=[
+        call("first", "filter", {"image": img.id, "names": ["invert"]}),
+        call("second", "filter", {"image": img.id, "names": ["grayscale"]}),
+    ])])
+    reason, _ = turn(session, provider, ev, cfg=cfg)
+    assert reason == "paused"
+    assert len(session.data.steps) == 1 and session.data.steps[0].status == "done"
+    assert "paused" in tool_entries(session)["second"]
+
+
+def test_finishing_checkpoint_can_be_acknowledged_then_finished(tmp_path):
+    session, img, ev = new_session(tmp_path)
+    session.data.pause_before_finish = True
+    finish = Reply(tool_calls=[call("finish", "deepfry", {"image": img.id, "level": 1})])
+    reason, _ = turn(session, ScriptedProvider([finish]), ev)
+    assert reason == "paused" and not session.data.steps
+    session.data.pause_before_finish = False
+    reason, _ = turn(session, ScriptedProvider([finish, Reply(text="done")]), ev)
+    assert reason == "done" and session.data.steps[0].status == "done"
+
+
 def test_turn_runs_tools_and_reports_back(tmp_path):
     session, img, ev = new_session(tmp_path)
     provider = ScriptedProvider([

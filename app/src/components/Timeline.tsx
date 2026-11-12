@@ -191,6 +191,7 @@ export function Timeline() {
           )}
           <ToolForm
             tool={tool}
+            stepId={step.id}
             initial={step.params}
             disabled={busy && step.status !== "proposed"}
             submitLabel={
@@ -209,6 +210,24 @@ export function Timeline() {
             }}
           />
           <div className="detail-actions">
+            {session?.bypass_tools?.includes(step.tool) &&
+              <button disabled={busy} onClick={() => run(() => action("steps.controls", {
+                step_id: step.id, bypassed: !step.bypassed,
+              }))}>{step.bypassed ? "Enable effect" : "Bypass effect"}</button>}
+            <details><summary>Keep these settings for AI</summary>
+              <p>Pin source, wording or placement settings. Further AI changes to this result require your review, even in Auto mode. Manual edits remain available.</p>
+              {[
+                { name: "Source images", fields: ["image", "base", "piece", "images"] },
+                { name: "Caption wording", fields: ["text", "title", "caption", "captions"] },
+                { name: "Placement", fields: ["at", "fit_box", "width", "height", "rotate", "anchor", "flip", "box"] },
+              ].map((group) => ({ ...group, fields: group.fields.filter((field) => field in step.params) }))
+                .filter((group) => group.fields.length).map((group) => <label key={group.name} style={{ display: "block" }}>
+                  <input type="checkbox" disabled={busy} checked={group.fields.every((field) => step.locked_fields?.includes(field))}
+                    onChange={(event) => run(() => action("steps.controls", { step_id: step.id,
+                      locked_fields: event.target.checked ? [...new Set([...(step.locked_fields ?? []), ...group.fields])]
+                        : (step.locked_fields ?? []).filter((field) => !group.fields.includes(field)) }))} />Pin {group.name}
+                </label>)}
+            </details>
             <Button
               disabled={busy}
               onClick={() => run(() => action("steps.replay_from", { step_id: step.id }))}

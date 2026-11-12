@@ -151,7 +151,7 @@ export async function action<K extends keyof MethodMap>(
         );
     }
   }
-  if (["session.new", "session.open", "session.restore", "branches.create", "branches.switch"].includes(method)) {
+  if (["session.new", "session.open", "session.restore", "branches.create", "branches.switch", "chat.undo"].includes(method)) {
     acceptSessionReplacement(value as Session);
   }
   await queries.invalidateQueries({ queryKey: ["session.get"] });

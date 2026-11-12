@@ -1250,6 +1250,23 @@
      ]
     }
    }
+  },
+  "transform": {
+   "lines": [],
+   "data": {},
+   "files": {
+    "work/result.png": {
+     "format": "PNG",
+     "size": [
+      120,
+      80
+     ],
+     "sha256": "38692f1f8f49636bf0445d5c5d5941dd4dd8d2606fdce842872040fb8bcc5081",
+     "frames": [
+      "74872a909b96cd2be038204000e4229d5a12000a5aa0d0bef73e66cfc8b649e6"
+     ]
+    }
+   }
   }
  }
 }

@@ -37,6 +37,8 @@ def capture(session, step_id):
     step = session.step(step_id)
     if step.status != "done":
         raise EngineError("choose a completed tool step")
+    if step.bypassed:
+        return Recipe(name="Bypassed effect", steps=[RecipeStep(tool="transform", params={"image": "$input"})])
     params = dict(step.params)
     for key, many in registry.image_fields(registry.get(step.tool).params).items():
         if params.get(key) is not None:

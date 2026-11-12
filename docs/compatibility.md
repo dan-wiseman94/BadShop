@@ -71,7 +71,10 @@ Codex and Gemini CLI need Node.js.
 
 ## Project compatibility and recovery
 
-Current code reads project schemas 1–3 and refuses newer schemas with an explanation.
+Current code reads project schemas 1–4 and refuses newer schemas with an explanation.
+New saves use schema 4 for manual pins, effect bypass and turn checkpoints. Releases
+that only support schemas 1–3 cannot open these new saves; keep a backup before upgrading.
+See [manual corrections](manual-controls.md) for controls and their limits.
 Save a copy before experimenting with a different application version; backward readability
 by older apps is not promised. Saving is atomic and preserves the last good file on failure.
 Autosave is recovery, not a substitute for explicitly saving important work. Imported privileged

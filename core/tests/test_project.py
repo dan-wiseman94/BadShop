@@ -27,6 +27,7 @@ from conftest import FIXTURES
 # Every field of every tool set away from its default, with the awkward values a model or user may give:
 # negative numbers, exponent floats, words that start with "-", new lines and non-ASCII text.
 RICH = {
+    "transform": {"image": "a.png", "crop": [0, 0, 40, 50], "width": 100, "height": 80, "rotate": 90, "flip_horizontal": True, "flip_vertical": True},
     'retro_layout': {'style':'forum','images':['a.png'],'title':'Hi','caption':'Hello','seed':7,'density':'chaotic','text_scale':2,'exact_text':False,'fit':'cover'},
     'canvas': {'image':'a.png','width':200,'height':100,'background':'red','tile':True},
     'pattern': {'image':'a.png','width':200,'height':100,'background':'blue','tile':True,'foreground':'yellow','pattern':'grid','spacing':8,'seed':4},
@@ -49,7 +50,7 @@ RICH = {
     "view": {"image": "a.png", "grid": True, "max": 512},
     "find": {"image": "a.png", "what": "cats", "detector": "haar", "min_score": 0.35},
     "text": {"image": "a.png", "text": "-_- WHEN\nTHE CODE ✓", "style": "wordart", "bottom": True, "at": [-5, 300],
-             "size": 48, "color": "#ff00ff", "rotate": -1e-05, "margin": 0, "font": "ComicNeue-Bold.ttf"},
+             "size": 48, "color": "#ff00ff", "rotate": -1e-05, "margin": 0, "font": "ComicNeue-Bold.ttf", "fit_exact": True},
     "cutout": {"image": "a.png", "box": [10, 20, 110, 220], "model": "isnet-anime", "threshold": 200, "grow": 3,
                "no_ai": True, "oval": True, "sticker": 4, "sticker_color": "black"},
     "paste": {"base": "a.png", "piece": "b.png", "at": [-10, 20], "anchor": "bottom", "width": 120.5,
@@ -216,7 +217,7 @@ def test_save_then_open_restores_the_session_exactly(tmp_path):
         payload = json.loads(zf.read("session.json"))
         recipe = json.loads(zf.read("recipe.json"))
     assert names == {"session.json", "recipe.json"} | {art(s, aid) for aid in keep}
-    assert payload["schema"] == 3 and "schema_" not in payload and set(payload["artifacts"]) == keep
+    assert payload["schema"] == 4 and "schema_" not in payload and set(payload["artifacts"]) == keep
     assert recipe == project.export_recipe(s)
 
     reopened = project.open_project(path, output_dir=tmp_path / "exports")
@@ -478,7 +479,7 @@ BAD = {  # case -> (make the file from the good one, what the error says)
     "lzma members": (recompressed(zipfile.ZIP_LZMA), "compressed in a way badshop never writes"),
     "no session.json": (edited(lambda m, p: m.update({"session.json": None})), "no session.json"),
     "session.json isn't json": (edited(lambda m, p: m.update({"session.json": b"{not json"})), "isn't JSON"),
-    "newer schema": (edited(lambda m, p: p.update(schema=4)), "newer badshop"),
+    "newer schema": (edited(lambda m, p: p.update(schema=5)), "newer badshop"),
     "no schema": (edited(lambda m, p: p.pop("schema")), "no schema number"),
     "not a session": (edited(lambda m, p: p.update(steps="lots")), "isn't a badshop session"),
     "unknown tool": (edited(lambda m, p: p["steps"][0].update(tool="nope")), "doesn't have"),

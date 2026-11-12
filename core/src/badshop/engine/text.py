@@ -206,6 +206,7 @@ class TextParams(Params):
     rotate: float = Field(0, description="degrees counter-clockwise")
     margin: int = Field(20, ge=0, le=10_000, description="gap from the edge in px")
     font: FontRef | None = Field(None, description="path or name of a font file to use instead")
+    fit_exact: bool = Field(False, description="shrink until all caption words fit inside the image; refuse clipping")
 
 
 def caption(p: TextParams, image: Image.Image) -> EngineResult:
@@ -233,13 +234,25 @@ def caption(p: TextParams, image: Image.Image) -> EngineResult:
     # a caption as big as the photo it goes on is never too big, even when the photo is over the budget
     layer = render_text(lines, fnt, p.style, color, budget=im.width * im.height)
     if p.rotate:
-        layer = layer.rotate(p.rotate, resample=Image.BICUBIC, expand=True)
+        layer = layer.rotate(p.rotate, resample=Image.NEAREST if p.fit_exact else Image.BICUBIC, expand=True)
+    if p.fit_exact:
+        while layer.width > W - 2 * p.margin or layer.height > H - 2 * p.margin:
+            size = int(size * 0.85)
+            if size < 4:
+                raise EngineError("these words cannot fit at a readable size", hint="use fewer words or a larger image")
+            fnt, used = load_font(p.style, size, p.font)
+            lines = wrap_text(probe, text, fnt, W - 2 * p.margin)
+            layer = render_text(lines, fnt, p.style, color, budget=im.width * im.height)
+            if p.rotate:
+                layer = layer.rotate(p.rotate, resample=Image.NEAREST, expand=True)
     if p.at:
         x, y = p.at[0] - layer.width // 2, p.at[1] - layer.height // 2
     elif p.bottom:
         x, y = (W - layer.width) // 2, H - layer.height - p.margin
     else:
         x, y = (W - layer.width) // 2, p.margin
+    if p.fit_exact and not (0 <= x and 0 <= y and x + layer.width <= W and y + layer.height <= H):
+        raise EngineError("caption placement would clip words", hint="move the caption inside the image")
     im.paste(layer, (x, y), layer)
     return EngineResult(
         outputs=[Output("result", im, "result.png")],

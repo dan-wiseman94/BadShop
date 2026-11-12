@@ -12,6 +12,7 @@ commands or proof that a newer revision passed verification.
 | Project formats, provider requirements, platform promises | [Compatibility](compatibility.md) |
 | Installers, updates, release gates and current platforms | [Releasing](releasing.md) |
 | Current workflow states and recovery rules | [State machines](state-machines.md) |
+| Manual tools, correction previews, pins and turn recovery | [Manual corrections](manual-controls.md) |
 | Windows / macOS source and installed setup | [Windows](windows.md) / [macOS](macos.md) |
 | Privacy, support and licenses | [Privacy](privacy.md), [support](support.md), [model licenses](model-licenses.md) |
 

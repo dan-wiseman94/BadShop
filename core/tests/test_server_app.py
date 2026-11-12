@@ -43,7 +43,7 @@ METHODS = sorted([
     "library.list", "library.save", "library.update", "library.import", "library.remove", "library.thumbnail",
     "branches.list", "branches.create", "branches.switch", "branches.rename", "branches.remove",
     "providers.list", "providers.save", "providers.add", "providers.select", "providers.delete", "providers.test",
-    "chat.retry",
+    "chat.retry", "chat.pause", "chat.undo", "chat.finish_checkpoint", "steps.preview", "steps.controls",
     "providers.detect", "providers.on_device", "diagnostics.get",
     "session.new", "session.get", "session.open", "session.restore", "session.save", "session.save_as",
     "session.export_recipe", "session.set_approval_mode", "chat.send", "chat.stop", "tools.list",
@@ -337,6 +337,42 @@ def test_methods_are_the_protocol(env):
     run(body)
 
 
+def test_pinned_result_requires_cli_review_even_in_auto_mode(env):
+    async def body(app):
+        c, cli = Client(app), Client(app, "cli:codex")
+        image = await imported(c)
+        await c.call("session.set_approval_mode", mode="auto")
+        original = await c.call("tools.run", tool="filter", params={"image": image, "names": ["invert"]})
+        await c.call("steps.controls", step_id=original["id"], locked_fields=["names"])
+        waiting = asyncio.create_task(cli.call("tools.run", tool="filter",
+                                               params={"image": original["outputs"][0], "names": ["grayscale"]}))
+        step_id = await c.waiting(lambda step: step.get("lock_review"))
+        assert not waiting.done()
+        await c.call("approval.respond", step_id=step_id, decision="reject")
+        assert (await waiting)["status"] == "rejected"
+        other = await imported(c, TRUMP.read_bytes(), "other.png")
+        unrelated = await cli.call("tools.run", tool="filter", params={"image": other, "names": ["grayscale"]})
+        assert unrelated["status"] == "done" and not unrelated["lock_review"]
+    run(body)
+
+
+def test_pause_resolves_pending_approval_without_executing_it(env):
+    async def body(app):
+        c = Client(app)
+        image = await imported(c)
+        await c.call("settings.set", values={"fake_provider_script": script(env, [{"tool_calls": [
+            {"name": "filter", "arguments": {"image": image, "names": ["invert"]}}
+        ]}])})
+        await c.call("chat.send", text="go")
+        pending = await c.waiting()
+        await c.call("chat.pause")
+        state = await idle(c)
+        assert not state["pending_approvals"]
+        assert app.session.step(pending).status == "rejected"
+        assert not app.session.step(pending).outputs
+    run(body)
+
+
 def test_import_run_get_and_events(env, monkeypatch):
     async def body(app):
         c = Client(app)
@@ -405,7 +441,7 @@ def test_import_run_get_and_events(env, monkeypatch):
 
         snap = await c.call("session.get")
         assert [s["status"] for s in snap["steps"]] == ["done", "error"]
-        assert snap["schema"] == 3 and snap["id"] == app.session.data.id and snap["path"] is None
+        assert snap["schema"] == 4 and snap["id"] == app.session.data.id and snap["path"] is None
         assert snap["turn_running"] is False and snap["pending_approvals"] == []
 
     run(body)
@@ -1230,6 +1266,30 @@ def test_asset_download_cancellation_reaches_worker(env, monkeypatch, stop):
 
     run(body)
     assert assets.CANCEL is before
+
+
+def test_animated_bypass_refuses_without_changing_the_step(env):
+    import io
+    from PIL import Image
+
+    async def body(app):
+        buffer = io.BytesIO()
+        Image.new("RGB", (8, 8), "red").save(buffer, "GIF", save_all=True,
+            append_images=[Image.new("RGB", (8, 8), "blue")], duration=100, loop=0)
+        source = app.session.artifacts.add(buffer.getvalue(), "animation")
+        step = app.session.run_tool("filter", {"image": source.id, "names": ["invert"]}, "user")
+        before = app.session.data.model_dump_json()
+        with pytest.raises(Failed, match="still images"):
+            await Client(app).call("steps.controls", step_id=step.id, bypassed=True)
+        assert app.session.data.model_dump_json() == before
+        step.bypassed = True
+        app.session.edit(step.id, step.params)
+        app.session.replay_from(step.id)
+        assert step.status == "error"
+        assert "still images" in step.error.message
+        assert app.session.artifacts.meta[source.id].frames == 2
+
+    run(body)
 
 
 def test_close_stops_a_waiting_turn(env):
