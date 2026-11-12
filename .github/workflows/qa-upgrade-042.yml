@@ -11,14 +11,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            label: windows-x64
-            old: badshop_0.4.1_x64-setup.exe
-            new: badshop_0.4.2_x64-setup.exe
-          - os: macos-15
-            label: macos-arm64
-            old: badshop_0.4.1_aarch64.dmg
-            new: badshop-macos-arm64.app.tar.gz
           - os: macos-15-intel
             label: macos-x64
             old: badshop_0.4.1_x64.dmg

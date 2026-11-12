@@ -164,6 +164,9 @@ def main(root, evidence, downloads):
                 command("xdotool", "type", "--clearmodifiers", str(path))
                 keys("Return")
                 time.sleep(.5)
+                if kind == "^Open" and locate():
+                    keys("Return")
+                wait(lambda: not locate(), f"Native {kind} dialog did not close", timeout=12)
                 command("xdotool", "windowfocus", str(ui.window))
 
             file_dialog("^Save", project)
@@ -216,7 +219,6 @@ def main(root, evidence, downloads):
             ui.window = wait(lambda: visible_window(updated["shell_pid"]), "Updated window not visible")
             command("xdotool", "windowfocus", str(ui.window))
             update_panel()
-            ui.find("Check for updates", click=True, exact=True)
             ui.find("Installed version: 0.4.2")
             screenshot(ui.window, evidence / "updated-version.png")
             click(1090, 222)
