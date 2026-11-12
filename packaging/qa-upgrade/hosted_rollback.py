@@ -6,6 +6,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -79,6 +80,7 @@ def main(old, backup, upgraded, root, evidence):
                 else:
                     import Quartz as q
                     ui.key(31, q.kCGEventFlagMaskCommand)
+                    time.sleep(.8)
                     ui.open_path(path)
                     ui.press("Open")
 
