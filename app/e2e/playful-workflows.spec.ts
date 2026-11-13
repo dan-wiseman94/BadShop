@@ -144,4 +144,15 @@ test("a pass-and-play challenge keeps independent rounds after reopening", async
   await expect(challenge.getByText("Grace", { exact: true })).toBeVisible();
   await challenge.getByRole("button", { name: "Give this take a star" }).first().click();
   await expect(challenge.getByText("Ada ★", { exact: true })).toBeVisible();
+  const voted = await emptyCore.call("branches.list") as BranchList;
+  const project = info.outputPath("challenge.badshop");
+  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).unsaved_changes).toBe(false);
+  await page.reload();
+  await page.getByText("Play a remix challenge", { exact: true }).click();
+  await page.getByRole("button", { name: "Reveal the takes" }).click();
+  await expect(challenge.getByText("Ada ★", { exact: true })).toBeVisible();
+  await expect(challenge.locator("article").filter({ hasText: "Ada ★" }).getByRole("button", { name: "Give this take a star" })).toBeDisabled();
+  await emptyCore.call("session.open", { path: project });
+  expect((await emptyCore.call("branches.list") as BranchList).branches).toEqual(voted.branches);
 });
