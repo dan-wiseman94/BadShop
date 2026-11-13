@@ -61,8 +61,9 @@ class ReleaseIntegrityTests(unittest.TestCase):
     def test_release_waits_for_exact_lock_security_and_attests_assets(self):
         root = Path(__file__).resolve().parents[2]
         workflow = (root / ".github/workflows/release.yml").read_text()
-        self.assertIn("needs: [core, frontend, bundle, security]", workflow)
-        self.assertIn("needs: [core, frontend, bundle, security, publish-installers]", workflow)
+        self.assertIn("needs: [source, core, frontend, bundle, security]", workflow)
+        self.assertIn('git merge-base --is-ancestor "$GITHUB_SHA" origin/main', workflow)
+        self.assertIn("packaging/release_gate.py stage", workflow)
         self.assertIn("packaging/release_checksums.py artifacts", workflow)
         self.assertIn("actions/attest-build-provenance@", workflow)
         self.assertIn("draft: true", workflow)
@@ -78,7 +79,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assertIn("secrets: inherit", workflow)
         self.assertIn("target_commitish: ${{ github.sha }}", workflow)
         self.assertIn("${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}", workflow)
-        publish = workflow.split("  publish:", 1)[1]
+        publish = workflow.split("  stage:", 1)[1]
         self.assertIn("id: identity", publish)
         self.assertIn("tag_name: ${{ steps.identity.outputs.tag }}", publish)
         self.assertIn("packaging/release_checksums.py artifacts", workflow)
@@ -86,9 +87,13 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assertIn("draft: true", workflow)
         self.assertIn("prerelease: true", workflow)
         self.assertIn("make_latest: 'false'", workflow)
-        self.assertIn('--draft=false --prerelease --latest=false', workflow)
+        promotion = (root / ".github/workflows/promote-release.yml").read_text()
+        self.assertIn("environment: release", promotion)
+        self.assertIn("packaging/release_gate.py publish", promotion)
+        self.assertIn("environment: pypi", promotion)
+        self.assertIn("needs: publish", promotion)
         self.assertIn('packaging/update_manifest.py artifacts', workflow)
-        self.assertLess(workflow.index('--draft=false --prerelease --latest=false'), workflow.index('tag_name: nightly'))
+        self.assertLess(promotion.index("packaging/release_gate.py publish"), promotion.index("tag_name: nightly"))
         self.assertNotIn("pypi-publish", workflow)
         core = (root / ".github/workflows/core.yml").read_text()
         self.assertIn("group: core-${{ github.workflow }}-", core)

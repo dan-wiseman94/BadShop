@@ -27,6 +27,7 @@ packaging/flatpak-repo/
 packaging/.flatpak-builder/
 packaging/*.flatpak
 packaging/*.sbom.json
+packaging/*.licenses.json
 
 # Local verification evidence and isolated task checkouts
 artifacts/verification/
