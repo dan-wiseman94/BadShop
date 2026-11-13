@@ -16,6 +16,7 @@ import { IdeaMixer } from "./IdeaMixer";
 import { SpriteSheet } from "./SpriteSheet";
 import { RetroStudio } from "./RetroStudio";
 import { LibraryImage } from "./LibraryImage";
+import { directionLabel } from "../directions";
 import type { LibraryEntry, Params } from "../types";
 
 type Candidate = {
@@ -558,10 +559,10 @@ export function Studio({
               {branches?.branches.map((branch) => (
                 <article className="studio-card" key={branch.id}>
                   {branch.preview_id && session?.artifacts[branch.preview_id] && (
-                    <ArtifactThumb id={branch.preview_id} label={branch.name} />
+                    <ArtifactThumb id={branch.preview_id} label={directionLabel(branch.name)} />
                   )}
                   <strong>
-                    {branch.name}
+                    {directionLabel(branch.name)}
                     {branch.id === branches.active_id ? " (current)" : ""}
                   </strong>
                   <small>{branch.step_count} steps</small>

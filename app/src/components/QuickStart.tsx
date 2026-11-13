@@ -9,6 +9,8 @@ import { Cast } from "./Cast";
 import { RecipeStudio } from "./RecipeStudio";
 import { CreativeCollections } from "./CreativeCollections";
 import { CreationReplay } from "./CreationReplay";
+import { RemixChallenge } from "./RemixChallenge";
+import { directionLabel } from "../directions";
 
 export function QuickStart({ onImport, onAdvanced, importedImage, importing = false }: {
   onImport: () => void;
@@ -119,10 +121,11 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
       {!!branches?.branches.length && <details><summary>Saved takes</summary>{branches.branches.map(branch => <button key={branch.id}
         disabled={disabled || branch.id === branches.active_id} onClick={() => void perform(async () => {
           await action("branches.switch", { id: branch.id, expected_revision: session!.document_revision });
-        })}>{branch.name}</button>)}</details>}
+        })}>{directionLabel(branch.name)}</button>)}</details>}
       <details><summary>Save a reusable recipe</summary><RecipeStudio /></details>
       <CreativeCollections image={image} title={String(step?.params.title ?? title)} caption={step ? revision : caption} disabled={disabled} />
       <details><summary>Show how it happened</summary><CreationReplay /></details>
+      <details><summary>Play a remix challenge</summary><RemixChallenge /></details>
       {error && <p role="alert" className="error-text">{error}</p>}
     </div>
   </section>;

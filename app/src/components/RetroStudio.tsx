@@ -10,6 +10,7 @@ import { ShareImage } from "./ShareImage";
 import type { Params, Step } from "../types";
 import "../retro.css";
 import { RecipeStudio } from "./RecipeStudio";
+import { directionLabel } from "../directions";
 
 function finished(step: Step) {
   if (step.status !== "done") throw new Error(step.error?.message ?? "The tool did not finish.");
@@ -401,7 +402,7 @@ export function RetroStudio({
                       )
                     }
                   />
-                  {b.name}
+                  {directionLabel(b.name)}
                 </label>
               ))}
           </div>
