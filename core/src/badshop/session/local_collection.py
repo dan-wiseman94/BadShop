@@ -14,7 +14,7 @@ from badshop.engine.errors import EngineError
 from badshop.session.media import IMAGE_FORMATS, data_url, picked_path, small_image, source_bytes
 from badshop.session.models import Source
 
-EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
 
 
 class LocalCollections:

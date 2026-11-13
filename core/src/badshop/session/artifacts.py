@@ -15,16 +15,16 @@ from badshop.engine.sources import slugify
 from badshop.session.models import ArtifactMeta, Source
 
 # The decoders an import may use: never EPS (it runs Ghostscript) or Pillow's rarer plugins (SEC-S1).
-IMPORT_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF")
+IMPORT_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF")
 MAX_IMPORT_PIXELS = 100_000_000  # the most pixels any artifact may have; refused before decoding
 MAX_STORED_BYTES = 2 * 2**30  # same payload ceiling as project archives; originals count too
 WORKING_MAX = 1000  # an import's working copy: longest side in px, as `prep` makes
 MIME: dict[str, str] = {"PNG": "image/png", "JPEG": "image/jpeg", "GIF": "image/gif", "WEBP": "image/webp",
-                        "BMP": "image/bmp", "TIFF": "image/tiff"}
+                        "BMP": "image/bmp", "TIFF": "image/tiff", "AVIF": "image/avif"}
 FORMAT_ALIASES = {"MPO": "JPEG"}  # a phone's multi-picture JPEG opens as MPO; it is a JPEG file
 MIN_PREFIX = 6
 REF_HINT = "use an artifact id from a tool result, like a3f9c1d2"
-FORMATS_HINT = "use a PNG, JPEG, GIF, WebP, BMP or TIFF image"
+FORMATS_HINT = "use a PNG, JPEG, GIF, WebP, BMP, TIFF or AVIF image"
 
 
 def short(id: str) -> str:

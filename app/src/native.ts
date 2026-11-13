@@ -51,7 +51,7 @@ export async function pickImages() {
     filters: [
       {
         name: "Images",
-        extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff"],
+        extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "avif"],
       },
     ],
   });
