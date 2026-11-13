@@ -7,6 +7,7 @@ import starters from "../starters.json";
 import { IdeaPreview } from "./IdeaPreview";
 import { Cast } from "./Cast";
 import { RecipeStudio } from "./RecipeStudio";
+import { CreativeCollections } from "./CreativeCollections";
 
 export function QuickStart({ onImport, onAdvanced, importedImage, importing = false }: {
   onImport: () => void;
@@ -119,6 +120,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
           await action("branches.switch", { id: branch.id, expected_revision: session!.document_revision });
         })}>{branch.name}</button>)}</details>}
       <details><summary>Save a reusable recipe</summary><RecipeStudio /></details>
+      <CreativeCollections image={image} title={String(step?.params.title ?? title)} caption={step ? revision : caption} disabled={disabled} />
       {error && <p role="alert" className="error-text">{error}</p>}
     </div>
   </section>;
