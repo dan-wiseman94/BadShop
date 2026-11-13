@@ -92,12 +92,13 @@ profile if a host CLI is unavailable there.
 with main selected. The schedule becomes active when the workflow lands on main;
 GitHub may delay scheduled runs. Forks and dispatches from other branches skip it.
 
-Each successful run publishes a separate `nightly-YYYYMMDD-RUN_ID-ATTEMPT`
-GitHub prerelease containing Linux AppImage/deb/Flatpak, Windows x64 NSIS,
+Each successful run stages a separate `nightly-YYYYMMDD-RUN_ID-ATTEMPT`
+draft GitHub prerelease containing Linux AppImage/deb/Flatpak, Windows x64 NSIS,
 and macOS arm64/x64 DMGs, plus SBOMs, SHA256SUMS and build attestations.
 The release links the exact source commit and verification run. Core, frontend,
 locked-dependency security and the existing installed-desktop matrix must all pass.
-Uploads are staged in a draft; upload failure leaves that draft unpublished.
+The draft remains private until the same candidate acceptance and protected promotion
+used for stable releases passes. A successful scheduled build alone never publishes.
 Reruns use a new tag, so published bytes are never overwritten. Prior nightlies
 remain available; no release/tag deletion is automated. CI evidence follows the
 existing artifact retention policy (failed installer artifacts: three days).
@@ -114,8 +115,8 @@ Nightly builds use the same durable updater signing key as stable releases and
 require the same repository signing configuration. Desktop bundle versions are
 `BASE-nightly.RUN_ID`; Python/Cargo source package versions retain the base version.
 The native build stamps Tauri configuration after validating the source versions.
-The unique prerelease includes its signed `latest.json`; only after its assets are
-public does the workflow update the mutable `nightly` prerelease's `latest.json`
+The unique prerelease includes its signed `latest.json`; only after acceptance and
+publication does the promotion workflow update the mutable `nightly` prerelease's `latest.json`
 pointer. That pointer references immutable dated downloads. The release body retains
 the promoted version even if replacing the feed file fails. Older run IDs cannot
 replace it; the same run may repair a missing feed file. A promotion failure
@@ -150,7 +151,7 @@ that updates are unavailable. Tag builds fail when signing configuration is abse
 
 The native release matrix produces signed updater artifacts as well as installers.
 `packaging/update_manifest.py` requires all four artifacts and signatures and generates
-`latest.json`. Publish that file with the artifacts by publishing the draft release.
+`latest.json`. Publish the complete draft through the protected promotion workflow below.
 The stable feed uses GitHub's `/releases/latest/download/latest.json`, so drafts and
 prereleases are not offered automatically. Existing versions without this feature
 need one manual installation. Keep the signing key stable across subsequent releases.
@@ -170,11 +171,15 @@ selected installer check passes; generate the feed from that run's complete set.
 
 Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to build
 and test each supported installer before attaching it to a draft GitHub release.
-Both publishing jobs require the core and frontend checks and the native bundle matrix
-to pass on the tagged revision. The PyPI job uses the protected
+The tag must already belong to main before builds start. Draft creation requires core,
+frontend, security and the native bundle matrix to pass on that revision. Public promotion
+additionally requires successful main runs of core, desktop, maintenance and security for
+that exact SHA, covering maintenance and selected Rust unit/format checks.
+The PyPI job runs only after successful stable promotion, uses the protected
 `pypi` GitHub environment and trusted publishing, and is disabled unless the repository
 variable `BADSHOP_PYPI_PUBLISH` is `true`. Current releases are desktop downloads only.
-Configure the repository/environment as a trusted PyPI publisher before enabling it.
+Configure PyPI's trusted publisher with workflow `promote-release.yml` and environment
+`pypi` before enabling it. A draft never triggers Python publication.
 Match the tag to Python, frontend and
 Tauri package versions before tagging. Release tags and external publication are explicit
 maintainer actions, not part of ordinary development.
@@ -194,9 +199,12 @@ call-site/upstream review before renewal. Passing with a reviewed warning is not
 dependency bill of health. External Actions are pinned to immutable commits.
 
 Native packaging collects actual license notices, inventory coverage, and a CycloneDX 1.6
-SBOM under `core-dist/badshop-core/legal/`. `release_inventory.py` fails on missing notice
-files; `coverage.json` also lists remaining manual legal reviews, which must be resolved
-before public redistribution. Cargo MPL-covered source is copied into `legal/covered-source/`.
+SBOM under core-dist/badshop-core/legal/. release_inventory.py fails on missing notice
+files. Each platform also uploads badshop-<label>.licenses.json, copied from its actual
+coverage report. Pending manual reviews may remain in a private draft so its real contents
+can be inspected; promotion requires an explicit recorded approval and evidence for every
+listed package on every platform. No existing reviews are automatically marked resolved.
+Cargo MPL-covered source is copied into legal/covered-source/.
 The SBOM deliberately includes build/non-host dependencies and is not a precise binary
 reachability claim. Use the platform sidecar SBOM, notices, model/font licenses and an
 inspection of the final installer together.
@@ -207,12 +215,72 @@ steps; a local source run does not prove a published attestation. Verify the dow
 bytes against the checksums and use `gh attestation verify <asset> --repo dan-wiseman94/BadShop`
 for provenance after the release workflow has actually run.
 
-Optional PyPI publication waits for successful draft installer creation. A draft is still a
-candidate. If a required desktop release gate fails, retain the draft and failed-run evidence;
-do not label it released. Before making the draft public, verify all platform assets,
-signatures, checksums, inventory, update feed, release notes and support links refer to the
-same tag. If Python publishing is enabled, verify its version separately and report any failure
-explicitly. Never overwrite an already published version with different bytes.
+Optional PyPI publication waits for successful stable promotion and separate environment
+approval. If a required gate fails, retain the draft and failed-run evidence. Never
+overwrite an already published version with different bytes.
+
+### Accept and promote an exact candidate
+
+Stable and nightly publication share packaging/release_gate.py and
+.github/workflows/promote-release.yml. Build jobs record release-candidate.json
+with the source SHA, build run/attempt, version and tag, then hash and attest the complete
+asset set. Candidate metadata, license reports and SBOMs are included in those checksums.
+
+1. Download the complete private draft into an empty directory:
+
+       gh release download vX.Y.Z --repo dan-wiseman94/BadShop --dir artifacts/verification/candidate
+
+2. Generate a pending acceptance record:
+
+       python packaging/release_gate.py template artifacts/verification/candidate vX.Y.Z --output packaging/release-acceptance/vX.Y.Z.json
+
+   Use the immutable nightly tag in both positions for a nightly candidate.
+3. Perform the platform checks below. Fill every generated entry with the actual result
+   and a retained HTTPS evidence link, and set reviewed_by to the maintainer's GitHub
+   login. Platform results must be passed; license resolutions must be approved.
+   os_trust also accepts unsigned-disclosed, with evidence of the v1 unsigned warning
+   and release disclosure. That exception never waives updater signature tests.
+4. Validate the completed record:
+
+       python packaging/release_gate.py check artifacts/verification/candidate vX.Y.Z --acceptance packaging/release-acceptance/vX.Y.Z.json
+
+   Commit it through a PR to main. The record includes the source SHA and the SHA-256
+   of SHA256SUMS; a rebuild, changed inventory or changed download requires fresh review.
+   The template command refuses to overwrite an existing record.
+5. Dispatch **Actions → promote release** from **main**, supplying the tag. Review the
+   committed record and approve the release environment deployment. The workflow
+   downloads the draft again, checks every byte, the current asset digests, all required
+   main workflows, the successful build attempt, tag/source identity and GitHub provenance
+   of SHA256SUMS, restricted to the expected builder and source SHA. Only then does it
+   make the draft public. Missing, failed, skipped or stale evidence fails closed.
+
+The six acceptance targets are Windows x64, both Mac architectures, AppImage, deb and
+Flatpak. The template enumerates their required checks and each platform inventory's
+pending license decisions. Evidence links must refer to retained results, not a promise
+to test later. The gate validates completeness and identity; the maintainer must assess
+the truth and adequacy of manual evidence. Signing keys and legal approvals are never
+fabricated by the gate.
+
+Promotion is serialized. A retry revalidates the same evidence and published bytes without
+replacing them, allowing a failed nightly-feed update to recover. Older nightlies cannot
+move the feed backwards. PyPI retries remain subject to its own approval and version
+immutability. Historical drafts lacking candidate metadata must be rebuilt through this
+workflow; there is no legacy evidence bypass.
+
+Repository settings are part of enforcement:
+
+- The release and pypi environments require dan-wiseman94 approval, disallow administrator
+  bypass and allow deployments from the main branch only. Self-review remains allowed
+  because this is a single-maintainer repository; this is deliberate publication consent,
+  not a claim of independent human review.
+- An active tag ruleset prevents updates and deletion of v* and nightly-* tags with
+  no bypass actors. The mutable nightly feed is excluded.
+- Main retains required maintenance, core-result, desktop-result and audit checks.
+
+Environment rules apply to Actions jobs, not GitHub's manual Release UI. Repository
+administrators can change protections or publish manually; maintainers must use this
+promotion path. These gates prevent accidental workflow bypass and reject incomplete
+evidence, but cannot constrain an administrator who deliberately changes repository policy.
 
 ### Signing and acceptance handoff
 
@@ -227,8 +295,8 @@ For **each exact candidate** retain:
 
 | Target | Required evidence before promotion |
 | --- | --- |
-| Windows x64 | Downloaded NSIS signature/trust check; install/uninstall; native import/save/open; image clipboard paste into a real target app; keychain cleanup; signed upgrade and rejection of a tampered update |
-| macOS arm64 and x64 | Downloaded DMG and app archive; Developer ID and notarization/stapling checks; fresh launch; native file/clipboard workflows; keychain; signed upgrade and tamper rejection on each architecture |
+| Windows x64 | Downloaded NSIS trust check (record unsigned v1 disclosure when applicable); install/uninstall; native import/save/open; image clipboard paste into a real target app; keychain cleanup; signed upgrade and rejection of a tampered update |
+| macOS arm64 and x64 | Downloaded DMG and app archive; trust/notarization result (record unsigned v1 disclosure when applicable); fresh launch; native file/clipboard workflows; keychain; signed upgrade and tamper rejection on each architecture |
 | Linux AppImage | Downloaded runtime on a supported distribution; clipboard into a target app; signed upgrade, interruption/retry, old-core cleanup and project recovery |
 | Linux deb/Flatpak | Install/run/uninstall using the package manager; file access and credential service; document reopen; explicit package-manager update path |
 
