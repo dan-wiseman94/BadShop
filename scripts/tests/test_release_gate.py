@@ -58,10 +58,11 @@ class AcceptanceTests(unittest.TestCase):
         gate.write(evidence, self.acceptance)
         args = [sys.executable, str(ROOT / "packaging/release_gate.py"), "check", str(self.root), TAG,
                 "--repository", REPO, "--acceptance", str(evidence)]
-        passed = subprocess.run(args, capture_output=True, text=True)
+        env = os.environ | {"GITHUB_OUTPUT": str(Path(self.temp.name) / "outputs")}
+        passed = subprocess.run(args, capture_output=True, text=True, env=env)
         self.assertEqual(passed.returncode, 0, passed.stderr)
         (self.root / "badshop.deb").write_bytes(b"replaced bytes")
-        failed = subprocess.run(args, capture_output=True, text=True)
+        failed = subprocess.run(args, capture_output=True, text=True, env=env)
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("Release bytes differ", failed.stderr)
 
@@ -174,7 +175,8 @@ class AcceptanceTests(unittest.TestCase):
         evidence = Path(self.temp.name) / "acceptance.json"
         gate.write(evidence, self.acceptance)
         args = ["release_gate", "publish", str(self.root), TAG, "--repository", REPO, "--acceptance", str(evidence)]
-        env = {"GITHUB_REF": "refs/heads/main", "GITHUB_EVENT_NAME": "workflow_dispatch"}
+        env = {"GITHUB_REF": "refs/heads/main", "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_OUTPUT": str(Path(self.temp.name) / "outputs")}
         with patch("sys.argv", args), patch.dict(os.environ, env), patch.object(gate.subprocess, "run"):
             with patch.object(gate, "gh_json", side_effect=api) as calls:
                 gate.main()

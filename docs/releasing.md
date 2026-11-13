@@ -199,12 +199,12 @@ call-site/upstream review before renewal. Passing with a reviewed warning is not
 dependency bill of health. External Actions are pinned to immutable commits.
 
 Native packaging collects actual license notices, inventory coverage, and a CycloneDX 1.6
-SBOM under core-dist/badshop-core/legal/. release_inventory.py fails on missing notice
-files. Each platform also uploads badshop-<label>.licenses.json, copied from its actual
+SBOM under `core-dist/badshop-core/legal/`. `release_inventory.py` fails on missing notice
+files. Each platform also uploads `badshop-<label>.licenses.json`, copied from its actual
 coverage report. Pending manual reviews may remain in a private draft so its real contents
 can be inspected; promotion requires an explicit recorded approval and evidence for every
 listed package on every platform. No existing reviews are automatically marked resolved.
-Cargo MPL-covered source is copied into legal/covered-source/.
+Cargo MPL-covered source is copied into `legal/covered-source/`.
 The SBOM deliberately includes build/non-host dependencies and is not a precise binary
 reachability claim. Use the platform sidecar SBOM, notices, model/font licenses and an
 inspection of the final installer together.
@@ -221,8 +221,8 @@ overwrite an already published version with different bytes.
 
 ### Accept and promote an exact candidate
 
-Stable and nightly publication share packaging/release_gate.py and
-.github/workflows/promote-release.yml. Build jobs record release-candidate.json
+Stable and nightly publication share `packaging/release_gate.py` and
+`.github/workflows/promote-release.yml`. Build jobs record `release-candidate.json`
 with the source SHA, build run/attempt, version and tag, then hash and attest the complete
 asset set. Candidate metadata, license reports and SBOMs are included in those checksums.
 
@@ -236,9 +236,9 @@ asset set. Candidate metadata, license reports and SBOMs are included in those c
 
    Use the immutable nightly tag in both positions for a nightly candidate.
 3. Perform the platform checks below. Fill every generated entry with the actual result
-   and a retained HTTPS evidence link, and set reviewed_by to the maintainer's GitHub
-   login. Platform results must be passed; license resolutions must be approved.
-   os_trust also accepts unsigned-disclosed, with evidence of the v1 unsigned warning
+   and a retained HTTPS evidence link, and set `reviewed_by` to the maintainer's GitHub
+   login. Platform results must be `passed`; license resolutions must be `approved`.
+   `os_trust` also accepts `unsigned-disclosed`, with evidence of the v1 unsigned warning
    and release disclosure. That exception never waives updater signature tests.
 4. Validate the completed record:
 
