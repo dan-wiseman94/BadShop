@@ -5,6 +5,7 @@ import { useOperation } from "../useOperation";
 import { InputField } from "./Fields";
 import starters from "../starters.json";
 import { IdeaPreview } from "./IdeaPreview";
+import { Cast } from "./Cast";
 
 export function QuickStart({ onImport, onAdvanced, importedImage, importing = false }: {
   onImport: () => void;
@@ -43,6 +44,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
         {Object.values(session?.artifacts ?? {}).filter(a => !Object.values(session?.artifacts ?? {}).some(b => b.original_id === a.id))
           .map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
       </select></label>
+      <details><summary>Your cast of characters</summary><Cast image={image} disabled={disabled} onUse={setImage} /></details>
       <div className="quick-cards">
         {starters.map(starter => <button key={starter.template} aria-pressed={chosen?.template === starter.template}
           onClick={() => { setChosen(starter); setTitle(starter.title); setCaption(starter.caption); setSecond(starter.secondCaption ?? "Probably fine."); }}>
