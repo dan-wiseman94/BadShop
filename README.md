@@ -7,6 +7,11 @@ model what you want. Every edit appears in a timeline you can change and replay.
 **[Documentation](docs/README.md)** · [Tutorials](docs/README.md#start-here) ·
 [Architecture](docs/architecture.md) · [Screenshot tour](docs/screenshots/README.md)
 
+In the current source, turn one picture into a running joke: preview ideas with your
+own face, keep a reusable cast, make a reaction set, pass on an editable remix, or
+play a local challenge. [Try the playful workflows](docs/playful-workflows.md).
+Released installers may have earlier controls.
+
 ## Get badshop on Windows
 
 **[Download the latest badshop release](https://github.com/dan-wiseman94/BadShop/releases/latest)**
@@ -16,6 +21,8 @@ Start. The installer includes the image tools. In the release candidate, choose
 **Start with a quick idea** for a ready-made shitpost without AI setup.
 
 [Mac installation help](docs/macos.md) · [All downloads](https://github.com/dan-wiseman94/BadShop/releases/latest) · [Windows installation help](docs/windows.md)
+
+[Choose the right installer](docs/downloads.md) · [Contribute characters or code](CONTRIBUTING.md)
 
 For development builds, see the [nightly track](docs/releasing.md#nightly-builds)
 and [GitHub prereleases](https://github.com/dan-wiseman94/BadShop/releases).
