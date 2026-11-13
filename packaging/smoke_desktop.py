@@ -9,6 +9,8 @@ and normal window close/application quit without surviving child processes.
 """
 import argparse
 import ctypes
+import hashlib
+import io
 import json
 import os
 import secrets
@@ -16,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -141,6 +144,64 @@ def native_keys(window: int, *keys: str) -> None:
                    check=True, timeout=5)
 
 
+def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
+    """Require durable pixels, not merely a renderer's recovery notification."""
+    with Image.open(io.BytesIO(image)) as expected:
+        expected_size = expected.size
+        expected_pixels = expected.convert('RGBA').tobytes()
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        try:
+            with zipfile.ZipFile(path) as archive:
+                session = json.loads(archive.read('session.json'))
+                if session['id'] == session_id:
+                    for digest, meta in session['artifacts'].items():
+                        if meta['format'] != 'PNG' or (meta['width'], meta['height']) != expected_size:
+                            continue
+                        data = archive.read(f'artifacts/{digest}.png')
+                        assert hashlib.sha256(data).hexdigest() == digest, 'Project artifact hash changed'
+                        with Image.open(io.BytesIO(data)) as restored:
+                            if restored.size == expected_size and restored.convert('RGBA').tobytes() == expected_pixels:
+                                return session
+        except (OSError, zipfile.BadZipFile):
+            pass  # The first atomic autosave may still be in flight.
+        time.sleep(.1)
+    raise AssertionError(f'Project did not persist the expected session and image: {path}; '
+                         f'files: {[str(p.relative_to(path.parent)) for p in path.parent.rglob("*.badshop*")]}')
+
+
+def linux_file_dialog(pid: int, window: int, path: Path, *, saving: bool = False) -> None:
+    """Drive the owned GTK picker on the harness's private display."""
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        found = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(pid), '--name', '.'],
+                               capture_output=True, text=True, timeout=5)
+        dialogs = [int(value) for value in found.stdout.split() if int(value) != window]
+        if len(dialogs) == 1:
+            dialog, = dialogs
+            native_keys(dialog, 'ctrl+l')
+            # The selected native file type supplies the .badshop extension.
+            filename = path.with_suffix('') if saving else path
+            subprocess.run(['xdotool', 'type', '--clearmodifiers', '--', str(filename)], check=True, timeout=5)
+            native_keys(dialog, 'Return')
+            if not saving:
+                # GTK resolves a typed location asynchronously and can ignore an
+                # activation while doing so. Submit only this same owned picker
+                # until it closes; the caller still requires the exact loaded file.
+                accepted_by = time.monotonic() + 5
+                while time.monotonic() < accepted_by:
+                    time.sleep(.25)
+                    visible = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(pid), '--name', '.'],
+                                             capture_output=True, text=True, timeout=5)
+                    if str(dialog) not in visible.stdout.split():
+                        return
+                    native_keys(dialog, 'Return')
+                raise AssertionError(f'Native Open did not accept {path}')
+            return
+        time.sleep(.1)
+    raise AssertionError('No unique visible file dialog owned by the tested app')
+
+
 def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
     if Path(command[0]).name == 'flatpak' and len(command) > 1 and command[1] == 'run':
         # Flatpak has private /tmp. Expose only this harness-owned directory.
@@ -245,6 +306,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                         clipboard.terminate()
                         clipboard.wait(timeout=5)
                     session_id = state['session_id']
+                    expected_pixels = pasted.read_bytes()
+                    autosave = root / 'core-data/autosave/session.badshop'
+                    wait_project_pixels(autosave, session_id, expected_pixels)
                 if restart_core:
                     old_pid = core.pid
                     ready_path.unlink()
@@ -266,6 +330,46 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                     print(f'Native renderer recovered after core crash: {old_pid} -> {core.pid}', flush=True)
                     if session_id:
                         wait_renderer(proc, ready_path, ports, nonce, session_id=session_id, unsaved=True)
+                        wait_project_pixels(autosave, session_id, expected_pixels)
+                        # Real GTK Save/Open dialogs, followed by durable byte checks.
+                        saved = root / 'native-recovered.badshop'
+                        native_keys(window, 'ctrl+s')
+                        linux_file_dialog(window_pid, window, saved, saving=True)
+                        state = wait_renderer(proc, ready_path, ports, nonce, session_id=session_id, unsaved=False)
+                        wait_project_pixels(saved, session_id, expected_pixels)
+                        # Give the disk fixture a different identity: acknowledging Open
+                        # without loading it must not pass by retaining the active session.
+                        reopened = root / 'native-reopen.badshop'
+                        session_id = secrets.token_hex(8)
+                        with zipfile.ZipFile(saved) as source, zipfile.ZipFile(reopened, 'w') as target:
+                            for member in source.infolist():
+                                data = source.read(member)
+                                if member.filename == 'session.json':
+                                    document = json.loads(data)
+                                    document['id'] = session_id
+                                    document['name'] = 'Native reopened project'
+                                    data = json.dumps(document).encode()
+                                target.writestr(member, data)
+                        ready_path.unlink()
+                        native_keys(window, 'ctrl+o')
+                        linux_file_dialog(window_pid, window, reopened)
+                        wait_renderer(proc, ready_path, ports, nonce, session_id=session_id, unsaved=False)
+                        wait_project_pixels(autosave, session_id, expected_pixels)
+                        # Restore unsaved state so the existing close-guard exercise still runs.
+                        clipboard = subprocess.Popen(['xclip', '-selection', 'clipboard', '-t', 'image/png',
+                                                      '-i', str(pasted), '-quiet'], stdout=log, stderr=log)
+                        try:
+                            clipboard_deadline = time.monotonic() + 5
+                            while subprocess.run(['xclip', '-selection', 'clipboard', '-o', '-t', 'image/png'],
+                                                 capture_output=True, timeout=5).stdout != expected_pixels:
+                                assert time.monotonic() < clipboard_deadline, 'Private clipboard was not ready'
+                                time.sleep(.05)
+                            native_keys(window, 'ctrl+v')
+                            wait_renderer(proc, ready_path, ports, nonce, unsaved=True)
+                        finally:
+                            clipboard.terminate()
+                            clipboard.wait(timeout=5)
+                        print('Native autosave pixels, Save/Open dialogs and reopened pixels verified', flush=True)
                 shot = screenshot or root / 'window.png'
                 shot.parent.mkdir(parents=True, exist_ok=True)
                 paint_deadline = time.monotonic() + 30
@@ -316,6 +420,11 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 metrics['status'] = 'passed'
                 print('Native desktop smoke passed: rendered window, authenticated session/catalog, clean close', flush=True)
             finally:
+                if proc.poll() is None and screenshot and 'window' in locals() and window:
+                    try:
+                        capture_window(window, screenshot.with_name(screenshot.stem + '-failure.png').resolve())
+                    except (OSError, RuntimeError, subprocess.SubprocessError):
+                        pass  # Preserve the original failure if the window already disappeared.
                 if proc.poll() is None:
                     children = psutil.Process(proc.pid).children(recursive=True)
                 if proc.poll() is None:

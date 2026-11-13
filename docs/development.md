@@ -79,7 +79,7 @@ records which unit cases were removed and which integration coverage was preserv
 | --- | --- | --- |
 | `./verify.sh quick` (explicit broad run) | Python lint and tests, verification-harness contracts, frontend components, production frontend build, Rust formatting and tests | A rendered browser or native window; excludes tests marked models, network, or live |
 | `./verify.sh browser` | Playwright UI workflows with a real Python core, local fixtures, and scripted model responses | Native Tauri dialogs/clipboard; real model quality |
-| `./verify.sh desktop` | Linux native debug build and `start.sh`, WebKit rendering, real clipboard RGBA roundtrip/paste, core crash recovery, close guard and process cleanup on private Xvfb | A packaged installer; native file dialogs; other platforms |
+| `./verify.sh desktop` | Linux native debug build and `start.sh`, WebKit rendering, real clipboard RGBA roundtrip/paste, crash-restored image pixels, GTK Save/Open dialogs, close guard and process cleanup on private Xvfb | A packaged installer; native import picker; other platforms |
 | `./verify.sh all` | All three layers, including independent layers after a failed check | Windows/macOS runtime behavior, model downloads, live providers |
 | `./verify.sh doctor` | Tool discovery and Linux native library metadata | A successful build or runtime |
 
@@ -144,6 +144,13 @@ bytes, replayed dependencies, save/reopen in a fresh process, collision-safe exp
 recovery after a damaged project fails to open. They use browser dialog fallbacks; native
 file pickers and installers still need the platform checks described below.
 
+The focused recovery/share journeys also cover cast editing and pack transfer into a
+fresh profile, deletion without losing project images, failed/stopped recipe batches
+and retry, challenge stars after save/reopen, custom-font remix refusal with finished
+image export, and unsaved pixels restored after killing the owned core. These use real
+local files and engine output. Recipe fixtures seed the workload; UI controls run,
+stop and repair it. They do not contact live providers or remote image collections.
+
 The runner prints the log location immediately and the final lines when a command ends.
 For a long compilation, follow its log in another terminal. To inspect a browser trace:
 
@@ -174,7 +181,8 @@ criteria for desktop work; identify which ones the task affects:
 
 When changing file dialogs, drag/drop, clipboard, keyboard input, or keychain integration,
 add a concrete native test or perform and record that interaction on the target platform.
-The native smoke covers clipboard pixels/paste and close handling; file pickers and
+The Linux native crash smoke covers clipboard pixels/paste, GTK Save/Open dialogs,
+persisted recovery pixels and close handling. Native import pickers, other platforms and
 assistive technology still require their own platform evidence. A useful completion report
 states: changed behavior; commands and outcomes; evidence locations; unverified behavior.
 

@@ -168,7 +168,7 @@ jobs:
       - name: AppImage runtime
         if: runner.os == 'Linux'
         shell: bash
-        run: xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_desktop.py --screenshot packaging/appimage-smoke.png -- app/src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract-and-run
+        run: xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/smoke_desktop.py --restart-core --screenshot packaging/appimage-smoke.png -- app/src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract-and-run
       - name: Flatpak bundle and runtime
         if: runner.os == 'Linux'
         shell: bash

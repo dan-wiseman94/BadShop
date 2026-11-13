@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { action, useCoreQuery } from "../data";
 import { packPath } from "../native";
 import { useOperation } from "../useOperation";
@@ -18,7 +18,12 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
   const [editing, setEditing] = useState<LibraryEntry | null>(null);
   const [removing, setRemoving] = useState("");
   const cast = entries.filter(e => e.tags.includes("cast"));
-  const shown = cast.filter(e => !filter || value(e, "collection:") === filter);
+  const collections = [...new Set(cast.map(e => value(e, "collection:")).filter(Boolean))];
+  const activeFilter = collections.includes(filter) ? filter : "";
+  useEffect(() => {
+    if (filter && !entries.some(e => e.tags.includes("cast") && value(e, "collection:") === filter)) setFilter("");
+  }, [entries, filter]);
+  const shown = cast.filter(e => !activeFilter || value(e, "collection:") === activeFilter);
   const locked = disabled || busy;
   function reset() { setEditing(null); setName(""); setExpression(""); setCollection(""); }
   return <section aria-label="Your cast" className="quick-form">
@@ -37,9 +42,9 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
       <button disabled={locked || !name.trim() || (!image && !editing)}>{editing ? "Update character" : "Keep this picture in my cast"}</button>
       {editing && <button type="button" disabled={locked} onClick={reset}>Cancel character edit</button>}
     </form>
-    <label>Show cast collection<select value={filter} onChange={e => setFilter(e.target.value)}>
+    <label>Show cast collection<select value={activeFilter} onChange={e => setFilter(e.target.value)}>
       <option value="">All my characters</option>
-      {[...new Set(cast.map(e => value(e, "collection:")).filter(Boolean))].map(group => <option key={group}>{group}</option>)}
+      {collections.map(group => <option key={group}>{group}</option>)}
     </select></label>
     <div className="quick-cards">{shown.map(entry => <article key={entry.id}>
       <LibraryImage entry={entry} /><strong>{entry.name}</strong><small>{value(entry, "expression:")}</small>
@@ -56,7 +61,7 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
     </article>)}</div>
     <button disabled={locked || !shown.length || shown.length > 100} onClick={() => void perform(async () => {
       const path = await packPath(true);
-      if (path) { await action("packs.export", { ids: shown.map(e => e.id), path, name: filter || "My cast" }); useUI.getState().set({ notice: `Cast pack saved to ${path}` }); }
+      if (path) { await action("packs.export", { ids: shown.map(e => e.id), path, name: activeFilter || "My cast" }); useUI.getState().set({ notice: `Cast pack saved to ${path}` }); }
     })}>Export this cast collection</button>
     <button disabled={locked} onClick={() => void perform(async () => { const path = await packPath(false); if (path) await action("packs.import", { path }); })}>Import a cast pack</button>
     <p>Cast packs contain the selected pictures, available originals and source credits. Review those pictures before sharing.</p>

@@ -25,6 +25,6 @@ export function RemixShare({ id }: { id: string }) {
       const result = await action("remix.export", { artifact_id: id, expected_revision: revision, include_credits: credits });
       setNotice(`Editable remix saved to ${result.path}`); await reveal(result.path);
     })}>Save editable remix</button>
-    {notice && <p role="status">{notice}</p>}{(error || preview.error) && <p role="alert">{error ?? preview.error?.message}</p>}
+    {notice && <p role="status">{notice}</p>}{(error || preview.error) && <p role="alert">{error || preview.error?.message}</p>}
   </details>;
 }
