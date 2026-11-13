@@ -8,6 +8,7 @@ import { IdeaPreview } from "./IdeaPreview";
 import { Cast } from "./Cast";
 import { RecipeStudio } from "./RecipeStudio";
 import { CreativeCollections } from "./CreativeCollections";
+import { CreationReplay } from "./CreationReplay";
 
 export function QuickStart({ onImport, onAdvanced, importedImage, importing = false }: {
   onImport: () => void;
@@ -121,6 +122,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
         })}>{branch.name}</button>)}</details>}
       <details><summary>Save a reusable recipe</summary><RecipeStudio /></details>
       <CreativeCollections image={image} title={String(step?.params.title ?? title)} caption={step ? revision : caption} disabled={disabled} />
+      <details><summary>Show how it happened</summary><CreationReplay /></details>
       {error && <p role="alert" className="error-text">{error}</p>}
     </div>
   </section>;
