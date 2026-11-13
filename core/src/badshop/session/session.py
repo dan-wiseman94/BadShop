@@ -543,14 +543,20 @@ class Session:
         self._refuse_busy(self.data.steps)
         if step.bypassed:
             raise EngineError("enable this effect before previewing its settings")
-        spec = registry.get(step.tool)
+        params = self.validate_step_params(step_id, raw)
+        return self.preview_tool(step.tool, params)
+
+    def preview_tool(self, tool: str, raw: dict) -> list[OutputRecord]:
+        """Use the existing executor for a disposable preview; never publish project state."""
+        self._refuse_busy(self.data.steps)
+        spec = registry.get(tool)
         if spec.network or spec.writes_files:
             raise EngineError("preview requires a local image tool")
-        params = self.validate_step_params(step_id, raw)
-        draft = step.model_copy(update={"params": params})
+        params = self._resolved(runner.validate(tool, raw, "user"))
+        draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
         inputs = {aid: self.artifacts.data(aid) for aid in _image_refs(draft)}
         outcome = self.executor.run(ToolCall(
-            step.tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True,
+            tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True,
         ))
         if not outcome.ok:
             raise EngineError(outcome.error_message or "preview failed", hint=outcome.error_hint)

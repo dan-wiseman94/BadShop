@@ -256,6 +256,7 @@ export interface MethodMap {
   "chat.retry": [undefined, { started: boolean }];
   "tools.list": [undefined, Tool[]];
   "tools.run": [{ tool: string; params: Params }, Step];
+  "tools.preview": [{ tool: string; params: Params; expected_revision: number }, string[]];
   "steps.edit": [{ step_id: string; params: Params }, { stale: string[] }];
   "steps.preview": [{ step_id: string; params: Params }, string[]];
   "steps.controls": [{ step_id: string; locked_fields?: string[]; bypassed?: boolean }, Session];
