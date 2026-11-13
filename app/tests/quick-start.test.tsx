@@ -1,16 +1,22 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+import { fireEvent, render as renderView, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { QuickStart } from "../src/components/QuickStart";
 import { action } from "../src/data";
 import { useUI } from "../src/store";
-const state = vi.hoisted(() => ({ step: { id: "s1", tool: "layout", status: "done", params: { captions: ["old joke"] }, error: null as null | { message: string } } }));
+const state = vi.hoisted(() => ({ step: { id: "s1", tool: "layout", status: "done", outputs: [] as string[], params: { captions: ["old joke"] }, error: null as null | { message: string } } }));
 vi.mock("../src/data", () => ({
   action: vi.fn(), importBlob: vi.fn(),
   useSession: () => ({ data: { steps: [state.step], artifacts: {}, turn_running: false } }),
-  useCoreQuery: (method: string) => ({ data: method === "layouts.list" ? [] : { branches: [] } }),
+  useCoreQuery: (method: string) => ({ data: method === "branches.list" ? { branches: [] } : [] }),
 }));
+function render(view: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return renderView(view, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 beforeEach(() => {
-  state.step = { id: "s1", tool: "layout", status: "done", params: { captions: ["old joke"] }, error: null };
+  state.step = { id: "s1", tool: "layout", status: "done", outputs: [] as string[], params: { captions: ["old joke"] }, error: null };
   vi.mocked(action).mockReset();
   useUI.getState().set({ status: "ready", selectedStep: null });
 });
