@@ -5,6 +5,14 @@ entries and diagnostics on your computer. Credentials use the OS keychain or nam
 variables. Provider secrets are not saved in project archives. Projects can contain original
 pictures, prompts, replies, source URLs, filenames and credits: inspect what you share.
 
+**Export → Let someone remix this** creates a separate, limited project with the selected
+image's local edit chain and dependency pictures. It strips original containers, embedded
+photo metadata, private filename hints, conversations and unrelated directions. Inspect
+the included picture previews and optional source credits before exporting. Faces, visible
+words and edit parameters remain; captions can themselves contain private information.
+Custom fonts must be replaced with the default and replayed before editable sharing.
+This filter applies to editable remix export, not ordinary project saves or asset packs.
+
 Quick ideas and local editing need no service account. Configuring an API/CLI provider can send
 prompts, conversation context and selected images to that provider. Provider billing, retention
 and policies are separate from BadShop. Subscription CLIs are external processes and can have

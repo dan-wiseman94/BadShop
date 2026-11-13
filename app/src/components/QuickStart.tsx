@@ -22,7 +22,10 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [second, setSecond] = useState("");
-  const [image, setImage] = useState("");
+  const [image, setImage] = useState(() => {
+    const layout = session?.steps.find(s => s.tool === "layout" && s.status === "done");
+    return (layout?.params.images as string[] | undefined)?.[0] ?? "";
+  });
   useEffect(() => { if (importedImage) setImage(importedImage.id); }, [importedImage]);
   const selected = useUI(s => s.selectedStep);
   const ready = useUI(s => s.status === "ready");

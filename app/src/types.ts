@@ -108,6 +108,8 @@ export interface MethodMap {
   "retro.list": [undefined, RetroStyle[]];
   "creative.set": [{ values: Params }, CreativePreferences];
   "recipes.capture": [{ step_id: string }, Recipe];
+  "remix.inspect": [{ artifact_id: string; expected_revision: number }, { artifact_ids: string[]; step_count: number; sources: Record<string, unknown>[] }];
+  "remix.export": [{ artifact_id: string; expected_revision: number; include_credits: boolean }, { path: string }];
   "recipes.save": [{ recipe: Recipe }, Recipe];
   "recipes.remove": [{ name: string }, { removed: boolean }];
   "recipes.run": [

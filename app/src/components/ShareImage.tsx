@@ -6,6 +6,7 @@ import { copyImage, reveal } from "../native";
 import { useUI } from "../store";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField } from "./Fields";
+import { RemixShare } from "./RemixShare";
 
 export function CopyImage({ id, frame = 0, animated = false }: { id: string; frame?: number; animated?: boolean }) {
   const { busy, error, perform } = useOperation();
@@ -32,6 +33,7 @@ export function ShareImage({ id }: { id: string }) {
     <img className="share-preview" src={imageUrl(data)} alt="Selected image at chat preview size" />
     <p className="muted">Preview at 320 px. Make sure the joke is readable at this size.</p>
     <CopyImage id={id} animated={(meta?.frames ?? 1) > 1} />
+    <RemixShare key={id} id={id} />
     {(meta?.frames ?? 1) > 1 && <p>This file is animated. Copy uses the first frame; exporting the original file keeps every frame.</p>}
     <label><input type="checkbox" checked={includeCredits} onChange={e => setIncludeCredits(e.target.checked)} /> Save source credits alongside the image</label>
     {creditError && <p role="alert">Credits could not be loaded: {creditError.message}</p>}
