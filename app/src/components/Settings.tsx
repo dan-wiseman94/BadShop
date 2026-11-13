@@ -933,6 +933,7 @@ export function Welcome({ onQuick, onAdvanced }: { onQuick: () => void; onAdvanc
     return () => { active.current = false; };
   }, []);
   const [step, setStep] = useState(1);
+  const [aiExpanded, setAIExpanded] = useState(false);
   const [editorVersion, setEditorVersion] = useState(0);
   const [kind, setKind] = useState<Profile["kind"]>("api");
   const { data: assets } = useCoreQuery("assets.status");
@@ -988,6 +989,7 @@ export function Welcome({ onQuick, onAdvanced }: { onQuick: () => void; onAdvanc
               <ArrowRight size={16} />
             </button>
             <p className="field-description">Opens Art director. Import a photo and choose Run tool to edit it yourself using parameter controls.</p>
+            <details open={aiExpanded} onToggle={e => setAIExpanded(e.currentTarget.open)}><summary>Connect AI (optional)</summary>
             {!!profiles?.length && (
               <div className="saved-provider-choice">
                 <h3>Use a saved provider</h3>
@@ -1033,6 +1035,7 @@ export function Welcome({ onQuick, onAdvanced }: { onQuick: () => void; onAdvanc
               Continue with {kindNames[kind]}
               <ArrowRight size={16} />
             </button>
+            </details>
           </>
         ) : step === 3 ? (
           <>
