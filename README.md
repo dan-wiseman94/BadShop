@@ -4,6 +4,9 @@ Make deliberately bad photo edits in the style of an old internet forum. Add las
 an Impact caption, or a deep-fried color cast. Pick the effects yourself or tell a vision
 model what you want. Every edit appears in a timeline you can change and replay.
 
+**[Documentation](docs/README.md)** · [Tutorials](docs/README.md#start-here) ·
+[Architecture](docs/architecture.md) · [Screenshot tour](docs/screenshots/README.md)
+
 ## Get badshop on Windows
 
 **[Download the latest badshop release](https://github.com/dan-wiseman94/BadShop/releases/latest)**
@@ -18,6 +21,9 @@ For development builds, see the [nightly track](docs/releasing.md#nightly-builds
 and [GitHub prereleases](https://github.com/dan-wiseman94/BadShop/releases).
 
 ![badshop desktop with chat, image viewer, and editable timeline](docs/screenshots/badshop.png)
+
+*Source UI with a real core and scripted demo assistant. The
+[screenshot tour](docs/screenshots/README.md) explains the panels and capture setup.*
 
 ## Make your first edit
 
@@ -36,6 +42,10 @@ and [GitHub prereleases](https://github.com/dan-wiseman94/BadShop/releases).
 
 A dot beside the project name marks unsaved changes. If the app closes unexpectedly,
 look for the recovery prompt the next time it opens.
+
+Follow the complete [Quick idea tutorial](docs/tutorials/first-shitpost.md), then
+learn [manual editing and replay](docs/tutorials/edit-and-replay.md) or
+[AI art direction with approvals](docs/tutorials/art-director.md).
 
 Earlier installers may show **Edit a photo without AI** instead of Quick ideas.
 See the [first-use and compatibility guide](docs/compatibility.md), [privacy](docs/privacy.md),
@@ -65,34 +75,34 @@ The default cutout model is u2net. BiRefNet is optional and needs much more RAM:
 measurement peaked at 9,328 MiB on a 1000-pixel image. Set Tool memory to at least 12,288 MB
 for BiRefNet and allow headroom for the rest of the app. Results vary by platform.
 
-See the [design](docs/superpowers/specs/2026-09-26-badshop-app-design.md),
+See the [current architecture](docs/architecture.md),
+[original design](docs/superpowers/specs/2026-09-26-badshop-app-design.md),
 [implementation record](docs/superpowers/plans/2026-10-31-complete-app.md), and
 [model licences and attribution](docs/model-licenses.md).
 
 ## Developing and testing
 
-In PowerShell, run these from the repository folder after Windows source setup:
+Start with [development and testing](docs/development.md) for prerequisites,
+isolated worktrees and choosing checks. From the repository folder, inspect setup:
 
 ```powershell
 uv run --project core --locked python scripts/verify.py doctor
 pnpm.cmd --dir app exec playwright install chromium
-uv run --project core --locked python scripts/verify.py browser
 ```
 
-On Linux (macOS can run `doctor`, `quick`, and `browser`):
+On Linux and macOS:
 
 ```sh
-./verify.sh doctor    # Check local tools and Linux desktop prerequisites
-./verify.sh quick     # Core/frontend tests, lint, frontend build, Rust tests
-./verify.sh browser   # Browser workflows against a real, isolated Python core
-./verify.sh desktop   # Real Linux desktop + ./start.sh on a private Xvfb display
-./verify.sh all       # Run every local verification layer
+./verify.sh doctor
+# Example: the manual-editing journey, when this behavior is affected.
+./verify.sh browser --browser-test e2e/project-journey.spec.ts --test-name "manual editing"
 ```
 
 Results and logs are kept in `artifacts/verification/`; native runs also save screenshots,
 and failed browser tests retain traces. Model downloads and live provider calls are separate.
-See [development and testing](docs/development.md) for setup, acceptance criteria, isolated
-worktrees, and the limits of each test layer.
+Documentation-only changes need no application test run. Broader `quick`, `browser`,
+`desktop` and `all` modes are available when the change or release requires them;
+see [the limits of each test layer](docs/development.md#pick-the-relevant-checks).
 
 ## Running the command line
 
@@ -137,12 +147,13 @@ uv run --project core badshop-core serve
 127.0.0.1 only, on a free port (`--port N` picks one), and prints exactly one line to stdout,
 `{"port": 40123, "token": "<a random token>"}`; everything else goes to stderr. A client connects to
 `ws://127.0.0.1:<port>` and first sends `{"type": "hello", "token": "<token>", "actor": "user"}`.
-The core answers `{"type": "welcome", "actor": "user", "version": "0.3.0"}`; any other first
+The core answers `{"type": "welcome", "actor": "user", "version": "<core version>"}`; any other first
 message (or none within 10 s) closes the connection with code 1008. After that it is JSON-RPC
 2.0 in text frames: requests such as
 `{"jsonrpc": "2.0", "id": 1, "method": "tools.list", "params": {}}`, and events
 (`step.finished`, `approval.needed`, `turn.finished` and the rest) as notifications. The
-methods and events are listed in spec §7 and `core/src/badshop/server/app.py`. Requests run
+current methods and events are defined in `core/src/badshop/server/app.py` and the
+feature API modules beside it; spec §7 records the original contract. Requests run
 concurrently, so match replies by `id`; messages can be up to 64 MiB, so raise your client's
 limit (websockets' default is 1 MiB). Closing the connection cancels the requests it is still
 waiting on. Ctrl-C or SIGTERM stops the core cleanly: clients get close code 1001, a running
