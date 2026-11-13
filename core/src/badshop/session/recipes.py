@@ -42,7 +42,7 @@ def capture(session, step_id):
     params = dict(step.params)
     for key, many in registry.image_fields(registry.get(step.tool).params).items():
         if params.get(key) is not None:
-            params[key] = ["$input"] if many else "$input"
+            params[key] = ["$input" for _ in params[key]] if many else "$input"
     return Recipe(name=step.tool, steps=[RecipeStep(tool=step.tool, params=params)])
 
 

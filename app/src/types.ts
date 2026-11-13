@@ -108,6 +108,8 @@ export interface MethodMap {
   "retro.list": [undefined, RetroStyle[]];
   "creative.set": [{ values: Params }, CreativePreferences];
   "recipes.capture": [{ step_id: string }, Recipe];
+  "remix.inspect": [{ artifact_id: string; expected_revision: number }, { artifact_ids: string[]; step_count: number; sources: Record<string, unknown>[] }];
+  "remix.export": [{ artifact_id: string; expected_revision: number; include_credits: boolean }, { path: string }];
   "recipes.save": [{ recipe: Recipe }, Recipe];
   "recipes.remove": [{ name: string }, { removed: boolean }];
   "recipes.run": [
@@ -256,6 +258,7 @@ export interface MethodMap {
   "chat.retry": [undefined, { started: boolean }];
   "tools.list": [undefined, Tool[]];
   "tools.run": [{ tool: string; params: Params }, Step];
+  "tools.preview": [{ tool: string; params: Params; expected_revision: number }, string[]];
   "steps.edit": [{ step_id: string; params: Params }, { stale: string[] }];
   "steps.preview": [{ step_id: string; params: Params }, string[]];
   "steps.controls": [{ step_id: string; locked_fields?: string[]; bypassed?: boolean }, Session];

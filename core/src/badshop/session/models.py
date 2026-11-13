@@ -9,8 +9,8 @@ from badshop.session.preferences import CreativePreferences
 
 SCHEMA = 4  # v4 adds correction locks, bypass and turn recovery; older formats use defaults
 
-ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF"]
-EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff"}  # tool outputs keep their CLI extensions
+ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF"]
+EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff", "AVIF": ".avif"}  # tool outputs keep their CLI extensions
 
 StepStatus = Literal["proposed", "approved", "running", "done", "error", "rejected", "stale"]
 

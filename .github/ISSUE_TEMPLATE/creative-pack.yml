@@ -1,0 +1,32 @@
+name: Character collection or recipe
+description: Propose a reusable creative contribution with clear rights and a tested example.
+title: "[Collection] "
+body:
+  - type: textarea
+    id: premise
+    attributes:
+      label: Premise and intended use
+      description: What recurring joke does this help someone make? Include character roles or recipe controls.
+    validations:
+      required: true
+  - type: textarea
+    id: preview
+    attributes:
+      label: Reviewed preview and files
+      description: Attach only non-private examples you have the right to share. Packs include original pictures and metadata.
+    validations:
+      required: true
+  - type: textarea
+    id: rights
+    attributes:
+      label: Sources and licenses
+      description: List each asset's creator, source URL, license and required attribution. Explain consent for identifiable people where applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Reuse check
+      description: Which BadShop version and OS did you use? Describe importing and using the contribution in a fresh project, and any limitations.
+    validations:
+      required: true

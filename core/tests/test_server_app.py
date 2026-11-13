@@ -35,6 +35,7 @@ HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
 NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
     'retro.list', 'creative.set', 'recipes.capture', 'recipes.save', 'recipes.remove', 'recipes.run', 'recipes.stop',
+    'tools.preview', 'remix.inspect', 'remix.export',
     'credits.get', 'credits.export', 'sources.key', 'cache.status', 'cache.clear', 'artifacts.frame',
     "sources.status", "updates.begin", "updates.end",
     "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",

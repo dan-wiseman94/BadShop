@@ -80,8 +80,8 @@ test("discovery controls and header fit the minimum desktop window", async ({
     .click();
   await expect(page.getByLabel("Subject or scene")).toBeVisible();
   await expect(page.getByLabel("Pose / framing")).toBeVisible();
-  await page.getByLabel("Collection").selectOption("met");
-  await expect(page.getByLabel("Collection")).toHaveValue("met");
+  await page.getByLabel(/^Collection/).selectOption("met");
+  await expect(page.getByLabel(/^Collection/)).toHaveValue("met");
   expect(
     await page
       .locator(".studio")

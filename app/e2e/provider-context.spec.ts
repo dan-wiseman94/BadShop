@@ -4,6 +4,7 @@ import type { Profile } from "../src/types";
 test("switching CLI tools clears the previous executable and model before saving", async ({ page, emptyCore }) => {
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await welcome.getByRole("button", { name: /^CLI subscription/ }).click();
   await welcome.getByRole("button", { name: "Continue with CLI subscription" }).click();
   await welcome.getByLabel("Profile name").fill("My subscription");
@@ -20,6 +21,7 @@ test("switching CLI tools clears the previous executable and model before saving
 test("changing provider type resets incompatible model and credentials", async ({ page, emptyCore }) => {
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await welcome.getByRole("button", { name: "Continue with Cloud API" }).click();
   await welcome.getByLabel("Profile name").fill("Changing setup");
   await welcome.getByLabel("Model", { exact: true }).fill("openai/gpt-4.1-mini");
@@ -61,6 +63,7 @@ test("invalid preferences explain that the previous saved value is kept", async 
 test("Back preserves an unfinished provider form and the final screen explains saved versus tested", async ({ page, emptyCore }, info) => {
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await welcome.getByRole("button", { name: /^Local model/ }).click();
   await welcome.getByRole("button", { name: "Continue with Local model" }).click();
   await welcome.getByLabel("Profile name").fill("My local model");
@@ -90,6 +93,7 @@ test("a preselected provider does not hide the first-run choices", async ({ page
   await emptyCore.call("providers.select", { profile_id: profile.id });
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await expect(welcome.getByRole("button", { name: "Start with a quick idea" })).toBeVisible();
   await welcome.getByRole("button", { name: "Start with a quick idea" }).click();
   await expect(page.getByRole("region", { name: "Quick ideas" })).toBeVisible();

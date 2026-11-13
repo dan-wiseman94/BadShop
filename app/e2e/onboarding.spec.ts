@@ -12,6 +12,7 @@ for (const [label, kind, model] of [
   test(`${label} onboarding saves the choice and opens the AI workspace`, async ({ page, emptyCore }, info) => {
     await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
     const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
     await welcome.getByRole("button", { name: new RegExp(`^${label}`) }).click();
     await welcome.getByRole("button", { name: `Continue with ${label}` }).click();
     await expect(welcome.getByLabel("Provider type")).toHaveValue(kind);
@@ -70,6 +71,7 @@ test("provider setup can go back to quick ideas without saving a provider", asyn
   await page.addInitScript(() => localStorage.setItem("badshop.textScale", "200"));
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await expect(welcome).toBeVisible();
   expect(await welcome.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("welcome-200-percent.png") });
@@ -85,6 +87,7 @@ test("provider setup can go back to quick ideas without saving a provider", asyn
 test("manual editing remains available from the provider form", async ({ page, emptyCore }) => {
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await welcome.getByRole("button", { name: "Continue with Cloud API" }).click();
   await welcome.getByRole("button", { name: "Edit a photo without AI" }).click();
   await expect(page.getByRole("button", { name: "Run tool", exact: true })).toBeEnabled();
@@ -97,6 +100,7 @@ test("manual editing remains available from the provider form", async ({ page, e
 test("invalid provider setup retains input and can be corrected", async ({ page, emptyCore }) => {
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await welcome.getByRole("button", { name: /^Custom endpoint/ }).click();
   await welcome.getByRole("button", { name: "Continue with Custom endpoint" }).click();
   await welcome.getByLabel("Profile name").fill("Correctable endpoint");
@@ -167,6 +171,7 @@ test("on-device download can cancel, retry after failure, and open chat after ac
   });
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   const download = welcome.getByRole("button", { name: /Download and use on-device AI/ });
   await download.click();
   await expect(welcome.getByRole("progressbar")).toBeVisible();
@@ -205,6 +210,7 @@ test("every optional editing asset can be downloaded from onboarding", async ({ 
   });
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await welcome.getByRole("button", { name: "Use Saved provider" }).click();
   const rows = welcome.locator(".asset-row");
   await expect(rows).toHaveCount(4);
@@ -228,6 +234,7 @@ test("unsupported on-device AI offers a working download-later exit", async ({ p
   });
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
   await expect(welcome.getByText("On-device AI is unavailable on this computer.")).toBeVisible();
   await expect(welcome.getByRole("button", { name: /Download and use on-device AI/ })).toHaveCount(0);
   await welcome.getByRole("button", { name: "Download later" }).click();

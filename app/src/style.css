@@ -2206,6 +2206,12 @@ button.primary {
 .quick-form label { display: flex; flex-direction: column; gap: 5px; }
 .quick-form button { white-space: normal; }
 .quick-content details button { margin: 4px; white-space: normal; }
+.quick-content details > section { display: flex; flex-direction: column; gap: 10px; padding-block: 10px; }
+.quick-content details label:has(> :is(input:not([type="checkbox"]), select)) { display: flex; flex-direction: column; gap: 4px; }
+.quick-content details :is(input, select) { min-width: 0; max-width: 100%; }
+.quick-cards article { min-width: 0; padding: 8px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.quick-cards article .artifact-thumb { width: 100%; margin: 0; }
+.quick-content .recipe-step { border-block-start: 1px solid var(--line); padding-block: 8px; }
 .workspace-switch { flex-wrap: wrap; }
 .workspace-switch button { transition: none; }
 .workspace-switch button[aria-pressed="true"] { background: var(--skin-action); color: var(--skin-action-text); }

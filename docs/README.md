@@ -12,6 +12,8 @@ controls; see [compatibility](compatibility.md) and the release's notes.
 | I want to… | Read this |
 | --- | --- |
 | Make something without configuring AI | [Your first Quick idea](tutorials/first-shitpost.md) |
+| Reuse characters, remix a joke or play together | [Playful workflows](playful-workflows.md) |
+| Choose an installer | [Downloads](downloads.md) |
 | Change an effect and keep editing later | [Manual tools, replay and projects](tutorials/edit-and-replay.md) |
 | Preview corrections, pin settings or undo an AI turn | [Manual corrections](manual-controls.md) |
 | Have an assistant propose edits I can approve | [Guide an AI art director](tutorials/art-director.md) |
@@ -47,6 +49,8 @@ found online, review the source's rights information before reuse.
 ## Develop and maintain BadShop
 
 Start with [architecture](architecture.md), then [development and testing](development.md).
+See [contributing](../CONTRIBUTING.md), [pack authoring](pack-authoring.md) and the
+opt-in [product study kit](product-study.md) to help grow the project.
 The [release guide](releasing.md) covers packaging and platform verification;
 [creative evaluation](creative-evaluation.md) covers art-direction quality.
 The [tool catalogue](../reference/tool-catalog.md) documents the original CLI

@@ -23,8 +23,12 @@ This is a measured example, not a guarantee for every computer or picture.
 
 ## Pictures and sharing
 
-Imports accept PNG, JPEG, GIF, WebP, BMP and TIFF. HEIC/HEIF and AVIF are not supported by
-the import allowlist; export a PNG or JPEG from your photo application first. The original
+Imports accept PNG, JPEG, GIF, WebP, BMP, TIFF and AVIF. AVIF uses the existing Pillow
+decoder; its import/edit/save/reopen path is checked on Linux. Installer coverage must
+be recorded for each release, and older BadShop versions cannot open projects containing
+AVIF originals. HEIC/HEIF still needs conversion to PNG or JPEG in your photo application.
+[Pillow includes AVIF support](https://pillow.readthedocs.io/en/latest/releasenotes/11.3.0.html)
+in its wheels on BadShop's targeted platforms. The original
 bytes are retained; normal editing uses an upright working copy with a longest side of
 1,000 pixels. Enlarging an export cannot recreate discarded detail.
 

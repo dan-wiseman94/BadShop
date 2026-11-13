@@ -7,8 +7,10 @@ import { useSelectedArtifact, useUI } from "../store";
 import { openLink } from "../native";
 import { ArtifactThumb } from "./Viewer";
 import { ShareImage } from "./ShareImage";
-import type { Params, Recipe, Step } from "../types";
+import type { Params, Step } from "../types";
 import "../retro.css";
+import { RecipeStudio } from "./RecipeStudio";
+import { directionLabel } from "../directions";
 
 function finished(step: Step) {
   if (step.status !== "done") throw new Error(step.error?.message ?? "The tool did not finish.");
@@ -42,8 +44,6 @@ export function RetroStudio({
   const [candidates, setCandidates] = useState<Params[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [colors, setColors] = useState<string[]>([]);
-  const [recipeText, setRecipeText] = useState("");
-  const [batchInputs, setBatchInputs] = useState<string[]>([]);
   const [role, setRole] = useState("subject");
   const [cleanBase, setCleanBase] = useState("");
   const [fryLevel, setFryLevel] = useState(2);
@@ -382,102 +382,7 @@ export function RetroStudio({
           </p>
         </>
       )}
-      {section === "recipes" && (
-        <>
-          <p>
-            Save local tool steps as reusable recipes. Image knobs use $input or $step0, $step1 for earlier
-            outputs. Batches stop between steps and keep completed outputs.
-          </p>
-          <div className="retro-controls">
-            <Button
-              disabled={!selectedStep || disabled}
-              onClick={() =>
-                void perform(async () => {
-                  setRecipeText(
-                    JSON.stringify(
-                      await action("recipes.capture", {
-                        step_id: selectedStep!,
-                      }),
-                      null,
-                      2,
-                    ),
-                  );
-                })
-              }
-              label="Capture selected step"
-            />
-            <SelectField
-              label="Saved recipes"
-              defaultValue=""
-              onChange={(e) => {
-                const r = session?.recipes?.find((r) => r.name === e.target.value);
-                if (r) setRecipeText(JSON.stringify(r, null, 2));
-              }}
-              options={[["", "Choose a recipe"], ...(session?.recipes?.map((r) => r.name) ?? [])]}
-            />
-          </div>
-          <TextAreaField
-            label="Recipe and exposed parameters"
-            className="recipe-editor"
-            spellCheck={false}
-            bind={[recipeText, setRecipeText]}
-          />
-          <Button
-            disabled={!recipeText || disabled}
-            onClick={() =>
-              void perform(async () => {
-                await action("recipes.save", {
-                  recipe: JSON.parse(recipeText) as Recipe,
-                });
-                setMessage("Recipe saved in this project.");
-              })
-            }
-            label="Save recipe"
-          />
-          <fieldset>
-            <legend>Batch input images (up to 12)</legend>
-            <div className="retro-inputs">
-              {artifacts.map((a) => (
-                <label key={a.id}>
-                  <input
-                    type="checkbox"
-                    checked={batchInputs.includes(a.id)}
-                    onChange={(e) =>
-                      setBatchInputs(
-                        e.target.checked
-                          ? [...batchInputs, a.id].slice(0, 12)
-                          : batchInputs.filter((id) => id !== a.id),
-                      )
-                    }
-                  />
-                  <ArtifactThumb id={a.id} />
-                  <span>{a.label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <Button
-            disabled={disabled || !recipeText || !batchInputs.length}
-            onClick={() =>
-              void perform(async () => {
-                const result = await action("recipes.run", {
-                  recipe: JSON.parse(recipeText) as Recipe,
-                  inputs: batchInputs,
-                });
-                setMessage(
-                  `${result.completed.length} steps completed${result.cancelled ? " · stopped" : ""}. ${result.errors.map((e) => e.message).join("; ")}`,
-                );
-              })
-            }
-            label="Run batch"
-          />
-          <Button
-            disabled={!busy && !session?.batch_running}
-            onClick={() => run(() => action("recipes.stop"))}
-            label="Stop batch"
-          />
-        </>
-      )}
+      {section === "recipes" && <RecipeStudio />}
       {section === "compare" && (
         <>
           <p>Choose up to four branch results to compare without switching the active direction.</p>
@@ -497,7 +402,7 @@ export function RetroStudio({
                       )
                     }
                   />
-                  {b.name}
+                  {directionLabel(b.name)}
                 </label>
               ))}
           </div>

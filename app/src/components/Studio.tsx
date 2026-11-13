@@ -3,9 +3,7 @@ import { ThemeIcon } from "./ThemeIcon";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { action, imageUrl, run, useCoreQuery, useSession } from "../data";
-import { rpc } from "../rpc";
+import { action, run, useCoreQuery, useSession } from "../data";
 import { useSelectedArtifact, useUI } from "../store";
 import { openLink } from "../native";
 import { sourceCard } from "../sourceCard";
@@ -17,6 +15,8 @@ import { LocalMedia } from "./LocalMedia";
 import { IdeaMixer } from "./IdeaMixer";
 import { SpriteSheet } from "./SpriteSheet";
 import { RetroStudio } from "./RetroStudio";
+import { LibraryImage } from "./LibraryImage";
+import { directionLabel } from "../directions";
 import type { LibraryEntry, Params } from "../types";
 
 type Candidate = {
@@ -36,13 +36,6 @@ type Candidate = {
   };
   reasons?: string[];
 };
-function LibraryImage({ entry }: { entry: LibraryEntry }) {
-  const { data } = useQuery({
-    queryKey: ["library.thumbnail", entry.id],
-    queryFn: ({ signal }) => rpc.request("library.thumbnail", { id: entry.id, max_px: 240 }, signal),
-  });
-  return <img className="studio-thumb" src={imageUrl(data)} alt={entry.name} />;
-}
 export function Studio({
   onClose,
   onAttach,
@@ -566,10 +559,10 @@ export function Studio({
               {branches?.branches.map((branch) => (
                 <article className="studio-card" key={branch.id}>
                   {branch.preview_id && session?.artifacts[branch.preview_id] && (
-                    <ArtifactThumb id={branch.preview_id} label={branch.name} />
+                    <ArtifactThumb id={branch.preview_id} label={directionLabel(branch.name)} />
                   )}
                   <strong>
-                    {branch.name}
+                    {directionLabel(branch.name)}
                     {branch.id === branches.active_id ? " (current)" : ""}
                   </strong>
                   <small>{branch.step_count} steps</small>

@@ -21,11 +21,11 @@ from PIL import Image, ImageOps
 from badshop.engine import assets
 from badshop.engine.errors import EngineError
 from badshop.engine.sources import contact_sheet
+from badshop.session.artifacts import IMPORT_FORMATS as IMAGE_FORMATS
 from badshop.session.models import Source
 
 MAX_BYTES = 200 * 2**20
 MAX_PIXELS = 32_000_000
-IMAGE_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF")
 VIDEO_FORMATS = "mov,matroska,avi,mpegts,mpeg,ogg,asf,flv"
 
 
