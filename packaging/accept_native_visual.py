@@ -14,13 +14,13 @@ class NativeLabels:
     def __init__(self, window, output):
         self.window, self.output = window, output
 
-    def read(self):
+    def read(self, threshold):
         shot = self.output / 'native-labels.png'
         screenshot(self.window, shot)
         ocr = self.output / 'native-labels-ocr.png'
         with Image.open(shot) as image:
             # Remove light control borders that otherwise merge small button labels.
-            image.convert('L').point(lambda value: 0 if value < 120 else 255).resize(
+            image.convert('L').point(lambda value: 0 if value < threshold else 255).resize(
                 (image.width * 3, image.height * 3), Image.Resampling.NEAREST).save(ocr)
         result = subprocess.check_output(['tesseract', str(ocr), 'stdout', '--psm', '11', 'tsv'],
                                          stderr=subprocess.DEVNULL, text=True, timeout=20)
@@ -31,8 +31,11 @@ class NativeLabels:
     def wait(self, label, timeout=45, click=False):
         expected = [re.sub(r'[^\w]', '', word) for word in label.lower().split()]
         deadline = time.monotonic() + timeout
+        attempt = 0
         while time.monotonic() < deadline:
-            rows, shot = self.read()
+            # Font antialiasing differs between the Arch and Ubuntu desktops.
+            rows, shot = self.read((150, 120)[attempt % 2])
+            attempt += 1
             words = [re.sub(r'[^\w]', '', row['text'].lower()) for row in rows]
             for index in range(len(words) - len(expected) + 1):
                 if words[index:index + len(expected)] == expected:

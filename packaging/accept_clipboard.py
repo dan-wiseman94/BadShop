@@ -3,12 +3,22 @@ import base64
 import io
 import json
 import sys
+import subprocess
+from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
 
 def paste_into_browser(expected_png, output):
+    # Windows calls this while its WebView driver already owns a Playwright loop.
+    # A separate recipient process also models an independent target application.
+    expected = output / 'clipboard-expected.png'
+    expected.write_bytes(expected_png)
+    subprocess.run([sys.executable, __file__, str(expected), str(output)], check=True, timeout=90)
+
+
+def receive(expected_png, output):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False, args=['--no-sandbox'])
         try:
@@ -37,3 +47,7 @@ def paste_into_browser(expected_png, output):
                 'width': actual.width, 'height': actual.height, 'rgba_equal': True}, indent=2))
         finally:
             browser.close()
+
+
+if __name__ == '__main__':
+    receive(Path(sys.argv[1]).read_bytes(), Path(sys.argv[2]))

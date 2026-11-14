@@ -31,11 +31,14 @@ def text(value):
     time.sleep(.2)
 
 
-def file_dialog(path):
+def file_dialog(path, *, saving=False):
     import Quartz
     time.sleep(1)
+    if saving:
+        key(0, Quartz.kCGEventFlagMaskCommand)
+        text(path.name)
     key(5, Quartz.kCGEventFlagMaskCommand | Quartz.kCGEventFlagMaskShift)  # Go to folder
-    text(str(path))
+    text(str(path.parent if saving else path))
     key(36)
     time.sleep(1)
     key(36)
@@ -78,7 +81,7 @@ def editing(pid, window, close, output):
     wait_project_pixels(autosave, current['session_id'], pixels)
     saved = root / 'native-saved.badshop'
     key(1, Quartz.kCGEventFlagMaskCommand)  # Save
-    file_dialog(saved)
+    file_dialog(saved, saving=True)
     state(unsaved=False)
     wait_project_pixels(saved, current['session_id'], pixels)
     reopened = root / 'native-open.badshop'
