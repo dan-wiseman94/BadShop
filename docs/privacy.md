@@ -1,5 +1,13 @@
 # Privacy and local data
 
+Screen capture runs only after **Capture screen region**. It uses your OS's capture
+permission flow where available, then keeps a local preview until you import or
+cancel it. Cancelling through the import panel removes that cached capture.
+Imported regions are ordinary project images, without a full-screen original
+containing pixels outside the selected region. Capture itself does not contact a
+provider. Windows/macOS screen permissions and the Wayland desktop portal remain
+under OS control.
+
 BadShop stores projects, autosaves, preferences, provider profiles, cached assets, image-library
 entries and diagnostics on your computer. Credentials use the OS keychain or named environment
 variables. Provider secrets are not saved in project archives. Projects can contain original
@@ -47,6 +55,12 @@ delete original pictures. Saved projects and exports remain until you delete the
 removing a provider profile attempts to remove its saved keychain entry. OS backups and provider
 copies are outside BadShop's control. Review diagnostics before posting them: automatic redaction
 reduces accidental disclosure but cannot recognize every private filename or conversation detail.
+
+Local settings also retain up to 20 recent project paths, names and small PNG
+previews, up to 30 export presets, and up to 50 reusable designs with text defaults.
+Turning off history prevents new recent-project entries; remove existing entries
+from Projects. Removing a recent entry or reusable design does not delete project
+files, source images or exported files. These libraries are local, not uploaded.
 
 No analytics or crash-upload service is added by this release work. Support and research below
 are opt-in activities; do not add silent usage tracking to implement the proposed product study.

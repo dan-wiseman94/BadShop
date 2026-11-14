@@ -1,5 +1,6 @@
 import shutil
-import subprocess
+import base64
+import tempfile
 
 import pytest
 from PIL import Image
@@ -118,35 +119,74 @@ def test_changed_cached_frame_is_rejected(tmp_path):
         media.import_selected(Session.new(), preview["id"], ["0"])
 
 
-def test_missing_decoder_is_actionable(tmp_path, monkeypatch):
+def test_malformed_pdf_is_actionable_and_leaves_no_preview(tmp_path):
     pdf = tmp_path / "page.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    monkeypatch.setattr(shutil, "which", lambda _: None)
-    with pytest.raises(EngineError, match="pdftoppm is not installed"):
+    with pytest.raises(EngineError, match="PDF could not be opened"):
         MediaSources(tmp_path / "cache").preview(str(pdf), "document")
+    assert not (tmp_path / "cache").exists()
 
 
-@pytest.mark.skipif(not shutil.which("pdftoppm"), reason="optional PDF renderer")
-def test_real_pdf_page_and_region(tmp_path):
+def test_real_pdf_page_and_region(tmp_path, monkeypatch):
     path = tmp_path / "pages.pdf"
     Image.new("RGB", (80, 60), "red").save(path, "PDF", save_all=True,
             append_images=[Image.new("RGB", (80, 60), "blue")])
     media = MediaSources(tmp_path / "cache")
+    monkeypatch.setattr(shutil, "which", lambda _: None)
     preview = media.preview(str(path), "document", page=2)
     assert preview["candidates"][0]["page"] == 2
-    result = media.import_selected(Session.new(), preview["id"], ["0"], crop=(10, 10, 30, 30))
+    assert (preview["width"], preview["height"]) == (1000, 750)
+    with pytest.raises(EngineError, match="2 pages"):
+        media.preview(str(path), "document", page=3)
+    path.unlink()
+    session = Session.new()
+    result = media.import_selected(session, preview["id"], ["0"], crop=(10, 10, 30, 30))
     assert result["artifacts"][0]["width"] == 20
+    output = result["artifacts"][0]["id"]
+    red, green, blue = session.artifacts.image(output).getpixel((10, 10))[:3]
+    assert red < 10 and green < 10 and blue > 240  # Pillow's PDF fixture embeds JPEG pixels.
+    saved = tmp_path / "page.badshop"
+    project.save(session, saved)
+    restored = project.open_project(saved)
+    assert restored.artifacts.data(output) == session.artifacts.data(output)
 
 
-@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="optional video tools")
-def test_real_video_frames(tmp_path):
+def test_real_video_frames(tmp_path, monkeypatch):
+    import av
     source = tmp_path / "clip.mp4"
-    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=80x60:d=1",
-                    "-c:v", "mpeg4", str(source)], check=True, timeout=20)
+    with av.open(str(source), "w") as video:
+        stream = video.add_stream("mpeg4", rate=3)
+        stream.width, stream.height, stream.pix_fmt = 80, 60, "yuv420p"
+        for color in ("red", "green", "blue"):
+            for packet in stream.encode(av.VideoFrame.from_image(Image.new("RGB", (80, 60), color))):
+                video.mux(packet)
+        for packet in stream.encode():
+            video.mux(packet)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
     media = MediaSources(tmp_path / "cache")
     preview = media.preview(str(source), "video", count=3)
     assert len(preview["candidates"]) == 3
-    assert preview["candidates"][1]["time_s"] > 0
+    assert [c["time_s"] for c in preview["candidates"]] == [0, .3333, .6667]
+    with pytest.raises(EngineError, match="no video"):
+        media.preview(str(source), "video", start=2)
+    source.unlink()
+    session = Session.new()
+    result = media.import_selected(session, preview["id"], ["2"])
+    output = result["artifacts"][0]["id"]
+    red, green, blue = session.artifacts.image(output).getpixel((10, 10))[:3]
+    assert red < 10 and green < 10 and blue > 240
+    saved = tmp_path / "clip.badshop"
+    project.save(session, saved)
+    assert project.open_project(saved).artifacts.data(output) == session.artifacts.data(output)
+
+
+@pytest.mark.parametrize("content", [b"not a video", b"#EXTM3U\nhttp://127.0.0.1/private.ts\n"])
+def test_invalid_video_and_network_playlist_leave_no_cache(tmp_path, content):
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(content)
+    with pytest.raises(EngineError, match="could not be decoded"):
+        MediaSources(tmp_path / "cache").preview(str(source), "video")
+    assert not (tmp_path / "cache").exists()
 
 
 def test_collection_index_dedup_search_and_roundtrip(tmp_path):
@@ -220,9 +260,35 @@ def test_user_only_media_rpc(env):
             assert failure.value.code == FORBIDDEN
         user = Client(app, "user")
         readiness = await user.call("media.status")
-        assert readiness == {"video": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
-                             "pdf": bool(shutil.which("pdftoppm"))}
+        assert readiness == {"video": True, "pdf": True}
         assert await user.call("media.cancel") == {"cancelled": False}
+    run(scenario)
+
+
+def test_uploaded_media_uses_existing_worker_and_cleans_staging_files(env, tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    source = tmp_path / "page.pdf"
+    Image.new("RGB", (80, 60), "blue").save(source, format="PDF")
+    data = base64.b64encode(source.read_bytes()).decode()
+
+    async def scenario(app):
+        user = Client(app, "user")
+        before = app.session.data.model_dump()
+        for params in ({}, {"path": str(source), "data": data}, {"data": "not base64!"}):
+            with pytest.raises(Failed):
+                await user.call("media.preview", kind="document", **params)
+        preview = await user.call("media.preview", kind="document", data=data, name="../page.pdf")
+        assert preview["source_name"] == "page.pdf"
+        assert app.session.data.model_dump() == before  # preview is not an import
+        assert not list(scratch.iterdir())
+        imported = await user.call("media.import", preview_id=preview["id"], candidate_ids=["0"])
+        assert imported["artifacts"][0]["width"] == 1000
+        with pytest.raises(Failed):
+            await user.call("media.preview", kind="document", data=base64.b64encode(b"invalid").decode(), name="bad.pdf")
+        assert not list(scratch.iterdir())
+        assert len(app.session.visible_artifact_ids()) > 0
     run(scenario)
 
 

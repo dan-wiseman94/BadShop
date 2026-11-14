@@ -363,7 +363,7 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
     data.schema_ = SCHEMA
     if data.active_branch_id is not None and data.active_branch_id not in data.branches:
         raise _damaged(path, "the active creative direction is missing")
-    for bid, branch in data.branches.items():
+    for bid, branch in [*data.branches.items(), *((s.id, s) for s in [*data.manual_undo, *data.manual_redo])]:
         if bid != branch.id:
             raise _damaged(path, "a creative direction is listed under the wrong id")
         if any(aid not in data.artifacts for aid in branch.artifact_ids):
@@ -447,7 +447,7 @@ def open_project(path: Path, **session_kw) -> Session:
     _finish_interrupted(data, artifacts)
     session = Session(data, artifacts, **session_kw)  # Session makes data.artifacts the store's metas
     missing = session.referenced_ids() - set(artifacts.ids())
-    for branch in data.branches.values():
+    for branch in [*data.branches.values(), *data.manual_undo, *data.manual_redo]:
         branch_data = SessionData(id=data.id, name=branch.name, created_at=branch.created_at,
                                   steps=branch.steps, messages=branch.messages, transcript=branch.transcript)
         _finish_interrupted(branch_data, artifacts)

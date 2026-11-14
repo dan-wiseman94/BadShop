@@ -151,10 +151,12 @@ export async function action<K extends keyof MethodMap>(
         );
     }
   }
-  if (["session.new", "session.open", "session.restore", "branches.create", "branches.switch", "chat.undo"].includes(method)) {
+  if (["session.new", "session.open", "session.restore", "branches.create", "branches.switch", "chat.undo", "history.undo", "history.redo"].includes(method)) {
     acceptSessionReplacement(value as Session);
   }
   await queries.invalidateQueries({ queryKey: ["session.get"] });
+  if (method.startsWith("session.") || method.startsWith("projects."))
+    await queries.invalidateQueries({ queryKey: ["projects.recent"] });
   if (method.startsWith("providers."))
     await queries.invalidateQueries({ queryKey: ["providers.list"] });
   if (method.startsWith("settings."))
@@ -400,12 +402,16 @@ export function useArtifact(id: string | null, thumb = false, still = false, fra
   const ready = useUI((s) => s.status === "ready");
   return useQuery({
     queryKey: ["artifact", id, thumb, still, frame],
-    queryFn: ({ signal }) => still ? rpc.request('artifacts.frame', {id:id!, frame}, signal) :
-      rpc.request(
+    queryFn: async ({ signal }) => {
+      const renderFrame = () => rpc.request("artifacts.frame", { id: id!, frame, ...(thumb ? { max_px: 160 } : {}) }, signal);
+      if (still || queries.getQueryData<Session>(["session.get"])?.artifacts[id!]?.format === "HEIF") return renderFrame();
+      const payload = await rpc.request(
         "artifacts.get",
         { id: id!, ...(thumb ? { max_px: 160 } : {}) },
         signal,
-      ),
+      );
+      return payload.mime === "image/heif" ? renderFrame() : payload;
+    },
     enabled: ready && !!id,
     staleTime: Infinity,
   });
@@ -415,19 +421,23 @@ export function imageUrl(data: { mime: string; data: string } | undefined) {
 }
 const MAX_PASTE_MIB = 47; // Matches MAX_PASTE_BYTES in the core and leaves room for the RPC envelope.
 
-export async function importBlob(blob: Blob, name = "pasted.png", source?: Artifact["source"]) {
+export async function readImportData(blob: Blob) {
   if (blob.size > MAX_PASTE_MIB * 2 ** 20) {
     throw new Error(
-      `This image exceeds the ${MAX_PASTE_MIB} MiB paste limit. Import it from a file or paste a smaller copy.`,
+      `This file exceeds the ${MAX_PASTE_MIB} MiB upload limit. Use the desktop file picker or a smaller copy.`,
     );
   }
-  const generation = useUI.getState().documentGeneration;
-  const data = await new Promise<string>((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(",")[1]);
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
+}
+
+export async function importBlob(blob: Blob, name = "pasted.png", source?: Artifact["source"]) {
+  const generation = useUI.getState().documentGeneration;
+  const data = await readImportData(blob);
   if (generation !== useUI.getState().documentGeneration)
     throw new Error("The session changed while reading the image. Import it again into the current session.");
   return action("artifacts.import", { data, name, ...(source ? { source } : {}) });

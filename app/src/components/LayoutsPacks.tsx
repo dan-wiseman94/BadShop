@@ -6,6 +6,7 @@ import { action, queries, useCoreQuery, useSession } from "../data";
 import { packPath } from "../native";
 import { useUI } from "../store";
 import type { LayoutDefinition } from "../types";
+import { ArtifactThumb } from "./Viewer";
 
 type Box = LayoutDefinition["slots"][number]["box"];
 export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
@@ -20,11 +21,24 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
   const [captions, setCaptions] = useState<string[]>([]);
   const [boxes, setBoxes] = useState<Box[] | null>(null);
   const [fit, setFit] = useState("contain");
+  const [focalPoints, setFocalPoints] = useState<number[][]>([]);
+  const [panelBorder, setPanelBorder] = useState(3);
+  const [panelPadding, setPanelPadding] = useState(0);
+  const [preview, setPreview] = useState<{ signature: string; images: string[] } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
 
   const ready = useUI((s) => s.status === "ready");
   const disabled = !ready || busy || !!session?.turn_running;
   const definition = definitions.find((item) => item.id === template);
+  const assigned = images.map((id, index) => ({ id, index })).filter(item => item.id);
+  const params = {
+    template, title, images: assigned.map(item => item.id), image_slots: assigned.map(item => item.index),
+    captions: definition?.slots.map((_, i) => captions[i] ?? "") ?? [], fit,
+    panel_border: panelBorder, panel_padding: panelPadding, exact_text: true,
+    focal_points: definition?.slots.map((_, i) => focalPoints[i] ?? [0.5, 0.5]) ?? [],
+    ...(boxes ? { slots: boxes } : {}),
+  };
+  const signature = JSON.stringify(params);
 
   function replace<T>(previous: T[], index: number, value: T): T[] {
     const next = previous.slice();
@@ -94,18 +108,9 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
         onSubmit={(e) => {
           e.preventDefault();
           void perform(async () => {
-            const assigned = images.map((id, index) => ({ id, index })).filter((item) => item.id);
             const step = await action("tools.run", {
               tool: "layout",
-              params: {
-                template,
-                title,
-                images: assigned.map((item) => item.id),
-                image_slots: assigned.map((item) => item.index),
-                captions: definition?.slots.map((_, i) => captions[i] ?? "") ?? [],
-                fit,
-                ...(boxes ? { slots: boxes } : {}),
-              },
+              params,
             });
             if (step.status !== "done" || !step.outputs[0])
               throw new Error(
@@ -119,6 +124,10 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
         }}
       >
         <div className="studio-form">
+          <InputField label="Panel border (px)" type="number" min={0} max={30} value={panelBorder}
+            disabled={disabled} onChange={event => setPanelBorder(event.target.valueAsNumber)} />
+          <InputField label="Panel inner margin (px)" type="number" min={0} max={100} value={panelPadding}
+            disabled={disabled} onChange={event => setPanelPadding(event.target.valueAsNumber)} />
           <SelectField
             label="Layout template"
             value={template}
@@ -127,6 +136,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
               setImages([]);
               setCaptions([]);
               setBoxes(null);
+              setFocalPoints([]);
             }}
           >
             {definitions.map((item) => (
@@ -148,7 +158,14 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
         </div>
         <div className="studio-grid">
           {definition?.slots.map((slot, index) => (
-            <fieldset className="studio-card" key={`${template}-${index}`}>
+            <fieldset className="studio-card" key={`${template}-${index}`}
+              onDragOver={event => { if (!disabled) event.preventDefault(); }}
+              onDrop={event => {
+                event.preventDefault();
+                if (disabled) return;
+                const id = event.dataTransfer.getData("application/x-badshop-artifact");
+                if (session?.artifacts[id]) setImages(previous => replace(previous, index, id));
+              }}>
               <legend>{slot.name}</legend>
               <label>
                 Image for {slot.name}
@@ -165,6 +182,22 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
                   ))}
                 </select>
               </label>
+              <details><summary>Choose {slot.name} visually</summary><div className="artifact-list">
+                {Object.values(session?.artifacts ?? {}).filter(image => !Object.values(session?.artifacts ?? {}).some(other => other.original_id === image.id)).map(image =>
+                  <ArtifactThumb key={image.id} id={image.id} label={image.label}
+                    onClick={() => { if (!disabled) setImages(previous => replace(previous, index, image.id)); }} />)}
+              </div></details>
+              {fit === "cover" && <div>
+                {["Horizontal", "Vertical"].map((axis, coordinate) => <label key={axis}>
+                  {axis} crop focus for {slot.name}
+                  <input type="range" min={0} max={1} step={0.01} value={focalPoints[index]?.[coordinate] ?? 0.5}
+                    onChange={event => setFocalPoints(previous => {
+                      const point = [...(previous[index] ?? [0.5, 0.5])];
+                      point[coordinate] = Number(event.target.value);
+                      return replace(previous, index, point);
+                    })} />
+                </label>)}
+              </div>}
               <label>
                 Caption for {slot.name}
                 <textarea
@@ -201,6 +234,14 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
             </fieldset>
           ))}
         </div>
+        <Button type="button" disabled={disabled || !definition || !session} label="Preview layout"
+          onClick={() => void perform(async () => setPreview({ signature, images: await action("tools.preview", {
+            tool: "layout", params, expected_revision: session!.document_revision,
+          }) }))} />
+        {preview?.signature === signature && <div>
+          {preview.images.map((src, index) => <img key={index} src={src} alt="Uncommitted layout preview" style={{ maxWidth: "100%", maxHeight: 360, imageRendering: "pixelated" }} />)}
+          <Button type="button" label="Dismiss layout preview" onClick={() => setPreview(null)} />
+        </div>}
         <Button className="primary" disabled={disabled || !definition} label="Create layout" />
       </form>
       <h3>Period asset packs</h3>

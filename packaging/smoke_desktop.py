@@ -212,7 +212,7 @@ def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
 
 
 def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90,
-          restart_core: bool = False, *,
+          restart_core: bool = False, *, capture: bool = False,
           webview_profile: Path | None = None,
           exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
@@ -241,6 +241,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
         nonce = secrets.token_hex(16)
         env['BADSHOP_SMOKE_READY_FILE'] = str(ready_path)
         env['BADSHOP_SMOKE_NONCE'] = nonce
+        env.pop('BADSHOP_SMOKE_CAPTURE', None)
+        if capture:
+            env['BADSHOP_SMOKE_CAPTURE'] = '1'
         log_path = root / 'desktop.log'
         metrics = {'schema': 1, 'kind': 'desktop-runtime', 'profile': 'renderer-ready-v1',
                    'platform': sys.platform, 'command': command, 'status': 'failed', 'measurements': {}}
@@ -272,6 +275,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                     time.sleep(.2)
                 else:
                     raise RuntimeError(f'No rendered, authenticated session after {startup_timeout}s')
+                if capture:
+                    assert json.loads(ready_path.read_text())['capture_pixels'] is True
+                    print('Native screen capture passed: window hide/restore, decoded screenshot pixels and discarded preview')
                 print(json.dumps({'shell_pid': proc.pid, 'core_pid': core.pid,
                                   'core_executable': core.exe(), 'listen_ports': ports,
                                   'established_connections': connected, 'renderer_ready': True}), flush=True)
@@ -456,6 +462,7 @@ if __name__ == '__main__':
     parser.add_argument('--screenshot', type=Path)
     parser.add_argument('--restart-core', action='store_true',
                         help='Crash the owned core and require renderer readiness after recovery')
+    parser.add_argument('--capture', action='store_true', help='Opt in to screen capture on a private display')
     parser.add_argument('--startup-timeout', type=float, default=90,
                         help='Seconds allowed for startup, including compilation for a source launcher')
     parser.add_argument('command', nargs=argparse.REMAINDER)
@@ -465,4 +472,4 @@ if __name__ == '__main__':
         parser.error('provide the installed desktop command after --')
     if args.startup_timeout <= 0:
         parser.error('--startup-timeout must be positive')
-    smoke(command, args.screenshot, args.startup_timeout, args.restart_core)
+    smoke(command, args.screenshot, args.startup_timeout, args.restart_core, capture=args.capture)

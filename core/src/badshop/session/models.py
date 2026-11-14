@@ -9,8 +9,8 @@ from badshop.session.preferences import CreativePreferences
 
 SCHEMA = 4  # v4 adds correction locks, bypass and turn recovery; older formats use defaults
 
-ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF"]
-EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff", "AVIF": ".avif"}  # tool outputs keep their CLI extensions
+ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF", "HEIF"]
+EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff", "AVIF": ".avif", "HEIF": ".heic"}  # tool outputs keep their CLI extensions
 
 StepStatus = Literal["proposed", "approved", "running", "done", "error", "rejected", "stale"]
 
@@ -124,6 +124,8 @@ class SessionData(BaseModel):
     creative: CreativePreferences = Field(default_factory=CreativePreferences)
     recipes: list[dict] = Field(default_factory=list,max_length=50)
     undo_branch_id: str | None = None
+    manual_undo: list[BranchSnapshot] = Field(default_factory=list, max_length=30)
+    manual_redo: list[BranchSnapshot] = Field(default_factory=list, max_length=30)
     pause_before_finish: bool = False
 
     @field_validator('recipes')

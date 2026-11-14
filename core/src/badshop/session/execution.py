@@ -114,6 +114,8 @@ def execute_media(call: MediaCall) -> ToolOutcome:
     try:
         if call.operation == "preview":
             result = MediaSources(call.root).preview(**call.params)
+        elif call.operation == "capture":
+            result = MediaSources(call.root).capture(**call.params)
         elif call.operation == "index":
             result = LocalCollections(call.root).index(**call.params)
         else:
@@ -184,7 +186,7 @@ def execute_call(call: ToolCall) -> ToolOutcome:
 def runtime_fingerprint() -> dict:
     """A lockfile/codec/platform change can change pixels or encoded artifact IDs."""
     libraries = {}
-    for package in ("pillow", "numpy", "opencv-python-headless", "onnxruntime", "rembg"):
+    for package in ("pillow", "pillow-heif", "av", "pypdfium2", "numpy", "opencv-python-headless", "onnxruntime", "rembg"):
         try:
             libraries[package] = version(package)
         except PackageNotFoundError:
