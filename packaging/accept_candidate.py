@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tarfile
 import tomllib
 from pathlib import Path
@@ -144,6 +145,17 @@ def main():
                 assert len(uninstallers) == 1
                 run(uninstallers[0], '/S', '_?=' + str(target))
                 assert not executable.exists(), 'Uninstaller left the application installed'
+                # NSIS can return before its self-cleanup helper releases the
+                # installation directory. Require removal, allowing that helper
+                # a bounded interval to finish rather than masking cleanup errors.
+                deadline = time.monotonic() + 30
+                while target.exists():
+                    try:
+                        shutil.rmtree(target)
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(.5)
                 summary['checks']['install_uninstall'] = 'passed'
             elif sys.platform == 'darwin':
                 installer, = candidate.glob('*.dmg')
@@ -200,7 +212,7 @@ def main():
                 from accept_linux_packages import packages
                 packages(candidate, root, OUT)
                 summary['checks']['package_upgrade_recovery_uninstall'] = 'passed'
-            summary['status'] = 'passed'
+        summary['status'] = 'passed'
     finally:
         (OUT / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
 
