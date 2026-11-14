@@ -14,8 +14,8 @@ from playwright.sync_api import expect, sync_playwright
 
 from accept_update_server import UpdateServer
 from native_windows import normal_close, visible_window
-from smoke_desktop import smoke
-from smoke_windows_edit import choose_file, debugger_url, runner_webview_policy, smoke_editing, viewer_hash
+from smoke_desktop import smoke, viewer_pixel_hash
+from smoke_windows_edit import choose_file, debugger_url, runner_webview_policy, smoke_editing
 
 
 def digest(path):
@@ -42,7 +42,7 @@ def upgrade(executable, candidate, root, output, fixture):
     backup = baseline / 'backup.badshop'
     shutil.copyfile(project, backup)
     baseline_summary = json.loads((output / 'summary.json').read_text())
-    image_hash = baseline_summary['output_sha256']
+    image_hash = baseline_summary['output_pixel_sha256']
     profile = root / 'update-webview'
     summary = {'status': 'failed', 'checks': [], 'project_sha256_before': project_bytes}
 
@@ -60,7 +60,7 @@ def upgrade(executable, candidate, root, output, fixture):
                 if reject_future:
                     expect(page.get_by_role('alert').filter(has_text='newer badshop')).to_be_visible(timeout=20000)
                 else:
-                    assert viewer_hash(page) == image_hash
+                    assert viewer_pixel_hash(page) == image_hash
                 page.screenshot(path=str(output / (name + '.png')))
                 close()
 
@@ -79,7 +79,7 @@ def upgrade(executable, candidate, root, output, fixture):
                 page.locator('.session-name').click()
                 page.get_by_role('button', name=re.compile(r'^Open session')).click()
                 choose_file(pid, window, project)
-                assert viewer_hash(page) == image_hash
+                assert viewer_pixel_hash(page) == image_hash
                 page.get_by_role('button', name='Settings', exact=True).click()
                 page.get_by_role('button', name='Updates', exact=True).click()
                 # Isolate manual fault/retry checks from the baseline's startup
