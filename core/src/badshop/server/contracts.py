@@ -34,6 +34,8 @@ SessionSnapshot = create_model('SessionSnapshot', __base__=SessionData,
     stream_text=(str, ...),
     manual_history=(record('ManualHistory', undo=str | None, redo=str | None), ...),
     manual_undo=(list[BranchSnapshot], Field(default_factory=list, exclude=True)),
+    history_nodes=(dict[str, str], Field(default_factory=dict, exclude=True)),
+    branches=(dict[str, BranchSnapshot], Field(default_factory=dict, exclude=True)),
     manual_redo=(list[BranchSnapshot], Field(default_factory=list, exclude=True)))
 PathResult = record('PathResult', path=str)
 ArtifactPayload = record('ArtifactPayload', meta=ArtifactMeta, mime=str, data=str)

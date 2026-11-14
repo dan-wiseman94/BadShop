@@ -227,7 +227,7 @@ def test_save_then_open_restores_the_session_exactly(tmp_path):
         payload = json.loads(zf.read("session.json"))
         recipe = json.loads(zf.read("recipe.json"))
     assert names == {"session.json", "recipe.json"} | {art(s, aid) for aid in keep}
-    assert payload["schema"] == 4 and "schema_" not in payload and set(payload["artifacts"]) == keep
+    assert payload["schema"] == 5 and "schema_" not in payload and set(payload["artifacts"]) == keep
     assert recipe == project.export_recipe(s)
 
     reopened = project.open_project(path, output_dir=tmp_path / "exports")
@@ -489,7 +489,7 @@ BAD = {  # case -> (make the file from the good one, what the error says)
     "lzma members": (recompressed(zipfile.ZIP_LZMA), "compressed in a way badshop never writes"),
     "no session.json": (edited(lambda m, p: m.update({"session.json": None})), "no session.json"),
     "session.json isn't json": (edited(lambda m, p: m.update({"session.json": b"{not json"})), "isn't JSON"),
-    "newer schema": (edited(lambda m, p: p.update(schema=5)), "newer badshop"),
+    "newer schema": (edited(lambda m, p: p.update(schema=6)), "newer badshop"),
     "no schema": (edited(lambda m, p: p.pop("schema")), "no schema number"),
     "not a session": (edited(lambda m, p: p.update(steps="lots")), "isn't a badshop session"),
     "unknown tool": (edited(lambda m, p: p["steps"][0].update(tool="nope")), "doesn't have"),

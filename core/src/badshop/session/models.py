@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from badshop.engine.result import EXT as OUTPUT_EXT
 from badshop.session.preferences import CreativePreferences
 
-SCHEMA = 4  # v4 adds correction locks, bypass and turn recovery; older formats use defaults
+SCHEMA = 5  # v5 replaces copied branch/undo histories with shared immutable records
 
 ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF", "HEIF"]
 EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff", "AVIF": ".avif", "HEIF": ".heic"}  # tool outputs keep their CLI extensions
@@ -98,11 +98,17 @@ class BranchSnapshot(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     created_at: float
     automatic: bool = False  # legacy/unmarked directions are retained conservatively
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    max_step_number: int = Field(default=0, ge=0)
+    max_message_number: int = Field(default=0, ge=0)
+    artifact_ids: list[str] = []
+    creative: CreativePreferences = Field(default_factory=CreativePreferences)
+
+
+class HistoryState(BaseModel):
     steps: list[Step] = []
     messages: list[Message] = []
     transcript: list[dict] = []
-    artifact_ids: list[str] = []
-    creative: CreativePreferences = Field(default_factory=CreativePreferences)
 
 
 class SessionData(BaseModel):
@@ -122,6 +128,7 @@ class SessionData(BaseModel):
     transcript: list[dict] = []  # the provider-format message history the agent resumes from
     active_branch_id: str | None = None
     branches: dict[str, BranchSnapshot] = {}
+    history_nodes: dict[str, str] = {}
     creative: CreativePreferences = Field(default_factory=CreativePreferences)
     recipes: list[dict] = Field(default_factory=list,max_length=50)
     undo_branch_id: str | None = None
@@ -134,3 +141,16 @@ class SessionData(BaseModel):
     def valid_recipes(cls, value):
         from badshop.session.recipes import Recipe
         return [Recipe.model_validate(row).model_dump(mode='json') for row in value]
+
+    def branch_state(self, branch: BranchSnapshot) -> HistoryState:
+        from badshop.session.history import materialize
+        return HistoryState.model_validate(materialize(self.history_nodes, branch.revision))
+
+    def set_branch_state(self, branch: BranchSnapshot, state: HistoryState) -> None:
+        from badshop.session.history import capture
+        branch.revision = capture(self.history_nodes, state.model_dump(mode='json'))
+
+    def collect_history(self) -> None:
+        from badshop.session.history import collect
+        collect(self.history_nodes, [branch.revision for branch in
+                [*self.branches.values(), *self.manual_undo, *self.manual_redo]])

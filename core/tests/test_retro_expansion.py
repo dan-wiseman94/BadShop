@@ -190,6 +190,9 @@ def test_credit_ancestry_includes_both_composition_inputs():
     b = imported(s, "blue", source=Source(kind="two", creator="Artist"))
     step = s.run_tool("retro_layout", {"style": "forum", "title": "TEST", "images": [a, b]}, "user")
     assert {r["kind"] for r in recipes.credits(s, step.outputs[0])["sources"]} == {"one", "two"}
+    branches.create(s, 'Alternate')
+    s.delete_last(step.id)
+    assert {r["kind"] for r in recipes.credits(s, step.outputs[0])["sources"]} == {"one", "two"}
 
 
 def test_recipe_maps_scalar_and_list_inputs_without_rewriting_the_recipe():

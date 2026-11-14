@@ -160,8 +160,7 @@ class Session:
         names += [sid for m in self.data.messages for sid in m.step_ids]
         names += [a.produced_by for a in self.artifacts.meta.values() if a.produced_by]
         for snapshot in [*self.data.manual_undo, *self.data.manual_redo]:
-            names.extend(s.id for s in snapshot.steps)
-            names.extend(m.id for m in snapshot.messages)
+            names.extend((f's{snapshot.max_step_number}', f'm{snapshot.max_message_number}'))
         numbers = [int(n[len(prefix):]) for n in names if n.startswith(prefix) and n[len(prefix):].isdigit()]
         return f"{prefix}{max(numbers, default=0) + 1}"
 

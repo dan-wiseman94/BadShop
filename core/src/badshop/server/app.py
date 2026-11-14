@@ -498,7 +498,7 @@ class CoreApp:
         """The session as saved (SessionData by alias) plus what the app knows about it."""
         visible = self.session.visible_artifact_ids()
         from badshop.session.session import BYPASS_TOOLS
-        return {**self.session.data.model_dump(mode="json", by_alias=True, exclude={"manual_undo", "manual_redo"}),
+        return {**self.session.data.model_dump(mode="json", by_alias=True, exclude={"manual_undo", "manual_redo", "history_nodes", "branches"}),
                 "context": self._document_context(),
                 "run_id": self._run.id if self._run else None,
                 "last_turn_outcome": self._run.outcome if self._run else None,

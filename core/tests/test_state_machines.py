@@ -184,7 +184,7 @@ def test_queued_auto_replay_does_not_run_in_another_branch(env):
             first = await app._tools_run("user", "filter", {"image": image, "names": ["invert"]})
             await app._branches_create("user", "variant")
             original = next(id for id, b in app.session.data.branches.items() if b.name == "Original")
-            saved_step = app.session.data.branches[original].steps[0].model_dump()
+            saved_step = app.session.data.branch_state(app.session.data.branches[original]).steps[0].model_dump()
             await app._lock.acquire()
             editing = asyncio.create_task(app._steps_edit("user", first["id"],
                                                          {"image": image, "names": ["sepia"]}))

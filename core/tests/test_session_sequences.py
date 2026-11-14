@@ -95,7 +95,7 @@ class SessionSequences(RuleBasedStateMachine):
         assert set(self.session.data.branches) == set(self.expected)
         for branch_id, counts in self.expected.items():
             branch = self.session.data.branches[branch_id]
-            steps = self.session.data.steps if branch_id == active else branch.steps
+            steps = self.session.data.steps if branch_id == active else self.session.data.branch_state(branch).steps
             visible = self.session.visible_artifact_ids() if branch_id == active else set(branch.artifact_ids)
             assert known_imports & visible == self.imports[branch_id]
             parity = 0

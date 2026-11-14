@@ -120,6 +120,7 @@ def save(session, path: Path):
     # Import here avoids a second document validation/normalization implementation.
     from badshop.session import project
 
+    session.data.collect_history()
     keep = session.referenced_ids()
     missing = keep - session.artifacts.meta.keys()
     if missing:

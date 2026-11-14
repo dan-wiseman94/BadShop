@@ -136,13 +136,18 @@ an admitted execution attempt consumes one, including tool failure/cancellation.
 Parallel approvals cannot exceed the budget. Rejected edits settle in the session
 and produce the same recorded result for either provider path.
 
-Current code reads project schemas 1–4 and refuses newer schemas with an explanation.
+Current code reads project schemas 1–5 and refuses newer schemas with an explanation.
 New automatic turn directions carry an optional retention marker. Missing markers
 in older schema 1–4 projects mean permanent retention; names alone never authorize
 cleanup. Older format-4 apps can ignore the marker; if they omit it on resave,
 those directions become permanently retained when reopened in the current app.
-New saves use schema 4 for manual pins, effect bypass and turn checkpoints. Releases
-that only support schemas 1–3 cannot open these new saves; keep a backup before upgrading.
+New saves use schema 5: branch and manual-undo heads reference immutable history
+records with shared list membership. Schema 1–4 imports preserve their timelines,
+pixels and provider-history sanitization. Before overwriting a schema 1–4 archive,
+BadShop writes and verifies a byte-identical sibling named `NAME.pre-v5.badshop`
+(with a numbered suffix if occupied). Backup failure prevents replacement; existing
+backups are never overwritten. Opening alone does not alter the source archive.
+Older releases cannot open schema 5 saves; use the pre-v5 backup for rollback.
 See [manual corrections](manual-controls.md) for controls and their limits.
 Save a copy before experimenting with a different application version; backward readability
 by older apps is not promised. Saving is atomic and preserves the last good file on failure.

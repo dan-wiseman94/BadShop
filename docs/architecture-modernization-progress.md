@@ -253,10 +253,10 @@ creation-workflow golden changes were preserved during reconciliation.
 
 ### Remaining
 
-The full W0–W14 modernization is **not complete**. Disk-backed images and shared
-recovery metadata do not finish the document migration: W4 explicit artifact-use,
-invocation and named-output identities, W5 shared in-memory revisions, and the
-portable-format migration remain open. W6 still needs durable command intents,
+The full W0–W14 modernization is **not complete**. W4 explicit artifact-use,
+invocation and named-output identities remain open. W5 now shares branch/undo
+records in memory and schema-5 archives, but still materializes the active timeline.
+W6 still needs durable command intents,
 receipts, commit-before-event semantics, inspection/repair UI and migration/rollback
 release coverage. The current session remains the mutation authority.
 
@@ -266,3 +266,30 @@ render boundaries/accessibility, scratch/cache budgets, full resource baselines,
 packaged cross-platform release gates and user rollout/study work. The plan's
 100 ms commit proposal is not met by the 1,000-step benchmark. No live provider,
 macOS/Windows native release, signed update or installer outcome is claimed.
+
+## Shared history and schema-5 migration
+
+Branch and manual-undo heads now reference SHA-256-addressed immutable records.
+List membership uses chunks of 32 references rather than a full copied timeline
+per checkpoint. Activation materializes independent models; collection retains
+all branch and manual-history roots. Failed/no-op manual edits remove speculative
+records. Normal UI snapshots exclude inactive branch history and the node graph.
+Source-credit traversal uses the same branch-state reader.
+
+Schema 1–4 archives migrate through the existing parameter, ID, transcript,
+reference, image and archive-bound validators. Overwriting a legacy archive first
+publishes a verified byte-identical `.pre-v5.badshop` sibling without replacing
+existing backups. Failed backup publication prevents archive replacement. Current
+portable saves use schema 5; older releases need the retained pre-v5 copy.
+
+Verification to date: `history-migration-reviewed` passed 187 focused tests and
+lint; `history-frontend` passed the production build and five document-replacement
+checks after installing the isolated worktree's missing Node dependencies. The
+initial browser run passed branch/save/reopen but exposed the missed source-credit
+caller during export; its failure evidence is retained and a rerun is required.
+
+The same 1,000-step / 11-branch small-image workload now has 1.49 MB document JSON
+(previously 6.73 MB), 86 ms recovery commits (previously 330 ms), and 108 ms portable
+saves (previously 350 ms). Recovery database size increased from 1.28 to 2.67 MB,
+and reopen increased from 610 ms to 1.39 seconds. This is a measured tradeoff, not
+a blanket performance improvement. Raw measurements are in `history-benchmark`.

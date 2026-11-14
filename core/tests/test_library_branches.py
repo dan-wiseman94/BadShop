@@ -124,7 +124,7 @@ def test_branches_keep_independent_replay_and_survive_save(tmp_path):
     assert session.artifacts.data(session.step(first.id).outputs[0]) == original_pixels
     saved = project.save(session, tmp_path / "directions.badshop")
     restored = project.open_project(saved)
-    assert restored.data.schema_ == 4
+    assert restored.data.schema_ == 5
     assert branches.listing(restored)["active_id"] == original
     branches.switch(restored, poster)
     assert restored.artifacts.data(restored.step(first.id).outputs[0]) == poster_pixels
@@ -188,7 +188,7 @@ def test_v1_project_migrates_and_bad_branch_is_refused(tmp_path):
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("session.json", json.dumps(payload))
     opened = project.open_project(path)
-    assert opened.data.schema_ == 4 and opened.data.branches == {}
+    assert opened.data.schema_ == 5 and opened.data.branches == {}
     branches.create(opened, "Alt")
     broken = opened.data.model_dump(mode="json", by_alias=True)
     broken["branches"][opened.data.active_branch_id]["artifact_ids"] = ["f" * 64]

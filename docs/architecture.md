@@ -160,8 +160,12 @@ Both recovery slots are garbage-collection roots; unreferenced blobs receive a
 
 The in-memory session remains the mutation owner, and events may precede the
 recovery commit. This is not yet a durable operation-receipt protocol. Portable
-schema 4 and live branch snapshots still contain full histories; shared recovery
-nodes do not by themselves replace that document model.
+schema 5 and live branch/undo snapshots use content-addressed immutable records
+and bounded shared list chunks. Activation materializes an independent mutable
+timeline; inactive histories are excluded from normal UI snapshots. The active
+timeline still has a materialized representation in the document. Schema 1–4
+archives import through the same validators; overwriting them requires a verified,
+non-overwriting pre-v5 backup.
 
 ## Provider paths
 

@@ -495,7 +495,7 @@ def test_import_run_get_and_events(env, monkeypatch):
 
         snap = await c.call("session.get")
         assert [s["status"] for s in snap["steps"]] == ["done", "error"]
-        assert snap["schema"] == 4 and snap["id"] == app.session.data.id and snap["path"] is None
+        assert snap["schema"] == 5 and snap["id"] == app.session.data.id and snap["path"] is None
         assert snap["turn_running"] is False and snap["pending_approvals"] == []
 
     run(body)
