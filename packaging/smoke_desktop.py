@@ -81,7 +81,14 @@ def core_connections(core: psutil.Process) -> tuple[list[int], int]:
             elif line == 'TST=ESTABLISHED':
                 established += 1
         return ports, established
-    sockets = core.net_connections('tcp')
+    try:
+        sockets = core.net_connections('tcp')
+    except psutil.AccessDenied:
+        if sys.platform != 'linux':
+            raise
+        # A newly exec'd Flatpak core can briefly deny /proc socket inspection.
+        # Keep polling within the caller's deadline; never count it as ready.
+        return [], 0
     return ([c.laddr.port for c in sockets if c.status == 'LISTEN' and c.laddr.ip == '127.0.0.1'],
             sum(c.status == 'ESTABLISHED' for c in sockets))
 
