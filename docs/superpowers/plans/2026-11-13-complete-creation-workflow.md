@@ -24,6 +24,17 @@ browser journeys now pass (six in pr46-browser-fixes, recipe in
 pr46-cast-recipe-fixed). Ruff and TypeScript passed. Evidence is in the isolated
 `complete-creation-pr` Linux worktree; failed runs remain retained.
 
+The next CI run passed all 1481 core tests and 108 browser journeys, exposing one
+remaining replay/save race. Timeline now keeps manual edit/replay controls busy
+through request completion and refreshed state. The unchanged save/reopen output
+checks pass, and a held-request regression fails against the prior Timeline
+implementation (control remains enabled) and passes against the fix. Evidence:
+`creation-pr-final/artifacts/verification/pr46-replay-before` and
+`pr46-replay-save-held` (2 browser journeys). `pr46-structured-cli` passes four
+component checks, including copied JSON frame/polygon arguments. Existing
+save-revision guards remain intact. Concurrent main commit d6c55b7 (late streamed
+replies) was reviewed and cleanly integrated before this final pass.
+
 All evidence directories below are under `artifacts/verification/` in the isolated
 Arch worktree `/home/dan/.local/share/badshop-linux-test/worktrees/complete-creation-workflow`.
 
