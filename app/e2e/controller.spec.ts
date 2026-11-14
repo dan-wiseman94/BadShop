@@ -233,18 +233,29 @@ test("rejects an agent proposal with a note and exposes provider failures for re
   page,
   core,
 }) => {
-  // Let a real session snapshot overtake the final notification, as in the CI race.
+  // A snapshot can overtake both the reply delta and final notification.
   let completionHeld = false;
+  let delayRetryText = false;
   const withheld: (string | Buffer)[] = [];
+  const lateText: (string | Buffer)[] = [];
   let releaseCompletion = () => {};
+  let releaseText = () => {};
   await page.routeWebSocket(`ws://127.0.0.1:${core.port}/`, (client) => {
     const server = client.connectToServer();
+    releaseText = () => {
+      delayRetryText = false;
+      for (const frame of lateText.splice(0)) client.send(frame);
+    };
     releaseCompletion = () => {
       completionHeld = false;
       for (const frame of withheld.splice(0)) client.send(frame);
     };
     server.onMessage((frame) => {
       const message = JSON.parse(String(frame));
+      if (delayRetryText && message.method === "message.delta") {
+        lateText.push(frame);
+        return;
+      }
       if (
         message.method === "message.done" &&
         message.params?.message?.role === "assistant" &&
@@ -287,6 +298,7 @@ test("rejects an agent proposal with a note and exposes provider failures for re
   await expect(page.getByRole("alert")).toContainText(
     "Provider rate limit reached",
   );
+  delayRetryText = true;
   await page
     .getByRole("alert")
     .getByRole("button", { name: "Retry turn" })
@@ -298,6 +310,10 @@ test("rejects an agent proposal with a note and exposes provider failures for re
       .locator(".message.assistant:not(.streaming)")
       .filter({ hasText: "Ready after retry." }),
   ).toHaveCount(1);
+  expect(lateText.length).toBeGreaterThan(0);
+  releaseText();
+  await page.getByLabel("Approval mode").selectOption("ask_changes");
+  await expect(page.getByText("Ready after retry.")).toHaveCount(1);
   await expect(page.getByText("Ready after retry.")).toBeVisible();
   releaseCompletion();
   await expect(page.getByText("Ready after retry.")).toHaveCount(1);
