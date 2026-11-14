@@ -1,5 +1,6 @@
 """Exercise editing and native file dialogs in the installed Windows application."""
 
+import base64
 import contextlib
 import ctypes
 import hashlib
@@ -79,6 +80,9 @@ def viewer_hash(page: Page) -> str:
     expect(image).to_be_visible(timeout=20000)
     expect(image).to_have_attribute('src', re.compile(r'^(blob:|data:image/)'))
     page.wait_for_function("image => image.complete && image.naturalWidth > 0", arg=image.element_handle())
+    source = image.get_attribute('src')
+    if source.startswith('data:'):  # Older installed clients use inline bytes; CSP need not permit fetching data URLs.
+        return hashlib.sha256(base64.b64decode(source.split(',', 1)[1])).hexdigest()
     encoded = image.evaluate('''async image => Array.from(new Uint8Array(
         await (await fetch(image.src)).arrayBuffer()))''')
     return hashlib.sha256(bytes(encoded)).hexdigest()
