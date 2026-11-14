@@ -23,11 +23,14 @@ def key(code, flags=0):
 
 def activate(pid):
     import AppKit
+    from Foundation import NSDate, NSRunLoop
     application = AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
     application.activateWithOptions_(AppKit.NSApplicationActivateIgnoringOtherApps)
     deadline = time.monotonic() + 5
     while not application.isActive() and time.monotonic() < deadline:
-        time.sleep(.1)
+        # NSRunningApplication caches changing properties until the main run
+        # loop advances; sleeping alone keeps isActive stale after activation.
+        NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(.1))
     assert application.isActive(), 'The owned Mac application did not become active'
     time.sleep(.5)
 
