@@ -82,6 +82,9 @@ def upgrade(executable, candidate, root, output, fixture):
                 assert viewer_hash(page) == image_hash
                 page.get_by_role('button', name='Settings', exact=True).click()
                 page.get_by_role('button', name='Updates', exact=True).click()
+                # Isolate manual fault/retry checks from the baseline's startup
+                # timer, which can clear an error by checking again five seconds in.
+                page.get_by_role('checkbox', name='Automatically check for updates').uncheck()
                 page.get_by_role('button', name='Check for updates', exact=True).click()
                 expect(page.get_by_text('Installed version: 0.4.3', exact=True)).to_be_visible()
                 version = json.loads((candidate / 'latest.json').read_text())['version']
