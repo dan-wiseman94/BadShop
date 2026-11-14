@@ -2,6 +2,7 @@
 
 from badshop.engine import retro
 from badshop.engine import collections
+from badshop.engine import animation
 from badshop.tools.registry import ToolSpec, register
 
 
@@ -67,6 +68,13 @@ _add(
     lambda p, s: retro.export_profile(p, s.load(p.image)),
     "finish",
     "Prepare exact-size buttons, blinkies, avatars, signatures or wallpaper; optional maximum bytes fails explicitly if unattainable",
+)
+_add(
+    "animation_edit",
+    animation.AnimationEditParams,
+    lambda p, s: animation.edit(p, s.load(p.image)),
+    "finish",
+    "Edit short GIF frame order, timings, crop and caption ranges while preserving the original",
 )
 register(
     ToolSpec(

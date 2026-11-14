@@ -118,6 +118,32 @@ def test_build_messages_answers_dangling_calls(tmp_path):
     assert len(session.data.transcript) == 5  # the stored transcript is left alone
 
 
+def test_manual_pause_finishes_current_tool_and_answers_remaining_calls(tmp_path):
+    session, img, ev = new_session(tmp_path)
+    cfg = TurnConfig(approval_mode="auto")
+    session.on_change = lambda: setattr(cfg, "pause_requested", True) if any(
+        step.status == "done" for step in session.data.steps) else None
+    provider = ScriptedProvider([Reply(tool_calls=[
+        call("first", "filter", {"image": img.id, "names": ["invert"]}),
+        call("second", "filter", {"image": img.id, "names": ["grayscale"]}),
+    ])])
+    reason, _ = turn(session, provider, ev, cfg=cfg)
+    assert reason == "paused"
+    assert len(session.data.steps) == 1 and session.data.steps[0].status == "done"
+    assert "paused" in tool_entries(session)["second"]
+
+
+def test_finishing_checkpoint_can_be_acknowledged_then_finished(tmp_path):
+    session, img, ev = new_session(tmp_path)
+    session.data.pause_before_finish = True
+    finish = Reply(tool_calls=[call("finish", "deepfry", {"image": img.id, "level": 1})])
+    reason, _ = turn(session, ScriptedProvider([finish]), ev)
+    assert reason == "paused" and not session.data.steps
+    session.data.pause_before_finish = False
+    reason, _ = turn(session, ScriptedProvider([finish, Reply(text="done")]), ev)
+    assert reason == "done" and session.data.steps[0].status == "done"
+
+
 def test_turn_runs_tools_and_reports_back(tmp_path):
     session, img, ev = new_session(tmp_path)
     provider = ScriptedProvider([
@@ -250,7 +276,8 @@ def test_an_edit_the_session_refuses_is_a_rejection(tmp_path):
     reason, _ = turn(session, provider, ev, mode="ask_all",
                      decide=lambda gate, step: gate.respond(step["id"], "edit", params=unknown))
     assert reason == "done" and session.data.steps[0].status == "rejected"
-    assert tool_entries(session)["c1"].startswith("rejected by user: their edited parameters were refused")
+    assert tool_entries(session)["c1"] == model_result(session.data.steps[0])
+    assert "the edited parameters were refused" in session.data.steps[0].result_text
 
 
 def test_mode_switched_mid_turn_applies_to_the_next_call(tmp_path):
@@ -383,6 +410,26 @@ def test_gate_respond_checks_its_input(tmp_path):
     # The decision carries the user's params as sent: the session resolves them when the step runs.
     assert asyncio.run(main()) == Decision("edit", {"image": img.id[:8], "rect": [[1, 1, 9, 9]]}, None)
     assert ev.names() == ["approval.needed", "approval.resolved"]
+
+
+def test_old_waiter_cleanup_cannot_cancel_reused_step_id():
+    async def main():
+        gate = ApprovalGate(lambda *_: None)
+        old = Step(id="s1", index=1, tool="info", params={}, actor="cli:codex", status="proposed")
+        new = old.model_copy(deep=True)
+        first = asyncio.create_task(gate.request(old))
+        await asyncio.sleep(0)
+        gate.cancel_all()
+        second = asyncio.create_task(gate.request(new))
+        await asyncio.sleep(0)
+        gate.cancel(old.id, expected=old)
+        assert gate.pending() == [new.id]
+        assert not second.done()
+        gate.respond(new.id, "approve")
+        assert (await first).decision == "reject"
+        assert (await second).decision == "approve"
+        assert not gate._waiting
+    asyncio.run(main())
 
 
 def test_gate_cancel_all_rejects_everything_waiting():

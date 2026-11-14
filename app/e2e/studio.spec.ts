@@ -19,7 +19,7 @@ test("saved assets and independent branches survive project reopen", async ({
     .fill("portrait, president");
   await page.getByRole("button", { name: "Save to junk drawer" }).click();
   await expect(
-    page.getByText("Lincoln head source", { exact: true }),
+    page.locator(".studio-card").getByText("Lincoln head source", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Branches", exact: true }).click();
   await page.getByLabel("New branch name").fill("Fried version");
@@ -59,6 +59,7 @@ test("saved assets and independent branches survive project reopen", async ({
   await page
     .getByRole("button", { name: "Close images and directions" })
     .click();
+  await page.getByText("Direction options", { exact: true }).click();
   await expect(page.getByLabel("Creative style")).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("badshop-studio.png") });
 });
@@ -79,9 +80,11 @@ test("discovery controls and header fit the minimum desktop window", async ({
     .getByRole("button", { name: "Images & directions", exact: true })
     .click();
   await expect(page.getByLabel("Subject or scene")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Find candidates" })).toBeInViewport();
+  await page.getByText("Search filters", { exact: true }).click();
   await expect(page.getByLabel("Pose / framing")).toBeVisible();
-  await page.getByLabel("Collection").selectOption("met");
-  await expect(page.getByLabel("Collection")).toHaveValue("met");
+  await page.getByLabel(/^Collection/).selectOption("met");
+  await expect(page.getByLabel(/^Collection/)).toHaveValue("met");
   expect(
     await page
       .locator(".studio")

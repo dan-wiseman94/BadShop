@@ -7,6 +7,24 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await emptyCore.call("settings.set", { values: { no_remote: true } });
   const external: string[] = [];
+  let branchRequest: number | undefined;
+  let releaseBranch = () => {};
+  let branchHeld = false;
+  await page.routeWebSocket(`ws://127.0.0.1:${emptyCore.port}/`, client => {
+    const server = client.connectToServer();
+    client.onMessage(frame => {
+      const message = JSON.parse(String(frame));
+      if (message.method === "branches.create") branchRequest = message.id;
+      server.send(frame);
+    });
+    server.onMessage(frame => {
+      const message = JSON.parse(String(frame));
+      if (branchRequest !== undefined && message.id === branchRequest) {
+        branchHeld = true;
+        releaseBranch = () => client.send(frame);
+      } else client.send(frame);
+    });
+  });
   page.on("request", request => { if (!/^https?:\/\/127\.0\.0\.1/.test(request.url()) && !request.url().startsWith("data:")) external.push(request.url()); });
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   await page.getByRole("button", { name: "Start with a quick idea" }).click();
@@ -71,6 +89,10 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Export image", exact: true })).toBeHidden();
   await page.getByRole("button", { name: "Keep this take & make a variant" }).click();
+  await expect.poll(() => branchHeld).toBe(true);
+  await expect(page.getByLabel("Revised punchline")).toBeDisabled();
+  releaseBranch();
+  await expect(page.getByLabel("Revised punchline")).toBeEnabled();
   await expect(page.getByLabel("Revised punchline")).toHaveValue("Brain cell unavailable. Please hold.");
   await page.getByLabel("Revised punchline").fill("This pigeon has administrator privileges.");
   await page.getByRole("button", { name: "Change caption only" }).click();
@@ -98,6 +120,7 @@ test("quick ideas and export remain usable at 200 percent text with keyboard foc
   await page.getByRole("button", { name: "Make this shitpost" }).click();
   await expect(page.locator(".canvas-image")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Ideas" }).click();
   await page.getByRole("button", { name: "Export", exact: true }).focus();
   await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Export image", exact: true });
@@ -113,6 +136,7 @@ test("quick ideas and export remain usable at 200 percent text with keyboard foc
   await expect(page.getByRole("button", { name: "Export", exact: true })).toBeFocused();
   // Wrapped pane headings must keep their controls above the scrolling cards.
   await page.evaluate(() => { document.documentElement.dataset.theme = "terminal"; });
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Ideas" }).click();
   await page.getByRole("button", { name: /^all tools$/i }).click();
-  await expect(page.getByRole("region", { name: "Chat", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run tool", exact: true })).toBeVisible();
 });

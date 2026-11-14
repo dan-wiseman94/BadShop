@@ -2,7 +2,7 @@
 clipboard, and plain image or page URLs. Ported from reference/badshop.py.
 
 Every tool here also returns `data["sources"]`: one provenance dict per output, in output order (None
-for the contact sheet), with exactly the keys in SOURCE_KEYS. Sessions store it as the artifact's source
+for the contact sheet). Sessions store it as the artifact's source
 (spec §6); the CLI never prints it."""
 
 import difflib
@@ -25,7 +25,7 @@ from typing import Annotated, ClassVar, Literal
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import Field
 
-from badshop.engine.assets import http_get  # always called as a module global, so tests can swap it
+from badshop.engine.assets import http_get
 from badshop.engine.common import WEB_FORMATS, font, has_alpha, load_image, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EXT, EngineResult, Output
@@ -41,7 +41,6 @@ NET_ERRORS = (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPExce
 NET_HINT = "check the internet connection, or use a local file"
 MAX_TEXT = 5 * 2**20  # bytes of an API reply, and of a web page parsed for its preview image
 MAX_WEB_PIXELS = 64_000_000  # a fetched image bigger than this is refused before it is decoded
-SOURCE_KEYS = ("kind", "url", "page", "title", "license", "creator")
 TWEMOJI_LICENSE = "CC-BY 4.0"
 TWEMOJI_CREATOR = "Twitter/X and Twemoji contributors"
 
@@ -126,7 +125,7 @@ def _text(value) -> str | None:
 
 def provenance(kind: str, url: str | None = None, *,
                page=None, title=None, license=None, creator=None) -> dict:
-    """One output's structured source (spec §6 Artifact.source): exactly SOURCE_KEYS, each value a
+    """One output's structured source (spec §6 Artifact.source), each value a
     non-blank string or None. `url` is the link that delivered the bytes, `page` the page to credit."""
     return {"kind": kind, "url": _text(url), "page": _text(page), "title": _text(title),
             "license": _text(license), "creator": _text(creator)}

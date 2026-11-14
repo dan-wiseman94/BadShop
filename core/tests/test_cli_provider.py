@@ -91,6 +91,40 @@ def test_detection_and_streamed_multiturn_subprocess(fake, cli):
     asyncio.run(body())
 
 
+def test_profile_edits_retire_persistent_process_and_directory(fake, monkeypatch):
+    from badshop.engine.errors import EngineError
+    from badshop.providers import profiles
+
+    async def body():
+        app = CoreApp(Settings(), executor_factory=lambda **_: InProcessExecutor())
+        app.set_connection("ws://127.0.0.1:1234", "test-secret")
+        current = profile(fake)
+        try:
+            await app._providers_save("user", current.model_dump(mode="json"))
+            for index in range(3):
+                provider = app._make_provider(current)
+                await provider.turn("make meme", lambda _: None, lambda _: None)
+                process, folder = provider.process, provider.cwd
+                assert process is not None and process.returncode is None and folder.exists()
+                current = current.model_copy(update={"label": f"edited {index}"})
+                if index == 0:
+                    def fail_save(_):
+                        raise EngineError("disk full")
+                    with monkeypatch.context() as patch:
+                        patch.setattr(profiles, "save_profiles", fail_save)
+                        with pytest.raises(EngineError, match="disk full"):
+                            await app._providers_save("user", current.model_dump(mode="json"))
+                    assert process.returncode is None and folder.exists()
+                    assert list(app._cli_providers.values()) == [provider]
+                await app._providers_save("user", current.model_dump(mode="json"))
+                assert process.returncode is not None
+                assert not folder.exists()
+                assert not app._cli_providers and not app._retired_clis
+        finally:
+            await app.close()
+    asyncio.run(body())
+
+
 def test_desktop_path_launches_discovered_cli(fake, tmp_path, monkeypatch):
     home = tmp_path / "CLI home 🖼"
     monkeypatch.setattr(Path, "home", lambda: home)
@@ -327,7 +361,8 @@ def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, mode):
                     assert app._turn is not None, app.session.data.messages
                     await asyncio.sleep(.01)
                 step_id = app._cli_gate.pending()[0]
-                assert app.session.step(step_id).actor == "cli:claude"
+                assert app.session.step(step_id).actor == app._cli_turn_actor
+                assert app.session.step(step_id).actor.startswith('cli:claude:')
                 app._cli_gate.respond(step_id, "approve")
                 while app._turn:
                     await asyncio.sleep(.01)
@@ -394,6 +429,189 @@ def test_error_event_shapes(cli, event):
 def test_malformed_nested_events_are_observable(cli, event):
     parsed = parse_event(cli, event)
     assert parsed["kind"] == "raw" and parsed["parse_error"]
+
+
+@pytest.mark.parametrize('boundary', ['document', 'branch', 'profile'])
+def test_adapter_grant_is_idle_between_runs_reusable_and_revoked_on_replacement(fake, monkeypatch, boundary):
+    from badshop.mcp.proxy import CoreConnection, CoreError
+    from websockets.asyncio.client import connect
+    from websockets.exceptions import ConnectionClosed
+
+    async def body():
+        app = CoreApp(Settings(approval_mode='auto'), executor_factory=lambda **_: InProcessExecutor())
+        server = await serve(app, 'grant-test-renderer')
+        url = f'ws://127.0.0.1:{bound_port(server)}'
+        app.set_connection(url, 'grant-test-renderer')
+        p = profile(fake)
+        app._profiles[p.id] = p
+        await app._providers_select('user', p.id)
+        provider = app._make_provider(p)
+        grant = app._grants.get(provider.authorization_id)
+        proxy = CoreConnection(url, grant.token, 'cli:claude')
+        image = app.session.import_image((FIXTURES / 'lincoln.png').read_bytes(), 'lincoln')
+        entered, release = asyncio.Event(), asyncio.Event()
+        old_socket = None
+
+        async def turn(prompt, on_delta, on_event):
+            entered.set()
+            await release.wait()
+            return 'Done'
+
+        monkeypatch.setattr(provider, 'turn', turn)
+        try:
+            assert await proxy.call('tools.list')
+            with pytest.raises(CoreError, match='no active run'):
+                await proxy.call('tools.run', {'tool': 'info', 'params': {'image': image.id}})
+            run_ids = []
+            for n in range(2):
+                entered.clear()
+                release.clear()
+                await app._chat_send('user', f'turn {n}')
+                await asyncio.wait_for(entered.wait(), 2)
+                run_ids.append(grant.run_id)
+                if n == 0:
+                    old_socket = await connect(url)
+                    await old_socket.send(json.dumps({'type': 'hello', 'actor': 'cli:claude', 'token': grant.token}))
+                    assert json.loads(await old_socket.recv())['type'] == 'welcome'
+                    await old_socket.send(json.dumps({'jsonrpc': '2.0', 'id': 'scope', 'method': 'credits.get',
+                                                      'params': {'artifact_id': image.id}}))
+                    scope_reply = json.loads(await asyncio.wait_for(old_socket.recv(), 2))
+                    assert scope_reply['id'] == 'scope'
+                    assert scope_reply['error']['message'] == 'This method is outside the CLI grant scope.'
+                else:
+                    await old_socket.send(json.dumps({'jsonrpc': '2.0', 'id': 'stale-run', 'method': 'tools.run',
+                                                      'params': {'tool': 'info', 'params': {'image': image.id}}}))
+                    async with asyncio.timeout(2):
+                        while True:
+                            reply = json.loads(await old_socket.recv())
+                            if reply.get('id') == 'stale-run':
+                                break
+                    assert reply['error']['message'] == 'This CLI connection belongs to another run.'
+                result = await proxy.call('tools.run', {'tool': 'info', 'params': {'image': image.id}})
+                assert result['status'] == 'done' and result['actor'] == grant.execution_actor
+                task = app._turn
+                release.set()
+                await task
+                assert grant.run_id is None and not grant.revoked
+                with pytest.raises(CoreError, match='no active run'):
+                    await proxy.call('artifacts.get', {'id': image.id})
+            assert run_ids[0] != run_ids[1]
+            assert app._cli_providers[(app.session.data.id, p.id)] is provider
+            if boundary == 'document':
+                await app._session_new('user', 'new document')
+            elif boundary == 'branch':
+                await app._branches_create('user', 'new direction')
+            else:
+                await app._providers_delete('user', p.id)
+            assert grant.revoked and not provider.cwd.exists()
+            assert app._grants.get(grant.id) is None
+            with pytest.raises(ConnectionClosed):
+                await proxy.call('tools.list')
+        finally:
+            release.set()
+            if old_socket:
+                await old_socket.close()
+            server.close()
+            await server.wait_closed()
+            await app.close()
+    asyncio.run(body())
+
+
+def test_stop_revokes_a_cli_call_already_queued_for_execution(fake, monkeypatch):
+    from badshop.mcp.proxy import CoreConnection, CoreError
+
+    async def body():
+        app = CoreApp(Settings(approval_mode='auto'), executor_factory=lambda **_: InProcessExecutor())
+        server = await serve(app, 'queued-grant-renderer')
+        url = f'ws://127.0.0.1:{bound_port(server)}'
+        app.set_connection(url, 'queued-grant-renderer')
+        p = profile(fake)
+        app._profiles[p.id] = p
+        await app._providers_select('user', p.id)
+        provider = app._make_provider(p)
+        grant = app._grants.get(provider.authorization_id)
+        proxy = CoreConnection(url, grant.token, 'cli:claude')
+        image = app.session.import_image((FIXTURES / 'lincoln.png').read_bytes(), 'lincoln')
+        entered, admitted = asyncio.Event(), asyncio.Event()
+
+        async def turn(prompt, on_delta, on_event):
+            entered.set()
+            await asyncio.Event().wait()
+
+        authorize = app.authorize_cli
+        def observed(grant, method):
+            result = authorize(grant, method)
+            if method == 'tools.run':
+                admitted.set()
+            return result
+
+        monkeypatch.setattr(provider, 'turn', turn)
+        monkeypatch.setattr(app, 'authorize_cli', observed)
+        try:
+            await app._chat_send('user', 'run')
+            await asyncio.wait_for(entered.wait(), 2)
+            async with app._lock:
+                queued = asyncio.create_task(proxy.call('tools.run', {'tool': 'info', 'params': {'image': image.id}}))
+                await asyncio.wait_for(admitted.wait(), 2)
+                stopped = asyncio.create_task(app._chat_stop('user'))
+                await asyncio.sleep(0)
+                assert grant.run_id is None
+            with pytest.raises(CoreError, match='document changed'):
+                await queued
+            assert await stopped == {'stopped': True}
+            assert app.session.data.steps == []
+            assert app._cli_gate.pending() == []
+        finally:
+            server.close()
+            await server.wait_closed()
+            await app.close()
+    asyncio.run(body())
+
+
+def test_cli_rejection_preserves_budget_and_parallel_approvals_cannot_overspend(fake, monkeypatch):
+    from badshop.engine.errors import EngineError
+
+    async def body():
+        app = CoreApp(Settings(approval_mode='ask_all', step_budget=1),
+                      executor_factory=lambda **_: InProcessExecutor())
+        provider = CLIProvider(profile(fake), 'ws://127.0.0.1:1234', 'test-secret')
+        app._provider = provider
+        image = app.session.import_image((FIXTURES / 'lincoln.png').read_bytes(), 'lincoln')
+        results = []
+
+        async def turn(prompt, on_delta, on_event):
+            async def propose():
+                return await app._tools_run(provider.actor, 'filter', {'image': image.id, 'names': ['invert']})
+
+            rejected = asyncio.create_task(propose())
+            while not app._cli_gate.pending():
+                await asyncio.sleep(0)
+            app._cli_gate.respond(app._cli_gate.pending()[0], 'reject')
+            results.append(await rejected)
+            first, second = asyncio.create_task(propose()), asyncio.create_task(propose())
+            while len(app._cli_gate.pending()) != 2:
+                await asyncio.sleep(0)
+            for step_id in app._cli_gate.pending():
+                app._cli_gate.respond(step_id, 'approve')
+            results.extend(await asyncio.gather(first, second))
+            with pytest.raises(EngineError, match='budget is used up'):
+                await propose()
+            return 'Finished'
+
+        monkeypatch.setattr(provider, 'turn', turn)
+        try:
+            await app._chat_send('user', 'Edit the image', [image.id])
+            await asyncio.wait_for(app._turn, 10)
+            assert [result['status'] for result in results] == ['rejected', 'done', 'rejected']
+            output = app.session.artifacts.image(results[1]['outputs'][0])
+            original = app.session.artifacts.image(image.id)
+            assert output.getpixel((0, 0)) == tuple(255 - c for c in original.convert('RGB').getpixel((0, 0)))
+            assert app._cli_gate.pending() == []
+            assert app._snapshot()['last_turn_outcome']['reason'] == 'budget'
+        finally:
+            await provider.close()
+            await app.close()
+    asyncio.run(body())
 
 
 def test_resumed_and_retried_turns_identify_old_attached_artifacts(fake, monkeypatch):

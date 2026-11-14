@@ -34,16 +34,18 @@ TRUMP = FIXTURES / "trump.png"
 HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
 NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
+    "history.undo", "history.redo", "projects.recent", "projects.forget",
     'retro.list', 'creative.set', 'recipes.capture', 'recipes.save', 'recipes.remove', 'recipes.run', 'recipes.stop',
+    'tools.preview', 'remix.inspect', 'remix.export',
     'credits.get', 'credits.export', 'sources.key', 'cache.status', 'cache.clear', 'artifacts.frame',
     "sources.status", "updates.begin", "updates.end",
     "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",
-    "media.status", "media.cancel", "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
+    "media.status", "media.cancel", "media.capture", "media.discard", "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
     "collections.update", "collections.import", "collections.remove",
     "library.list", "library.save", "library.update", "library.import", "library.remove", "library.thumbnail",
     "branches.list", "branches.create", "branches.switch", "branches.rename", "branches.remove",
     "providers.list", "providers.save", "providers.add", "providers.select", "providers.delete", "providers.test",
-    "chat.retry",
+    "chat.retry", "chat.pause", "chat.undo", "chat.finish_checkpoint", "steps.preview", "steps.controls",
     "providers.detect", "providers.on_device", "diagnostics.get",
     "session.new", "session.get", "session.open", "session.restore", "session.save", "session.save_as",
     "session.export_recipe", "session.set_approval_mode", "chat.send", "chat.stop", "tools.list",
@@ -116,7 +118,8 @@ def test_settings_bounds():
         "approval_mode": "ask_changes", "auto_replay": True, "output_dir": None, "step_budget": 40,
         "tool_timeout_s": 120.0, "tool_memory_mb": 3072, "fake_provider_script": None,
         'creative_defaults': CreativePreferences().model_dump(), 'no_remote': False, 'remember_history': True,
-        'source_allowlist': [], 'rights_filter': 'any', 'source_orientation': 'any'}
+        'source_allowlist': [], 'rights_filter': 'any', 'source_orientation': 'any',
+        'export_presets': [], 'recent_projects': [], 'saved_designs': []}
     for bad in ({"step_budget": 0}, {"step_budget": 501}, {"tool_timeout_s": 0.5}, {"tool_timeout_s": 3601},
                 {"tool_timeout_s": float("inf")}, {"tool_memory_mb": 255}, {"tool_memory_mb": 65537},
                 {"approval_mode": "yolo"}, {"output_dir": "relative/folder"},
@@ -236,7 +239,8 @@ def test_dispatcher_errors(caplog):
                                      "id": 1}
     bug = error(_req("bug"))
     assert bug["code"] == rpc.INTERNAL_ERROR and "ZeroDivisionError: oops" in bug["message"]
-    assert "session is unaffected" in bug["data"]["hint"].lower()
+    assert bug["data"]["outcome"] == "unknown"
+    assert "check the current session" in bug["data"]["hint"].lower()
     unencodable = error(_req("unencodable", id="serialization-failed"))
     assert unencodable["code"] == rpc.INTERNAL_ERROR and unencodable["id"] == "serialization-failed"
     bug_log, serialization_log = [
@@ -379,8 +383,95 @@ def script(env: Path, replies: list[dict]) -> str:
 
 def test_methods_are_the_protocol(env):
     async def body(app):
+        from badshop.server.contracts import METHODS as contracts
         assert app.dispatcher.names() == METHODS
+        assert set(app.dispatcher.names()) == set(contracts)
+        schemas = app.dispatcher.schemas()
+        assert schemas['export']['scope'] == 'document'
+        assert schemas['export']['mutates'] is True
+        assert schemas['tools.run']['actors'] == 'any'
+        assert schemas['tools.run']['params']['required'] == ['tool']
+        assert schemas['tools.run']['params']['properties']['params']['default'] is None
+        assert 'outputs' in schemas['tools.run']['result']['required']
+        assert 'messages' in schemas['session.get']['result']['required']
+        assert schemas['settings.get']['mutates'] is False
 
+    run(body)
+
+
+def test_invalid_handler_result_reports_unknown_outcome_without_repeating_action():
+    from badshop.server.contracts import METHODS as contracts
+
+    async def scenario():
+        dispatcher = Dispatcher(contracts=contracts)
+        calls = []
+
+        @dispatcher.method('export')
+        async def export(actor: str):
+            calls.append(actor)
+            return {'path': 123}
+
+        response = json.loads(await dispatcher.handle(
+            json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'export'}), 'user'))
+        assert 'error' in response, 'the invalid handler result crossed the wire as success'
+        assert response['error']['code'] == rpc.INTERNAL_ERROR
+        assert response['error']['data']['outcome'] == 'unknown'
+        assert calls == ['user']
+        assert 'result' not in response
+        with pytest.raises(ValueError, match='no wire contract'):
+            dispatcher.method('unregistered.contract')(export)
+
+    asyncio.run(scenario())
+
+def test_animation_frame_thumbnail_preserves_source_and_requested_frame(env):
+    async def body(app):
+        c = Client(app)
+        buffer = io.BytesIO()
+        Image.new("RGB", (320, 160), "red").save(buffer, "GIF", save_all=True,
+            append_images=[Image.new("RGB", (320, 160), "blue")], duration=[80, 170], loop=3)
+        source = app.session.artifacts.add(buffer.getvalue(), "frames.gif")
+        response = await c.call("artifacts.frame", id=source.id, frame=1, max_px=64)
+        with Image.open(io.BytesIO(base64.b64decode(response["data"]))) as thumbnail:
+            assert thumbnail.size == (64, 32)
+            assert thumbnail.convert("RGB").getpixel((0, 0)) == (0, 0, 255)
+        assert app.session.artifacts.data(source.id) == buffer.getvalue()
+        assert response["meta"]["frames"] == 2
+    run(body)
+
+
+def test_pinned_result_requires_cli_review_even_in_auto_mode(env):
+    async def body(app):
+        c, cli = Client(app), Client(app, "cli:codex")
+        image = await imported(c)
+        await c.call("session.set_approval_mode", mode="auto")
+        original = await c.call("tools.run", tool="filter", params={"image": image, "names": ["invert"]})
+        await c.call("steps.controls", step_id=original["id"], locked_fields=["names"])
+        waiting = asyncio.create_task(cli.call("tools.run", tool="filter",
+                                               params={"image": original["outputs"][0], "names": ["grayscale"]}))
+        step_id = await c.waiting(lambda step: step.get("lock_review"))
+        assert not waiting.done()
+        await c.call("approval.respond", step_id=step_id, decision="reject")
+        assert (await waiting)["status"] == "rejected"
+        other = await imported(c, TRUMP.read_bytes(), "other.png")
+        unrelated = await cli.call("tools.run", tool="filter", params={"image": other, "names": ["grayscale"]})
+        assert unrelated["status"] == "done" and not unrelated["lock_review"]
+    run(body)
+
+
+def test_pause_resolves_pending_approval_without_executing_it(env):
+    async def body(app):
+        c = Client(app)
+        image = await imported(c)
+        await c.call("settings.set", values={"fake_provider_script": script(env, [{"tool_calls": [
+            {"name": "filter", "arguments": {"image": image, "names": ["invert"]}}
+        ]}])})
+        await c.call("chat.send", text="go")
+        pending = await c.waiting()
+        await c.call("chat.pause")
+        state = await idle(c)
+        assert not state["pending_approvals"]
+        assert app.session.step(pending).status == "rejected"
+        assert not app.session.step(pending).outputs
     run(body)
 
 
@@ -452,7 +543,7 @@ def test_import_run_get_and_events(env, monkeypatch):
 
         snap = await c.call("session.get")
         assert [s["status"] for s in snap["steps"]] == ["done", "error"]
-        assert snap["schema"] == 3 and snap["id"] == app.session.data.id and snap["path"] is None
+        assert snap["schema"] == 5 and snap["id"] == app.session.data.id and snap["path"] is None
         assert snap["turn_running"] is False and snap["pending_approvals"] == []
 
     run(body)
@@ -577,14 +668,14 @@ def test_an_edit_the_session_refuses_rejects_the_cli_step(env):
     session = Session.new(executor=InProcessExecutor())
     lincoln = session.import_image(LINCOLN, "lincoln.png").id
     step = session.propose("cutout", {"image": lincoln, "box": HEAD, "no_ai": True}, "cli:claude")
-    refused = CoreApp._run_or_reject(session, step.id, {"image": "ffffff", "box": HEAD, "no_ai": True})
+    refused = session.run_approved(step.id, {"image": "ffffff", "box": HEAD, "no_ai": True})
     assert refused.status == "rejected"
     assert refused.result_text == ("rejected by user: the edited parameters were refused: "
                                    "no such artifact: ffffff")
     with pytest.raises(EngineError):  # on its own params there is nothing to fall back to
-        CoreApp._run_or_reject(session, step.id, None)
+        session.run_approved(step.id, None)
     ok = session.propose("cutout", {"image": lincoln, "box": HEAD, "no_ai": True}, "cli:claude")
-    assert CoreApp._run_or_reject(session, ok.id, None).status == "done"
+    assert session.run_approved(ok.id, None).status == "done"
     assert CoreApp._settle(session, ok.id, "too late").status == "done"  # a step that ran stays as it is
     assert [s.status for s in session.data.steps] == ["rejected", "done"]
 
@@ -746,7 +837,7 @@ def test_save_as_refuses_the_autosave_folder(env, via_link):
             assert e.value.message == f"can't save a project in {folder}: it is badshop's autosave folder"
             assert e.value.data == {"hint": "pick another folder for the project"}
         assert (await c.call("session.get"))["path"] is None
-        assert [p.name for p in folder.iterdir()] == ["session.badshop"]  # nothing was written there
+        assert {p.name for p in folder.iterdir()} == {"session.sqlite", "blobs"}  # no portable save was written there
         saved = await c.call("session.save_as", path=str(env / "mine.badshop"))  # any other folder is fine
         assert saved == {"path": str(env / "mine.badshop")}
 
@@ -766,16 +857,16 @@ def test_the_next_launch_offers_the_last_autosave(env):
         assert e.value.message == "there is no autosaved session to restore"
         lincoln = await imported(c)
         await c.call("tools.run", tool="cutout", params={"image": lincoln, "box": HEAD, "no_ai": True})
-        assert project.find_autosave() == project.autosave_path()  # saved after the step, not at close
+        assert project.autosave_path().is_file()  # saved after the step, not at close
 
     async def next_run(app):
         c = Client(app)
         snap = await c.call("session.get")
         assert snap["steps"] == [] and snap["restorable"] is not None
         offered = Path(snap["restorable"])
-        assert offered.read_bytes() == last_run and project.find_autosave() is None  # moved aside
+        assert offered.read_bytes() == last_run and not project.autosave_path().is_file()  # moved aside
         await imported(c, TRUMP.read_bytes(), "trump.png")  # this run's first change autosaves...
-        assert project.find_autosave() is not None
+        assert project.autosave_path().is_file()
         assert offered.read_bytes() == last_run  # ...and the offer survives it
         assert (await c.call("session.get"))["restorable"] == str(offered)
 
@@ -839,7 +930,7 @@ def test_chat_turn_with_an_approval(env):
         await c.call("approval.respond", step_id=needed["step"]["id"], decision="edit",
                      params={"image": lincoln, "box": [100, 50, 300, 300], "no_ai": True})
 
-        assert await c.event("turn.finished") == {"reason": "done"}
+        assert await c.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()['run_id']}
         await idle(c)
         steps = app.session.data.steps
         assert [(s.tool, s.status, s.actor) for s in steps] == [("info", "done", "agent:fake"),
@@ -878,7 +969,7 @@ def test_switching_the_approval_mode_mid_turn(env):
         info = await c.waiting(lambda step: step["tool"] == "info")  # ask_all: now a read-only tool waits too
         await c.call("session.set_approval_mode", mode="auto")
         await c.call("approval.respond", step_id=info, decision="approve")
-        assert await c.event("turn.finished") == {"reason": "done"}  # auto: the filter ran without asking
+        assert await c.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()['run_id']}  # auto
         snap = await idle(c)
         assert [(s["tool"], s["status"]) for s in snap["steps"]] == [("cutout", "done"), ("info", "done"),
                                                                      ("filter", "done")]
@@ -908,7 +999,7 @@ def test_stop_and_client_gone(env):
         third = await c.waiting(lambda step: step["actor"] == "cli:codex")
         assert (await c.call("session.get"))["pending_approvals"] == [first, third]
         assert await c.call("chat.stop") == {"stopped": True}
-        assert await c.event("turn.finished") == {"reason": "stopped"}
+        assert await c.event("turn.finished") == {"reason": "stopped", "run_id": app._snapshot()['run_id']}
         assert app.session.step(first).status == "rejected"
         # Stop is about the chat: the CLI agent's call still waits for the user
         assert (await c.call("session.get"))["pending_approvals"] == [third]
@@ -921,7 +1012,8 @@ def test_stop_and_client_gone(env):
         app.on_client_gone()
         assert (await waiting)["status"] == "rejected"
         await cli.count("turn.finished", 2)
-        assert [e["params"] for e in cli.events if e["method"] == "turn.finished"][-1] == {"reason": "stopped"}
+        assert [e["params"] for e in cli.events if e["method"] == "turn.finished"][-1] == {
+            "reason": "stopped", "run_id": app._snapshot()['run_id']}
 
         later = Client(app)  # the UI reconnects
         snap = await idle(later)
@@ -1103,7 +1195,7 @@ def test_no_turn_starts_while_the_session_is_being_replaced(env):
         assert (await busy)["status"] == "error"
         assert (await new)["name"] == "next"
         assert await c.call("chat.send", text="hi") == {"started": True}
-        assert await c.event("turn.finished") == {"reason": "done"}
+        assert await c.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()['run_id']}
         assert [m["role"] for m in (await idle(c))["messages"]] == ["user", "assistant"]
 
     run(body, factory=lambda **limits: ex)
@@ -1162,7 +1254,8 @@ def test_failures_are_reported_and_the_core_keeps_serving(env, monkeypatch):
         await c.call("settings.set", values={"fake_provider_script": script(env, [{"text": "hi"}])})
         monkeypatch.setattr(server_app, "run_turn", broken_turn)
         assert await c.call("chat.send", text="hi") == {"started": True}
-        assert await c.event("turn.finished") == {"reason": "error", "error": "RuntimeError: kaput"}
+        assert await c.event("turn.finished") == {
+            "reason": "error", "error": "RuntimeError: kaput", "run_id": app._snapshot()['run_id']}
         assert await c.event("core.log") == {"level": "error",
                                              "message": "the agent turn failed (RuntimeError: kaput)"}
         assert (await idle(c))["turn_running"] is False
@@ -1279,6 +1372,30 @@ def test_asset_download_cancellation_reaches_worker(env, monkeypatch, stop):
     assert assets.CANCEL is before
 
 
+def test_animated_bypass_refuses_without_changing_the_step(env):
+    import io
+    from PIL import Image
+
+    async def body(app):
+        buffer = io.BytesIO()
+        Image.new("RGB", (8, 8), "red").save(buffer, "GIF", save_all=True,
+            append_images=[Image.new("RGB", (8, 8), "blue")], duration=100, loop=0)
+        source = app.session.artifacts.add(buffer.getvalue(), "animation")
+        step = app.session.run_tool("filter", {"image": source.id, "names": ["invert"]}, "user")
+        before = app.session.data.model_dump_json()
+        with pytest.raises(Failed, match="still images"):
+            await Client(app).call("steps.controls", step_id=step.id, bypassed=True)
+        assert app.session.data.model_dump_json() == before
+        step.bypassed = True
+        app.session.edit(step.id, step.params)
+        app.session.replay_from(step.id)
+        assert step.status == "error"
+        assert "still images" in step.error.message
+        assert app.session.artifacts.meta[source.id].frames == 2
+
+    run(body)
+
+
 def test_close_stops_a_waiting_turn(env):
     async def main():
         app = CoreApp(Settings(), executor_factory=in_process)
@@ -1294,7 +1411,7 @@ def test_close_stops_a_waiting_turn(env):
         await app.close()  # idempotent
         assert app.session.step(sid).status == "rejected"
         assert "turn.finished" in c.methods()
-        assert project.find_autosave() is not None
+        assert project.autosave_path().is_file()
 
     asyncio.run(main())
 

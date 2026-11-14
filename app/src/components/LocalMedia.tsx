@@ -1,22 +1,28 @@
 import { Button } from "./Button";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "../localMedia.css";
-import { action, useCoreQuery, useSession } from "../data";
+import { action, readImportData, useCoreQuery, useSession } from "../data";
 import { chooseMediaFile, chooseCollectionFolder } from "../native";
 import { useUI } from "../store";
 import type { Artifact, MediaPreview, CollectionEntry } from "../types";
 
-export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
+export type MediaInput = { kind: "video" | "document"; path?: string; file?: File; preview?: MediaPreview };
+
+export function LocalMedia({ onAttach, source, onBusyChange }: { onAttach: (id: string) => void; source?: MediaInput; onBusyChange?: (busy: boolean) => void }) {
   const { busy, error, notice, setNotice, perform } = useOperation();
-  const [mode, setMode] = useState<"video" | "document" | "folder">("video");
-  const [path, setPath] = useState("");
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { onBusyChange?.(busy); return () => onBusyChange?.(false); }, [busy, onBusyChange]);
+  const [mode, setMode] = useState<"video" | "document" | "folder">(source?.kind ?? "video");
+  const [path, setPath] = useState(source?.path ?? "");
+  const [file, setFile] = useState(source?.file);
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
-  const [preview, setPreview] = useState<MediaPreview | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [preview, setPreview] = useState<MediaPreview | null>(source?.preview ?? null);
+  const [selected, setSelected] = useState<string[]>(source?.preview ? ["0"] : []);
   const [crop, setCrop] = useState<number[] | null>(null);
   const [origin, setOrigin] = useState<number[] | null>(null);
   const [animate, setAnimate] = useState(false);
@@ -30,7 +36,6 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   const [extracting, setExtracting] = useState(false);
 
   const { data: collections = [] } = useCoreQuery("collections.list");
-  const { data: readiness } = useCoreQuery("media.status");
   const { data: session } = useSession();
   const ready = useUI((state) => state.status === "ready");
   const disabled = busy || !ready || !!session?.turn_running;
@@ -49,7 +54,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
   }
   return (
     <div className="local-media">
-      <nav className="studio-tabs" aria-label="Local source kinds">
+      {!source?.preview && <nav className="studio-tabs" aria-label="Local source kinds">
         {[
           ["video", "Video / GIF"],
           ["document", "Pages / scans"],
@@ -62,6 +67,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
             onClick={() => {
               setMode(id as typeof mode);
               setPath("");
+              setFile(undefined);
               setPreview(null);
               setCrop(null);
               setSelected([]);
@@ -69,13 +75,13 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
             label={title}
           />
         ))}
-      </nav>
+      </nav>}
       <p>
         {mode === "folder"
           ? "Index a folder you choose. Images stay on disk until selected; filenames, tags, descriptions, and thumbnails stay in a local index."
           : "Preview a source you choose, then import only the frames or page region you need. Selected pixels and source details are saved with the project."}
       </p>
-      <p className="muted">GIFs and image scans work without extra tools. Video: {readiness?.video ? "ready" : "needs FFmpeg (ffmpeg and ffprobe)"}. PDFs: {readiness?.pdf ? "ready" : "need Poppler (pdftoppm)"}. Files are limited to 200 MB. Cancel a slow preview and try a shorter clip or an image.</p>
+      <p className="muted">Videos, GIFs, image scans and PDFs use bundled decoders. Files are limited to 200 MB. Cancel a slow preview and try a shorter clip or an image.</p>
       {extracting && <Button label="Cancel preview or indexing" onClick={() => void action("media.cancel").catch(() => setNotice("Could not cancel yet. The operation still has a time limit."))} />}
       {error && (
         <p className="error-banner" role="alert">
@@ -83,7 +89,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      <form
+      {!source?.preview && <form
         className="studio-form"
         onSubmit={(e) => {
           e.preventDefault();
@@ -99,8 +105,11 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
                 `${result.count} images indexed; ${result.duplicates} duplicates. ${result.warnings.join(" ")}`,
               );
             } else {
+              const generation = useUI.getState().documentGeneration;
+              const input = file ? { data: await readImportData(file), name: file.name } : { path };
+              if (!mounted.current || generation !== useUI.getState().documentGeneration) return;
               const result = await action("media.preview", {
-                path,
+                ...input,
                 kind: mode,
                 ...(mode === "video" ? { start, ...(end ? { end: Number(end) } : {}) } : { page }),
               });
@@ -115,8 +124,8 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
         <label className="wide">
           {mode === "folder" ? "Selected folder" : "Selected source file"}
           <input
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
+            value={file?.name ?? path}
+            onChange={(e) => { setFile(undefined); setPath(e.target.value); }}
             placeholder="Absolute path, or choose below"
             required
           />
@@ -127,7 +136,7 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
           onClick={() =>
             void perform(async () => {
               const chosen = mode === "folder" ? await chooseCollectionFolder() : await chooseMediaFile(mode);
-              if (chosen) setPath(chosen);
+              if (chosen) { setFile(undefined); setPath(chosen); }
             })
           }
         >
@@ -157,10 +166,10 @@ export function LocalMedia({ onAttach }: { onAttach: (id: string) => void }) {
         )}
         <Button
           className="primary"
-          disabled={disabled || !path.trim()}
+          disabled={disabled || (!file && !path.trim())}
           label={busy ? "Working…" : mode === "folder" ? "Index selected folder" : "Preview source"}
         />
-      </form>
+      </form>}
       {preview && (
         <>
           <details>

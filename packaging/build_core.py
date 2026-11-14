@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +24,16 @@ def main():
                          'license': d.metadata.get('License-Expression') or d.metadata.get('License', '')}
                         for d in importlib.metadata.distributions()], key=lambda d: d['name'].lower())
     (ROOT / 'packaging/core-dist/badshop-core/dependencies.json').write_text(json.dumps(inventory, indent=2))
+    connection = sqlite3.connect(':memory:')
+    try:
+        from badshop.session.recovery import VERSION, JOURNAL_MODE, SYNCHRONOUS
+        runtime = {'sqlite_version': sqlite3.sqlite_version,
+                   'sqlite_compile_options': [row[0] for row in connection.execute('PRAGMA compile_options')],
+                   'recovery_storage_version': VERSION, 'recovery_journal': JOURNAL_MODE,
+                   'recovery_sync': SYNCHRONOUS}
+    finally:
+        connection.close()
+    (ROOT / 'packaging/core-dist/badshop-core/runtime.json').write_text(json.dumps(runtime, indent=2))
 
 
 if __name__ == '__main__':

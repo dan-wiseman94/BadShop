@@ -13,6 +13,28 @@ const connect = async (
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 };
 
+test("update track selection persists after reload and can return to stable", async ({ page, core }) => {
+  await connect(page, core);
+  const openUpdates = async () => {
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Updates", exact: true }).click();
+  };
+  await openUpdates();
+  await expect(page.getByLabel("Update track")).toHaveValue("stable");
+  await page.getByLabel("Update track").selectOption("nightly");
+  await expect(page.getByText(/Nightly builds include the newest changes/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await openUpdates();
+  await expect(page.getByLabel("Update track")).toHaveValue("nightly");
+  await page.screenshot({ path: test.info().outputPath("nightly-track.png") });
+  await page.getByLabel("Update track").selectOption("stable");
+  await page.reload();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await openUpdates();
+  await expect(page.getByLabel("Update track")).toHaveValue("stable");
+});
+
 test("coordinate instructions keep the Fit image visible and pickable at the minimum window size", async ({
   page,
   core,
@@ -23,12 +45,16 @@ test("coordinate instructions keep the Fit image visible and pickable at the min
     artifact.label.includes("work"),
   )!;
   await connect(page, core);
+  await page.getByLabel("Zoom", { exact: true }).selectOption("4");
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Steps" }).click();
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
   await page.getByLabel("Search tools").fill("cutout");
   await page.getByRole("button", { name: /^cutout crop/ }).click();
   const dialog = page.getByRole("dialog", { name: "Run a tool" });
   await dialog.getByRole("button", { name: "Pick on image" }).click();
   await expect(page.locator(".pick-hint")).toBeVisible();
+  await expect(page.locator(".pick-active")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await page.screenshot({ path: test.info().outputPath("coordinate-workbench-900.png") });
   const surface = page.locator(".image-surface");
   const stage = page.locator(".viewer-stage");
   await expect
@@ -126,7 +152,7 @@ test("replay refreshes a selected step input while preserving an active paramete
       return step.status === "done" && remapped !== first.outputs[0];
     })
     .toBe(true);
-  await expect(detail.getByLabel("Image", { exact: false })).toHaveValue(
+  await expect(detail.getByRole("combobox", { name: "Image", exact: false })).toHaveValue(
     remapped,
   );
   await expect(detail.getByLabel("Seed", { exact: false })).toHaveValue("99");
@@ -192,6 +218,7 @@ test("the empty chat remains at the top at the minimum desktop size", async ({
 }) => {
   await page.setViewportSize({ width: 900, height: 600 });
   await connect(page, core);
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Chat" }).click();
   await expect
     .poll(() =>
       page.locator(".chat-history").evaluate((node) => node.scrollTop),
@@ -221,6 +248,7 @@ test("local vision can be deferred on first launch and found in Settings", async
   const supported = assets.some((asset) => asset.name.startsWith("local-vision/"));
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI", { exact: true }).click();
   if (supported) {
     await expect(welcome.getByRole("button", { name: /Download and use on-device AI/ })).toBeEnabled();
   } else {
@@ -253,6 +281,7 @@ test("first run with saved profiles explicitly selects a provider before continu
   })) as { id: string };
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
+  await welcome.getByText("Connect AI", { exact: true }).click();
   await expect(
     welcome.getByRole("button", { name: "Use Saved local vision" }),
   ).toBeVisible();
@@ -270,7 +299,7 @@ test("first run with saved profiles explicitly selects a provider before continu
     )
     .toBe(profile.id);
   await welcome.getByRole("button", { name: "Start making badshops" }).click();
-  await page.getByRole("button", { name: "All tools", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Chat", exact: true })).toBeVisible();
   await expect(
     page.getByRole("combobox", { name: "Active provider" }),
   ).toHaveValue(profile.id);

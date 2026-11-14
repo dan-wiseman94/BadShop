@@ -120,7 +120,7 @@ class WorkerExecutor:
         # The parent owns scratch files: killing a decoder cannot strand a copy
         # of the user's source in the OS temp folder.
         with tempfile.TemporaryDirectory(prefix="badshop-media-") as scratch:
-            if operation == "preview":
+            if operation in ("preview", "capture"):
                 params = {**params, "_scratch": scratch}
             result = self.run(MediaCall(operation, root, params), cancel=cancel)
         if not result.ok:

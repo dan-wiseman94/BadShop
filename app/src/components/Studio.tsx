@@ -3,9 +3,7 @@ import { ThemeIcon } from "./ThemeIcon";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { action, imageUrl, run, useCoreQuery, useSession } from "../data";
-import { rpc } from "../rpc";
+import { action, run, useCoreQuery, useSession } from "../data";
 import { useSelectedArtifact, useUI } from "../store";
 import { openLink } from "../native";
 import { sourceCard } from "../sourceCard";
@@ -17,6 +15,8 @@ import { LocalMedia } from "./LocalMedia";
 import { IdeaMixer } from "./IdeaMixer";
 import { SpriteSheet } from "./SpriteSheet";
 import { RetroStudio } from "./RetroStudio";
+import { LibraryImage } from "./LibraryImage";
+import { directionLabel } from "../directions";
 import type { LibraryEntry, Params } from "../types";
 
 type Candidate = {
@@ -36,24 +36,27 @@ type Candidate = {
   };
   reasons?: string[];
 };
-function LibraryImage({ entry }: { entry: LibraryEntry }) {
-  const { data } = useQuery({
-    queryKey: ["library.thumbnail", entry.id],
-    queryFn: ({ signal }) => rpc.request("library.thumbnail", { id: entry.id, max_px: 240 }, signal),
-  });
-  return <img className="studio-thumb" src={imageUrl(data)} alt={entry.name} />;
-}
 export function Studio({
   onClose,
+  onViewImage,
   onAttach,
   onDraft,
 }: {
   onClose: () => void;
+  onViewImage?: () => void;
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
 }) {
   const { busy, error, setError, perform } = useOperation();
   const [tab, setTab] = useState("discover");
+  const generation = useUI((s) => s.documentGeneration);
+  const [visited, setVisited] = useState<string[]>([]);
+  useEffect(() => { setVisited([tab]); }, [generation]);
+  function showTab(value: string) {
+    setTab(value);
+    setVisited((previous) => previous.includes(value) ? previous : [...previous, value]);
+    setError("");
+  }
 
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
@@ -154,27 +157,20 @@ export function Studio({
           </button>
         </div>
         <nav className="studio-tabs" aria-label="Images and directions">
-          {[
-            ["discover", "Find images"],
-            ["retro", "Retro workbench"],
-            ["ideas", "Idea mixer"],
-            ["library", "Junk drawer"],
-            ["branches", "Branches"],
-            ["layouts", "Layouts & packs"],
-            ["local", "Clips, pages & folders"],
-            ["sheets", "Sprite sheets"],
-            ["pairs", "Image pairs"],
-            ["recent", "Recent choices"],
-          ].map(([id, label]) => (
-            <Button
-              key={id}
-              aria-pressed={tab === id}
-              onClick={() => {
-                setTab(id);
-                setError("");
-              }}
-              label={label}
-            />
+          {([
+            ["Find", [["discover", "Find images"], ["local", "Clips, pages & folders"]]],
+            ["Reuse", [["library", "Junk drawer"], ["layouts", "Layouts & packs"], ["recent", "Recent choices"]]],
+            ["Create", [["retro", "Retro workbench"], ["ideas", "Idea mixer"], ["branches", "Branches"],
+              ["sheets", "Sprite sheets"], ["pairs", "Image pairs"]]],
+          ] as const).map(([label, tabs]) => (
+            <div key={label} className="studio-tab-group" role="group" aria-label={label}>
+              <span>{label}</span>
+              <div>
+                {tabs.map(([id, title]) => (
+                  <Button key={id} aria-pressed={tab === id} onClick={() => showTab(id)} label={title} />
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
         {error && (
@@ -255,41 +251,46 @@ export function Studio({
                   </option>
                 ))}
               </SelectField>
-              <SelectField label="Kind of picture" bind={[material, setMaterial]}
-                options={[["photo", "Photos"], ["illustration", "Illustrations & icons"], ["object", "Museum objects"], ["any", "Any"]]} />
-              <p className="muted">Picture kind chooses collections when searching all sources. Check the previews; it does not classify every image.</p>
-              <SelectField
-                label="Needed for"
-                bind={[purpose, setPurpose]}
-                options={[
-                  ["subject", "Main subject"],
-                  ["head", "Head swap"],
-                  ["background", "Background"],
-                  ["object", "Object / prop"],
-                ].map(([id, title]) => [id, title] as const)}
-              />
-              <InputField
-                label="Pose / framing"
-                placeholder="Facing left, whole head visible"
-                bind={[pose, setPose]}
-              />
-              <InputField
-                label="Expression"
-                placeholder="Surprised, mouth open"
-                bind={[expression, setExpression]}
-              />
-              <InputField
-                label="More pictures of this exact subject"
-                inputFirst
-                labelClassName="check-label"
-                type="checkbox"
-                bind={[sameSubject, setSameSubject]}
-              />
               <Button
                 className="primary"
                 disabled={disabled || !query.trim()}
                 label={busy ? "Working…" : "Find candidates"}
               />
+              <details className="studio-search-options wide">
+                <summary>Search filters</summary>
+                <div className="studio-form">
+                  <SelectField label="Kind of picture" bind={[material, setMaterial]}
+                    options={[["photo", "Photos"], ["illustration", "Illustrations & icons"], ["object", "Museum objects"], ["any", "Any"]]} />
+                  <p className="muted">Picture kind chooses collections when searching all sources. Check the previews; it does not classify every image.</p>
+                  <SelectField
+                    label="Needed for"
+                    bind={[purpose, setPurpose]}
+                    options={[
+                      ["subject", "Main subject"],
+                      ["head", "Head swap"],
+                      ["background", "Background"],
+                      ["object", "Object / prop"],
+                    ].map(([id, title]) => [id, title] as const)}
+                  />
+                  <InputField
+                    label="Pose / framing"
+                    placeholder="Facing left, whole head visible"
+                    bind={[pose, setPose]}
+                  />
+                  <InputField
+                    label="Expression"
+                    placeholder="Surprised, mouth open"
+                    bind={[expression, setExpression]}
+                  />
+                  <InputField
+                    label="More pictures of this exact subject"
+                    inputFirst
+                    labelClassName="check-label"
+                    type="checkbox"
+                    bind={[sameSubject, setSameSubject]}
+                  />
+                </div>
+              </details>
             </form>
             {sheet && (
               <div className="studio-sheet">
@@ -407,7 +408,7 @@ export function Studio({
                       name,
                       tags: tagList(),
                       metadata: {
-                        ...(faceStep?.data?.faces ? { faces: faceStep.data.faces } : {}),
+                        ...(Array.isArray(faceStep?.data?.faces) ? { faces: faceStep.data.faces } : {}),
                       },
                     });
                   }
@@ -559,10 +560,10 @@ export function Studio({
               {branches?.branches.map((branch) => (
                 <article className="studio-card" key={branch.id}>
                   {branch.preview_id && session?.artifacts[branch.preview_id] && (
-                    <ArtifactThumb id={branch.preview_id} label={branch.name} />
+                    <ArtifactThumb id={branch.preview_id} label={directionLabel(branch.name)} />
                   )}
                   <strong>
-                    {branch.name}
+                    {directionLabel(branch.name)}
                     {branch.id === branches.active_id ? " (current)" : ""}
                   </strong>
                   <small>{branch.step_count} steps</small>
@@ -583,17 +584,22 @@ export function Studio({
             </div>
           </>
         )}
-        {tab === "layouts" && <LayoutsPacks key={session?.id} onAttach={onAttach} />}
-        {tab === "retro" && (
+        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={generation} onAttach={onAttach} /></div>}
+        {visited.includes("retro") && <div hidden={tab !== "retro"}>
           <RetroStudio
-            key={`${session?.id}-${useUI.getState().documentGeneration}`}
+            key={generation}
             onAttach={onAttach}
             onDraft={onDraft}
+            onInspect={(id) => {
+              useUI.getState().set({ selectedArtifact: id, selectedStep: null, viewerZoom: 1 });
+              onViewImage?.();
+              onClose();
+            }}
           />
-        )}
-        {tab === "ideas" && (
+        </div>}
+        {visited.includes("ideas") && <div hidden={tab !== "ideas"}>
           <IdeaMixer
-            key={`${session?.id}-${useUI.getState().documentGeneration}`}
+            key={generation}
             onDraft={onDraft}
             onSearch={(value) => {
               setQuery(value);
@@ -605,18 +611,18 @@ export function Studio({
               setCandidates([]);
               setSheet(null);
               setNotes("");
-              setTab("discover");
+              showTab("discover");
             }}
           />
-        )}
-        {tab === "sheets" && (
-          <SpriteSheet key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />
-        )}
-        {tab === "local" && <LocalMedia key={session?.id} onAttach={onAttach} />}
-        {tab === "pairs" && (
-          <ImagePairs key={`${session?.id}-${useUI.getState().documentGeneration}`} onAttach={onAttach} />
-        )}
-        {tab === "recent" && <RecentChoices />}
+        </div>}
+        {visited.includes("sheets") && <div hidden={tab !== "sheets"}>
+          <SpriteSheet key={generation} onAttach={onAttach} />
+        </div>}
+        {visited.includes("local") && <div hidden={tab !== "local"}><LocalMedia key={generation} onAttach={onAttach} /></div>}
+        {visited.includes("pairs") && <div hidden={tab !== "pairs"}>
+          <ImagePairs key={generation} onAttach={onAttach} />
+        </div>}
+        {visited.includes("recent") && <div hidden={tab !== "recent"}><RecentChoices key={generation} /></div>}
       </section>
     </div>
   );

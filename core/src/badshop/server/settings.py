@@ -17,6 +17,35 @@ ApprovalMode = Literal["auto", "ask_changes", "ask_all"]
 FILE = "settings.json"
 
 
+class ExportPreset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+    params: dict
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value):
+        if not value.strip():
+            raise ValueError("give the export preset a name")
+        return value.strip()
+
+    @field_validator("params")
+    @classmethod
+    def export_params(cls, value):
+        from badshop.engine.retro import ExportProfileParams
+        if "image" in value:
+            raise ValueError("export presets cannot reference a project image")
+        return ExportProfileParams.model_validate({**value, "image": "preset"}).model_dump(exclude={"image"})
+
+
+class RecentProject(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    path: str = Field(min_length=1, max_length=4096)
+    name: str = Field(min_length=1, max_length=200)
+    opened_at: float = Field(ge=0)
+    thumbnail: str | None = Field(None, max_length=100000, pattern=r"^[A-Za-z0-9+/]*={0,2}$")
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -28,11 +57,23 @@ class Settings(BaseModel):
     tool_memory_mb: int = Field(3072, ge=256, le=65536)  # memory per tool call
     fake_provider_script: str | None = None  # a ScriptedProvider JSON file (tests and demos, until Plan 3)
     creative_defaults: CreativePreferences = Field(default_factory=CreativePreferences)
+    export_presets: list[ExportPreset] = Field(default_factory=list, max_length=30)
+    recent_projects: list[RecentProject] = Field(default_factory=list, max_length=20)
+    saved_designs: list[dict] = Field(default_factory=list, max_length=50)
     no_remote: bool = False
     remember_history: bool = True
     source_allowlist: list[str] = Field(default_factory=list, max_length=40)
     rights_filter: Literal['any','known','public-domain'] = 'any'
     source_orientation: Literal['any','landscape','portrait','square'] = 'any'
+
+    @field_validator("saved_designs")
+    @classmethod
+    def portable_designs(cls, value):
+        from badshop.session.recipes import Recipe
+        try:
+            return [Recipe.model_validate(item).model_dump(mode="json") for item in value]
+        except EngineError as error:
+            raise ValueError(error.message) from error
 
     @field_validator('source_allowlist')
     @classmethod

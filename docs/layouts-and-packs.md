@@ -22,8 +22,16 @@ encode ticket/product data.
 Choose a template, assign session images to any slots, add captions and a title, and select
 contain/crop/stretch fitting. Empty slots remain labeled placeholders. Expand each slot's coordinates
 to move its image rectangle; the full layout stays editable through the timeline's `layout` step.
-Images use nearest-neighbor scaling and thresholded alpha masks. Caption areas wrap and shrink text;
-very long captions that cannot fit at the minimum size end in an ellipsis. Template sizes stay at
+With crop fitting, each slot has horizontal and vertical crop-focus controls. The
+recorded `focal_points` use normalized coordinates from 0 to 1; omitted slots stay
+centered. Choose images visually or drag material thumbnails onto a slot.
+Panel border and inner margin control the frame around each picture. **Preview layout**
+renders the actual result without adding steps or artifacts; changing parameters hides
+the previous preview. New layouts preserve caption line breaks and blank lines and
+refuse text that cannot fit without truncation. These exact captions use the portable
+Latin-1 font. Older recorded layouts keep legacy wrapping/ellipsis behavior unless
+`exact_text` is enabled. Images use nearest-neighbor scaling and thresholded alpha masks.
+Template sizes stay at
 1000 pixels or less so subsequent tools use consistent working coordinates.
 
 The same `layout` tool is available to the model, MCP, and CLI. `images` contains image references;

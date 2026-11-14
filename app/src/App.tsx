@@ -1,6 +1,7 @@
 import { Button } from "./components/Button";
 import { ThemeIcon } from "./components/ThemeIcon";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   ChevronDown,
   Plus,
@@ -17,8 +18,12 @@ import { Viewer } from "./components/Viewer";
 import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
 import { ErrorNotice } from "./components/ErrorNotice";
+import { FeatureBoundary } from "./components/FeatureBoundary";
 import { Studio } from "./components/Studio";
 import { QuickStart } from "./components/QuickStart";
+import { ProjectHome } from "./components/ProjectHome";
+import { LocalMedia, type MediaInput } from "./components/LocalMedia";
+import { ImportSources } from "./components/ImportSources";
 import { sourceCard } from "./sourceCard";
 import { SaveChangesDialog, useSessionActions } from "./sessionActions";
 import { usePaneLayout } from "./layout";
@@ -39,6 +44,10 @@ import type { ApprovalMode } from "./types";
 import { readPreference, savePreference, useReducedMotion } from "./appearance";
 import { useUpdates, UpdateProgress } from "./updates";
 import "./themes.css";
+function mediaKind(name: string): MediaInput["kind"] | null {
+  if (/\.(pdf|tiff?)$/i.test(name)) return "document";
+  return /\.(mp4|mov|mkv|webm|avi|m4v|mpeg|mpg|ts|ogv|wmv|flv)$/i.test(name) ? "video" : null;
+}
 function Resizer({
   side,
   onResize,
@@ -89,7 +98,7 @@ function Resizer({
 export default function App() {
   const { data: session, error: sessionError } = useSession();
   const { data: profiles } = useCoreQuery("providers.list");
-  const ui = useUI();
+  const ui = useUI(useShallow(({ chatDraft: _draft, setChatDraft: _setDraft, ...state }) => state));
   const reducedMotion = useReducedMotion(ui.motion);
   useEffect(() => {
     document.documentElement.dataset.density = ui.density;
@@ -101,13 +110,39 @@ export default function App() {
   const documents = useSessionActions();
   const { data: settings } = useCoreQuery("settings.get");
   const updates = useUpdates(() => documents.request({ kind: "close" }), settings?.no_remote ?? true);
-  const [welcome, setWelcome] = useState(!localStorage.getItem("badshop.welcome"));
+  const updateModalOpen = updates.phase === "downloading" || updates.phase === "installing";
+  const [welcome, setWelcome] = useState(() => !readPreference("welcome", ""));
   // Existing users keep their workbench; first-time users begin with quick ideas.
-  const [workspace, setWorkspace] = useState(() => readPreference("workspace", localStorage.getItem("badshop.welcome") ? "advanced" : "quick"));
+  const [workspace, setWorkspace] = useState(() => readPreference("workspace", readPreference("welcome", "") ? "advanced" : "quick"));
   const [history, setHistory] = useState(false);
+  const [smallWindow, setSmallWindow] = useState(() => matchMedia("(max-width: 1000px), (max-height: 710px)").matches);
+  useEffect(() => {
+    const media = matchMedia("(max-width: 1000px), (max-height: 710px)");
+    const update = () => setSmallWindow(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const compact = smallWindow || ui.textScale >= 150;
+  const [compactPane, setCompactPane] = useState<"canvas" | "left" | "steps">(() => workspace === "quick" ? "left" : "canvas");
+  const [settingsSection, setSettingsSection] = useState<"providers" | "updates">();
+  const openProviders = () => {
+    setSettingsSection("providers");
+    ui.set({ settingsOpen: true });
+  };
+  const currentPane = ui.pick ? "canvas" : compactPane === "steps" && workspace === "quick" && !history ? "canvas" : compactPane;
   const chooseWorkspace = (value: string) => { setWorkspace(value); savePreference("workspace", value); };
   const [menu, setMenu] = useState(false);
+  const [homeOpen, setHomeOpen] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
+  const [importedImage, setImportedImage] = useState<{ id: string; generation: number } | null>(null);
+  const [pendingImports, setPendingImports] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
+  const [mediaInputs, setMediaInputs] = useState<(MediaInput & { id: string })[]>([]);
+  const [mediaBusy, setMediaBusy] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ completed: number; total: number } | null>(null);
+  const cancelImports = useRef(false);
+  const importingBatch = useRef(false);
   const [ideaDrafts, setIdeaDrafts] = useState<{ id: string; text: string; generation: number }[]>([]);
   const consumeIdeaDraft = useCallback((id: string) => {
     setIdeaDrafts((previous) => previous.filter((draft) => draft.id !== id));
@@ -156,6 +191,9 @@ export default function App() {
   useEffect(() => {
     setAttachments([]);
     setIdeaDrafts([]);
+    setMediaInputs([]);
+    setImportOpen(false);
+    cancelImports.current = true;
   }, [ui.documentGeneration]);
   useEffect(() => {
     if (!session) return;
@@ -178,31 +216,64 @@ export default function App() {
       if (path.toLowerCase().endsWith(".badshop")) {
         return documents.request({ kind: "open", path });
       }
-      const result = await action("artifacts.import", { path });
-      setAttachments((previous) => [...previous, result.working.id]);
-      useUI.getState().set({ selectedArtifact: result.working.id });
-      return true;
+      const kind = mediaKind(path);
+      if (kind) {
+        setMediaInputs(previous => [...previous, { id: crypto.randomUUID(), kind, path }]);
+        return true;
+      }
+      setPendingImports(count => count + 1);
+      try {
+        const result = await action("artifacts.import", { path });
+        setAttachments((previous) => [...previous, result.working.id]);
+        useUI.getState().set({ selectedArtifact: result.working.id });
+        setImportedImage({ id: result.working.id, generation: useUI.getState().documentGeneration });
+        return true;
+      } finally { setPendingImports(count => count - 1); }
     },
     [documents.request],
   );
   const addBlob = useCallback(async (blob: Blob, name?: string) => {
-    const result = await importBlob(blob, name);
-    setAttachments((previous) => [...previous, result.working.id]);
-    useUI.getState().set({ selectedArtifact: result.working.id });
+    const kind = mediaKind(name ?? "");
+    if (kind && blob instanceof File) {
+      setMediaInputs(previous => [...previous, { id: crypto.randomUUID(), kind, file: blob }]);
+      return;
+    }
+    setPendingImports(count => count + 1);
+    try {
+      const result = await importBlob(blob, name);
+      setAttachments((previous) => [...previous, result.working.id]);
+      useUI.getState().set({ selectedArtifact: result.working.id });
+      setImportedImage({ id: result.working.id, generation: useUI.getState().documentGeneration });
+    } finally { setPendingImports(count => count - 1); }
   }, []);
+  const importBatch = useCallback(async (files: (string | File)[]) => {
+    if (importingBatch.current) throw new Error("Wait for the current import or cancel it first.");
+    importingBatch.current = true;
+    cancelImports.current = false;
+    setImportProgress({ completed: 0, total: files.length });
+    try {
+      for (let i = 0; i < files.length && !cancelImports.current; i++) {
+        const file = files[i];
+        if (typeof file === "string") {
+          if (!(await addPath(file))) break;
+        } else await addBlob(file, file.name);
+        setImportProgress({ completed: i + 1, total: files.length });
+      }
+    } finally { importingBatch.current = false; setImportProgress(null); }
+  }, [addPath, addBlob]);
   const importImages = useCallback(() => {
     if (native)
       run(async () => {
         const paths = await pickImages();
-        for (const path of paths ?? []) await addPath(path);
+        await importBatch(paths ?? []);
       });
     else fileInput.current?.click();
-  }, [addPath]);
+  }, [importBatch]);
   useEffect(() => {
     let disposed = false;
     const unlisten = onFileDrop((paths) =>
       run(async () => {
-        for (const path of paths) if (!(await addPath(path))) break;
+        await importBatch(paths);
       }),
     );
     void unlisten.then((fn) => {
@@ -212,7 +283,7 @@ export default function App() {
       disposed = true;
       void unlisten.then((fn) => fn());
     };
-  }, [addPath]);
+  }, [importBatch]);
   const save = useCallback((as = false) => run(() => documents.save(as)), [documents.save]);
   useEffect(() => {
     if (!menu) return;
@@ -231,6 +302,7 @@ export default function App() {
         }
         setNewSessionOpen(false);
         setStudioOpen(false);
+        setHomeOpen(false);
         if (useUI.getState().pick) {
           useUI.getState().set({ pick: null });
           return;
@@ -297,9 +369,15 @@ export default function App() {
     const focusable = () =>
       Array.from(
         dialog.querySelectorAll<HTMLElement>(
-          'button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href],[tabindex="0"]',
+          'button:not(:disabled),summary,input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href],[tabindex="0"]',
         ),
-      ).filter((node) => node.getClientRects().length > 0);
+      ).filter((node) => {
+        if (!node.getClientRects().length) return false;
+        for (let details = node.closest("details:not([open])"); details; details = details.parentElement?.closest("details:not([open])") ?? null) {
+          if (!Array.from(details.children).find(child => child.tagName === "SUMMARY")?.contains(node)) return false;
+        }
+        return true;
+      });
     focusable()[0]?.focus();
     const trap = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;
@@ -331,9 +409,14 @@ export default function App() {
     newSessionOpen,
     documents.pending,
     studioOpen,
+    updateModalOpen,
+    homeOpen,
+    mediaInputs[0]?.id,
+    importOpen,
   ]);
-  const closeWelcome = () => {
-    localStorage.setItem("badshop.welcome", "1");
+  const closeWelcome = (workspace: "quick" | "advanced") => {
+    chooseWorkspace(workspace);
+    savePreference("welcome", "1");
     setWelcome(false);
   };
   const disconnected = ui.status === "failed" || ui.status === "disconnected";
@@ -354,7 +437,7 @@ export default function App() {
         if (native) return;
         const files = Array.from(event.dataTransfer.files);
         run(async () => {
-          for (const file of files) await addBlob(file, file.name);
+          await importBatch(files);
         });
       }}
     >
@@ -362,6 +445,7 @@ export default function App() {
         <div className="brand">
           badshop<span>✱</span>
         </div>
+        <button disabled={ui.status !== "ready"} onClick={() => setHomeOpen(true)}>Projects</button>
         <div className="session-menu" ref={sessionMenu}>
           <button
             className="session-name"
@@ -435,7 +519,7 @@ export default function App() {
               <Button
                 onClick={() => {
                   setMenu(false);
-                  importImages();
+                  setImportOpen(true);
                 }}
                 label="Import images"
                 icon={Plus}
@@ -458,8 +542,8 @@ export default function App() {
         </div>
         <div className="header-center">
           <div className="segmented workspace-switch" aria-label="Workspace">
-            <button aria-pressed={workspace === "quick"} onClick={() => chooseWorkspace("quick")}>Quick ideas</button>
-            <button aria-pressed={workspace === "advanced"} onClick={() => chooseWorkspace("advanced")}>Art director</button>
+            <button aria-pressed={workspace === "quick"} onClick={() => { chooseWorkspace("quick"); setCompactPane("left"); }}>Quick ideas</button>
+            <button aria-pressed={workspace === "advanced"} onClick={() => { chooseWorkspace("advanced"); setCompactPane("canvas"); }}>Art director</button>
           </div>
           {workspace === "advanced" && <>
           <label className="provider-select">
@@ -470,7 +554,7 @@ export default function App() {
               disabled={ui.status !== "ready" || session?.turn_running}
               onChange={(event) =>
                 event.target.value === "add"
-                  ? ui.set({ settingsOpen: true })
+                  ? openProviders()
                   : run(() =>
                       action("providers.select", {
                         profile_id: event.target.value,
@@ -512,7 +596,7 @@ export default function App() {
           </>}
         </div>
         <div className="header-actions">
-          {workspace === "quick" && <button aria-pressed={history} onClick={() => setHistory(!history)}>History</button>}
+          {workspace === "quick" && <button aria-pressed={history} onClick={() => { setHistory(!history); setCompactPane(history ? "canvas" : "steps"); }}>History</button>}
           <button
             className="studio-launch"
             aria-label="Images & directions"
@@ -536,7 +620,7 @@ export default function App() {
             className="quiet"
             title="Settings"
             aria-label="Settings"
-            onClick={() => ui.set({ settingsOpen: true })}
+            onClick={() => { setSettingsSection(undefined); ui.set({ settingsOpen: true }); }}
           >
             <ThemeIcon name="settings" size={18} />
           </button>
@@ -544,6 +628,7 @@ export default function App() {
             className="export"
             type="submit"
             form="export-canvas-image"
+            onClick={() => setCompactPane("canvas")}
             title="Export the image shown on the canvas"
             disabled={ui.status !== "ready" || !Object.keys(session?.artifacts ?? {}).length}
             label="Export"
@@ -552,6 +637,46 @@ export default function App() {
           />
         </div>
       </header>
+      {importOpen && <ImportSources onClose={() => setImportOpen(false)}
+        onFiles={() => { setImportOpen(false); importImages(); }}
+        onClipboard={() => { setImportOpen(false); run(async () => { await addBlob(await clipboardImage()); }); }}
+        onCapture={preview => {
+          setImportOpen(false);
+          setMediaInputs(previous => [...previous, { id: crypto.randomUUID(), kind: "document", preview }]);
+        }}
+        onAttach={id => {
+          setAttachments(previous => [...new Set([...previous, id])]);
+          useUI.getState().set({ selectedArtifact: id });
+          setImportedImage({ id, generation: useUI.getState().documentGeneration });
+          setImportOpen(false);
+        }} />}
+      {importProgress && <div className="restore-banner" role="status">
+        <span>Imported or queued {importProgress.completed} of {importProgress.total} files.</span>
+        <button onClick={() => { cancelImports.current = true; }}>Stop after current file</button>
+      </div>}
+      {mediaInputs[0] && <div className="modal-backdrop">
+        <section className="modal studio" role="dialog" aria-modal="true" aria-label="Import media">
+          <h2>Choose frames or a page</h2>
+          <p>{mediaInputs.length} file(s) waiting. Imported pictures stay in the project.</p>
+          <LocalMedia key={mediaInputs[0].id} source={mediaInputs[0]} onBusyChange={setMediaBusy} onAttach={id => {
+            setAttachments(previous => [...new Set([...previous, id])]);
+            useUI.getState().set({ selectedArtifact: id });
+            setImportedImage({ id, generation: useUI.getState().documentGeneration });
+          }} />
+          <button disabled={mediaBusy || !!importProgress} onClick={() => run(async () => {
+            if (mediaInputs[0]?.preview) await action("media.discard", { preview_id: mediaInputs[0].preview.id });
+            setMediaInputs(previous => previous.slice(1));
+          })}>Done / next file</button>
+          <button onClick={() => {
+            cancelImports.current = true;
+            run(async () => {
+              await action("media.cancel");
+              for (const input of mediaInputs) if (input.preview) await action("media.discard", { preview_id: input.preview.id });
+              setMediaInputs([]);
+            });
+          }}>Cancel remaining imports</button>
+        </section>
+      </div>}
       {!ui.settingsOpen &&
         !studioOpen &&
         !ui.paletteOpen &&
@@ -604,6 +729,8 @@ export default function App() {
       )}
       <main
         className={`workbench ${workspace === "quick" ? "quick-workbench" : "advanced-workbench"} ${history ? "show-history" : ""}`}
+        data-pane={currentPane}
+        data-compact={compact}
         hidden={disconnected}
         inert={ui.status !== "ready"}
         ref={workbench}
@@ -612,16 +739,31 @@ export default function App() {
           gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr)${workspace === "advanced" || history ? ` 6px ${widths.right}px` : ""}`,
         }}
       >
-        <QuickStart key={`quick-${ui.documentGeneration}`} onImport={importImages} onAdvanced={() => chooseWorkspace("advanced")} />
+        <nav className="compact-panes" aria-label="Workspace panels">
+          <button aria-pressed={currentPane === "canvas"} onClick={() => setCompactPane("canvas")}>Canvas</button>
+          <button aria-pressed={currentPane === "left"} disabled={!!ui.pick} onClick={() => setCompactPane("left")}>
+            {workspace === "quick" ? "Ideas" : "Chat"}
+          </button>
+          {(workspace === "advanced" || history) && (
+            <button aria-pressed={currentPane === "steps"} disabled={!!ui.pick} onClick={() => setCompactPane("steps")}>Steps</button>
+          )}
+        </nav>
+        <FeatureBoundary key={`quick-${ui.documentGeneration}`} name="Quick ideas" className="quick-start pane">
+        <QuickStart importing={pendingImports > 0} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={() => setImportOpen(true)} onAdvanced={() => { chooseWorkspace("advanced"); setCompactPane("steps"); }} onResult={() => setCompactPane("canvas")} />
+        </FeatureBoundary>
+        <FeatureBoundary key={`chat-${ui.documentGeneration}`} name="Chat" className="chat pane">
         <Chat
-          key={`chat-${ui.documentGeneration}`}
           attachments={attachments}
           onAttachments={setAttachments}
-          onImport={importImages}
+          onImport={() => setImportOpen(true)}
           onPaste={paste}
+          onConnect={openProviders}
+          onViewImage={() => setCompactPane("canvas")}
+          onViewStep={() => setCompactPane("steps")}
           draft={ideaDrafts.find((draft) => draft.generation === ui.documentGeneration)}
           onDraftConsumed={consumeIdeaDraft}
         />
+        </FeatureBoundary>
         <Resizer
           side="left"
           value={widths.left}
@@ -629,7 +771,9 @@ export default function App() {
           onResize={(delta) => resize("left", delta)}
           onReset={reset}
         />
-        <Viewer key={`viewer-${ui.documentGeneration}`} onImport={importImages} />
+        <FeatureBoundary key={`viewer-${ui.documentGeneration}`} name="Image viewer" className="viewer pane">
+        <Viewer onImport={() => setImportOpen(true)} />
+        </FeatureBoundary>
         <Resizer
           side="right"
           value={widths.right}
@@ -637,7 +781,9 @@ export default function App() {
           onResize={(delta) => resize("right", delta)}
           onReset={reset}
         />
-        <Timeline key={`timeline-${ui.documentGeneration}`} />
+        <FeatureBoundary key={`timeline-${ui.documentGeneration}`} name="Timeline" className="timeline pane">
+        <Timeline onViewImage={() => setCompactPane("canvas")} />
+        </FeatureBoundary>
       </main>
       <footer className="app-footer">
         <span className="footer-brand">Bad is the deliverable.</span>
@@ -661,11 +807,16 @@ export default function App() {
           }}
         />
       )}
-      {ui.settingsOpen && !documents.pending && <Settings updates={updates} />}
+      {homeOpen && !documents.pending && <ProjectHome onClose={() => setHomeOpen(false)}
+        onNew={() => { setHomeOpen(false); setNewSessionOpen(true); }}
+        onBrowse={async () => { if (await documents.open()) setHomeOpen(false); }}
+        onOpen={async path => { if (await documents.request({ kind: "open", path })) setHomeOpen(false); }}
+        onRestore={async () => { if (await documents.request({ kind: "restore" })) setHomeOpen(false); }} />}
+      {ui.settingsOpen && !documents.pending && !updateModalOpen && <Settings updates={updates} initialTab={settingsSection} />}
       {updates.info?.version && !ui.settingsOpen && !documents.pending && updates.phase === "idle" && (
         <div className="update-notice" role="status">
           badshop {updates.info.version} is available.
-          <button onClick={() => ui.set({ settingsOpen: true })}>Review update in Settings → Updates</button>
+          <button onClick={() => { setSettingsSection("updates"); ui.set({ settingsOpen: true }); }}>Review update in Settings → Updates</button>
         </div>
       )}
       <UpdateProgress updates={updates} />
@@ -673,9 +824,11 @@ export default function App() {
       {studioOpen && !documents.pending && (
         <Studio
           onClose={() => setStudioOpen(false)}
+          onViewImage={() => setCompactPane("canvas")}
           onAttach={(id) => setAttachments((previous) => [...new Set([...previous, id])])}
           onDraft={(text) => {
             chooseWorkspace("advanced");
+            setCompactPane("left");
             setIdeaDrafts((previous) => [
               ...previous,
               { id: crypto.randomUUID(), text, generation: ui.documentGeneration },
@@ -687,7 +840,7 @@ export default function App() {
       )}
       <SaveChangesDialog actions={documents} />
       {welcome && ui.status === "ready" && !ui.settingsOpen && !documents.pending && (
-        <Welcome onClose={closeWelcome} onManual={() => { chooseWorkspace("advanced"); closeWelcome(); }} />
+        <Welcome onQuick={() => { setCompactPane("left"); closeWelcome("quick"); }} onAdvanced={() => closeWelcome("advanced")} />
       )}
       {dragging && (
         <div className="drop-overlay">
@@ -709,12 +862,12 @@ export default function App() {
         ref={fileInput}
         aria-label="Import image files"
         type="file"
-        accept="image/*"
+        accept="image/*,video/*,.heic,.heif,.pdf"
         multiple
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           run(async () => {
-            for (const file of files) await addBlob(file, file.name);
+            await importBatch(files);
           });
           event.target.value = "";
         }}

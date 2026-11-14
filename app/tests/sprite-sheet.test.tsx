@@ -15,6 +15,7 @@ vi.mock("../src/data", () => ({
   useSession: () => ({
     data: {
       id: "project",
+      steps: [],
       turn_running: state.running,
       artifacts: state.artifacts,
     },

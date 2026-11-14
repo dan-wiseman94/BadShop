@@ -12,7 +12,7 @@ beforeEach(() => {
 });
 
 test("receipt follows a successful catalog response, never a failed RPC", async () => {
-  calls.invoke.mockResolvedValue(true);
+  calls.invoke.mockImplementation(async (command) => command !== "smoke_capture_enabled");
   calls.request.mockRejectedValueOnce(new Error("unauthenticated"));
   await expect(reportNativeReadiness(state)).rejects.toThrow("unauthenticated");
   expect(calls.invoke).not.toHaveBeenCalledWith("renderer_ready", expect.anything());
@@ -28,7 +28,7 @@ test("normal launches do not run the probe", async () => {
 });
 
 test("obsolete catalog completion cannot overwrite the replacement state", async () => {
-  calls.invoke.mockResolvedValue(true);
+  calls.invoke.mockImplementation(async (command) => command !== "smoke_capture_enabled");
   let finish!: (tools: unknown[]) => void;
   calls.request.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   let current = true;

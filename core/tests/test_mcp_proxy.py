@@ -52,6 +52,29 @@ async def connected(*, heartbeat=.03, timeout=5, mode="auto", logging_callback=N
         await app.close()
 
 
+@pytest.mark.parametrize('replacement', ['document', 'branch'])
+def test_standalone_proxy_requires_explicit_reconnect_after_replacement(private, replacement):
+    from websockets.exceptions import ConnectionClosed
+
+    async def body():
+        async with connected() as (app, client, connection):
+            await connection.call('tools.list')
+            await client.list_tools()
+            if replacement == 'document':
+                await app._session_new('user', 'replacement')
+            else:
+                await app._branches_create('user', 'replacement')
+            image = app.session.import_image((FIXTURES / 'lincoln.png').read_bytes(), 'lincoln')
+            with pytest.raises(ConnectionClosed):
+                await connection.call('tools.run', {'tool': 'info', 'params': {'image': image.id}})
+            result = await client.call_tool('info', {'image': image.id})
+            assert result.is_error
+            assert app.session.data.steps == []
+            fresh = CoreConnection(connection.url, connection.token, connection.actor)
+            assert (await fresh.call('tools.run', {'tool': 'info', 'params': {'image': image.id}}))['status'] == 'done'
+    asyncio.run(body())
+
+
 def test_sdk_list_call_view_image_errors_and_scope(private):
     async def body():
         async with connected() as (app, client, connection):
@@ -66,7 +89,7 @@ def test_sdk_list_call_view_image_errors_and_scope(private):
             assert isinstance(result.content[0], TextContent)
             images = [c for c in result.content if isinstance(c, ImageContent)]
             assert images and base64.b64decode(images[0].data).startswith(b"\x89PNG")
-            assert app.session.data.steps[-1].actor == "cli:claude"
+            assert app.session.data.steps[-1].actor.startswith('cli:claude:')
             result = await client.call_tool("info", {"image": "/etc/passwd"})
             assert result.is_error and result.content[0].text
             result = await client.call_tool("does_not_exist", {})

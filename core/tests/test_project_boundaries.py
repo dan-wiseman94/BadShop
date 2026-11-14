@@ -87,7 +87,10 @@ def test_deep_json_is_a_clean_project_error(tmp_path):
 def _with_history(payload, history, branch):
     if branch:
         from badshop.session.models import BranchSnapshot
-        snapshot = BranchSnapshot(id="a" * 32, name="Saved direction", created_at=1, transcript=history)
+        from badshop.session.history import capture
+        nodes = payload.setdefault('history_nodes', {})
+        revision = capture(nodes, {'steps': [], 'messages': [], 'transcript': history})
+        snapshot = BranchSnapshot(id="a" * 32, name="Saved direction", created_at=1, revision=revision)
         payload["branches"] = {snapshot.id: snapshot.model_dump(mode="json")}
     else:
         payload["transcript"] = history

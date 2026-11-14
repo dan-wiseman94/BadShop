@@ -1,7 +1,7 @@
 """Cutouts: a box with its background knocked out, a hard oval, or a plain rectangle, ported from
 reference/badshop.py."""
 
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 
 from PIL import Image, ImageDraw, ImageFilter
 from pydantic import Field
@@ -10,7 +10,9 @@ from badshop.engine import manifest
 from badshop.engine.common import check_size, clamp_box, has_alpha, rgb, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
-from badshop.engine.types import Box, Color, ImageRef, Params
+from badshop.engine.types import Box, Color, ImageRef, Params, Point
+
+Polygon = Annotated[list[Point], Field(min_length=3, max_length=100)]
 
 # Model -> weights licence -> upstream source (checked 2026-09-26; rembg's own code is MIT):
 #   u2net            -> Apache-2.0 -> https://github.com/xuebinqin/U-2-Net
@@ -79,6 +81,10 @@ class CutoutParams(Params):
     oval: bool = Field(False, description="cut a hard-edged ellipse filling the box instead (face-only swap)")
     sticker: int | None = Field(None, ge=1, le=100, description="add an N px flat outline around the shape")
     sticker_color: Color = Field("white", description="outline color for sticker")
+    keep_regions: list[Polygon] = Field(default_factory=list, max_length=32,
+        description="Restore source pixels inside polygons in original image coordinates")
+    remove_regions: list[Polygon] = Field(default_factory=list, max_length=32,
+        description="Remove pixels inside polygons in original image coordinates; removal wins overlaps")
 
 
 def cutout(p: CutoutParams, image: Image.Image) -> EngineResult:
@@ -104,6 +110,14 @@ def cutout(p: CutoutParams, image: Image.Image) -> EngineResult:
         if p.grow:
             alpha = alpha.filter(ImageFilter.MaxFilter(2 * p.grow + 1))
         piece = piece.convert("RGBA")  # keep the original pixels, so a grown mask shows real old background
+        piece.putalpha(alpha)
+
+    if p.keep_regions or p.remove_regions:
+        alpha = piece.getchannel("A").point(lambda v: 255 if v >= p.threshold else 0)
+        draw = ImageDraw.Draw(alpha)
+        for polygons, fill in ((p.keep_regions, 255), (p.remove_regions, 0)):
+            for polygon in polygons:
+                draw.polygon([(x - box[0], y - box[1]) for x, y in polygon], fill=fill)
         piece.putalpha(alpha)
 
     opaque = piece.getbbox()

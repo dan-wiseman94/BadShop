@@ -83,4 +83,5 @@ def paste(p: PasteParams, base_im: Image.Image, piece_im: Image.Image) -> Engine
         placed = f"piece placed with top-left at ({x}, {y}), {pc.width}x{pc.height} after scaling"
 
     return EngineResult(outputs=[Output("result", base.convert("RGB"), "result.png")],
-                        lines=[f"size: {base.width}x{base.height}", placed])
+                        lines=[f"size: {base.width}x{base.height}", placed],
+                        data={} if p.repeat else {"element_bounds": [x, y, x + pc.width, y + pc.height]})

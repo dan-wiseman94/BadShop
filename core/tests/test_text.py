@@ -128,3 +128,78 @@ def test_line_breaks_in_every_style(monkeypatch, style, brk):
     words = ["top line", "bottom line"]
     assert seen == [[w.upper() for w in words] if style == "impact" else words]
     assert run.result.lines[0].startswith("text: 2 line(s)")
+
+
+def test_exact_text_box_preserves_case_spaces_blank_lines_and_alignment(monkeypatch):
+    from PIL import ImageFont
+    from badshop.engine import text
+    monkeypatch.setattr(text, "load_font", lambda style, size, explicit: (ImageFont.load_default(size=size), "fixture"))
+    params = text.TextParams(image="source", text="Hello  World\n\nNext", preserve_case=True,
+        preserve_line_breaks=True, box=(20, 20, 280, 180), align="right", size=18, margin=5, overflow="error")
+    source = Image.new("RGB", (300, 200), "gray")
+    result = text.caption(params, source).outputs[0].image
+    layer = text.render_text(["Hello  World", "", "Next"], ImageFont.load_default(size=18),
+        "impact", "red", align="right")
+    expected = source.copy()
+    expected.paste(layer, (280 - 5 - layer.width, 25), layer)
+    assert result.tobytes() == expected.tobytes()
+    assert source.getextrema() == ((128, 128),) * 3
+
+
+def test_text_box_overflow_errors_or_shrinks_without_clipping(monkeypatch):
+    from PIL import ImageFont
+    from badshop.engine import text
+    from badshop.engine.errors import EngineError
+    monkeypatch.setattr(text, "load_font", lambda style, size, explicit: (ImageFont.load_default(size=size), "fixture"))
+    source = Image.new("RGB", (200, 160), "gray")
+    params = text.TextParams(image="source", text="Exact words", preserve_line_breaks=True,
+        box=(20, 20, 180, 140), margin=5, size=100, overflow="error")
+    with pytest.raises(EngineError, match="clip words"):
+        text.caption(params, source)
+    output = text.caption(params.model_copy(update={"overflow": "shrink"}), source).outputs[0].image
+    from PIL import ImageChops
+    bounds = ImageChops.difference(output, source).getbbox()
+    assert bounds is not None
+    assert 20 <= bounds[0] < bounds[2] <= 180
+    assert 20 <= bounds[1] < bounds[3] <= 140
+    with pytest.raises(EngineError, match="text box"):
+        text.caption(params.model_copy(update={"box": (20, 20, 201, 140)}), source)
+
+
+def test_bundled_bubble_is_portable_hard_edged_and_preserves_source(monkeypatch):
+    from badshop.engine import text
+    from badshop.tools.fonts import font_names
+    def no_lookup(*args):
+        raise AssertionError("portable captions must not look up or download fonts")
+    monkeypatch.setattr(text, "find_font_file", no_lookup)
+    params = text.TextParams(image="source", text="Hello\nWorld", font="bundled", style="paint",
+        preserve_case=True, preserve_line_breaks=True, size=18, fit_exact=True, margin=5,
+        frame="bubble", frame_color="yellow", frame_padding=6, tail=(130, 135), at=(100, 65))
+    source = Image.new("RGB", (200, 160), "navy")
+    result = text.caption(params, source)
+    assert "bundled" in font_names()
+    assert set(result.outputs[0].image.get_flattened_data()) <= {(0, 0, 128), (255, 255, 0), (255, 0, 0), (0, 0, 0)}
+    assert result.outputs[0].image.getpixel((130, 135)) != (0, 0, 128)
+    assert result.data["element_bounds"][3] >= 136
+    assert source.getextrema() == ((0, 0), (0, 0), (128, 128))
+    assert text.caption(params, source).outputs[0].encode() == result.outputs[0].encode()
+
+
+def test_bundled_font_and_frame_errors_are_explicit():
+    from badshop.engine import text
+    from badshop.engine.errors import EngineError
+    source = Image.new("RGB", (200, 100), "white")
+    with pytest.raises(EngineError, match="Latin-1"):
+        text.caption(text.TextParams(image="source", text="你好", font="bundled"), source)
+    with pytest.raises(EngineError, match="no room"):
+        text.caption(text.TextParams(image="source", text="Hi", font="bundled", frame="box", frame_padding=100), source)
+    with pytest.raises(EngineError, match="tail"):
+        text.caption(text.TextParams(image="source", text="Hi", font="bundled", frame="bubble", tail=(250, 0)), source)
+
+
+@pytest.mark.parametrize("style", ["impact", "paint", "wordart"])
+def test_framed_caption_lettering_has_binary_alpha(style):
+    from badshop.engine.text import render_text
+    from badshop.engine.common import font
+    layer = render_text(["Hard edges"], font(18), style, "red", hard_edges=True)
+    assert set(layer.getchannel("A").get_flattened_data()) <= {0, 255}

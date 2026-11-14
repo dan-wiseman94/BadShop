@@ -15,6 +15,18 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 const CANCELLED: &str = "Update cancelled";
+// Checked against the core's Welcome model by the shared contract fixture.
+const PROTOCOL_VERSION: u64 = 1;
+
+fn validate_welcome(message: &Value) -> Result<(), String> {
+    if message["type"] != "welcome" || message["actor"] != "updater" {
+        return Err("Core refused update connection".into());
+    }
+    if message["protocol"].as_u64() != Some(PROTOCOL_VERSION) {
+        return Err("Incompatible core protocol; update the app and core together".into());
+    }
+    Ok(())
+}
 
 #[derive(Default)]
 pub struct Cancellation {
@@ -118,16 +130,15 @@ pub async fn run<T>(
             .map_err(|e| e.to_string())?;
         socket
             .send(Message::Text(
-                json!({"type":"hello", "actor":"updater", "token":updater_token})
-                    .to_string()
-                    .into(),
+                json!({"type":"hello", "actor":"updater", "token":updater_token,
+                       "protocol":PROTOCOL_VERSION})
+                .to_string()
+                .into(),
             ))
             .await
             .map_err(|e| e.to_string())?;
-        if receive(&mut socket).await?["type"] != "welcome" {
-            return Err("Core refused update connection".to_owned());
-        }
-        Ok(socket)
+        validate_welcome(&receive(&mut socket).await?)?;
+        Ok::<_, String>(socket)
     })
     .await
     .map_err(|_| "Core connection timed out".to_owned())??;
@@ -191,6 +202,7 @@ mod tests {
     // Real loopback websocket exercises wire framing, event/reply ordering and
     // the important lifetime: drop the HTTP future BEFORE the release RPC.
     async fn cancellation_case(mode: &str) {
+        let protocol_failure = matches!(mode, "incompatible" | "missing_protocol");
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let active = Arc::new(AtomicBool::new(false));
@@ -206,15 +218,27 @@ mod tests {
                 serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
                     .unwrap();
             assert_eq!(hello["actor"], "updater");
+            let mut welcome: Value =
+                serde_json::from_str(include_str!("../tests/fixtures/core-update-wire.json"))
+                    .unwrap();
+            assert_eq!(hello["protocol"], welcome["protocol"]);
+            if mode == "incompatible" {
+                welcome["protocol"] = json!(PROTOCOL_VERSION + 1);
+            } else if mode == "missing_protocol" {
+                welcome.as_object_mut().unwrap().remove("protocol");
+            }
             // Independently calculated with Python's standard hmac module.
             assert_eq!(
                 hello["token"],
                 "dd9c4940ed2168bbb90eb7762ad6bcfe1a05287ec9f6a3fc4d4b62a398098738"
             );
             socket
-                .send(Message::Text(json!({"type":"welcome"}).to_string().into()))
+                .send(Message::Text(welcome.to_string().into()))
                 .await
                 .unwrap();
+            if mode == "incompatible" || mode == "missing_protocol" {
+                return;
+            }
             let begin: Value =
                 serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
                     .unwrap();
@@ -297,6 +321,9 @@ mod tests {
         .await
         .unwrap();
         assert!(result.is_err());
+        if protocol_failure {
+            assert!(result.unwrap_err().contains("Incompatible core protocol"));
+        }
         assert!(!active.load(Ordering::SeqCst));
         server.await.unwrap();
     }
@@ -320,5 +347,15 @@ mod tests {
     #[tokio::test]
     async fn lost_core_fails_closed() {
         cancellation_case("disconnect").await;
+    }
+
+    #[tokio::test]
+    async fn incompatible_protocol_never_polls_http() {
+        cancellation_case("incompatible").await;
+    }
+
+    #[tokio::test]
+    async fn missing_protocol_never_polls_http() {
+        cancellation_case("missing_protocol").await;
     }
 }

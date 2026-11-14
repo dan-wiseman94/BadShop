@@ -3,7 +3,7 @@ import { SelectField } from "./Fields";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
-import { ArrowUp, Square, Paperclip, Sparkles, Check, X, SlidersHorizontal, RotateCcw } from "lucide-react";
+import { ArrowUp, Square, Paperclip, Scissors, Check, X, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { action, run, useSession } from "../data";
 import { useUI } from "../store";
 import { ArtifactThumb } from "./Viewer";
@@ -18,6 +18,9 @@ export function Chat({
   onAttachments,
   onImport,
   onPaste,
+  onConnect,
+  onViewImage,
+  onViewStep,
   draft,
   onDraftConsumed,
 }: {
@@ -25,15 +28,21 @@ export function Chat({
   onAttachments: (next: string[]) => void;
   onImport: () => void;
   onPaste: (event: React.ClipboardEvent) => void;
+  onConnect?: () => void;
+  onViewImage?: () => void;
+  onViewStep?: () => void;
   draft?: { id: string; text: string };
   onDraftConsumed?: (id: string) => void;
 }) {
   const { data: session } = useSession();
-  const [text, setText] = useState("");
+  const text = useUI(state => state.chatDraft);
+  const setText = useUI(state => state.setChatDraft);
   const [style, setStyle] = useState("");
   const [novelty, setNovelty] = useState<NoveltyMode | "">("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
+  const currentAttachments = useRef(attachments);
+  currentAttachments.current = attachments;
   const lastDraft = useRef<string | null>(null);
   useEffect(() => {
     if (!draft || draft.id === lastDraft.current || sending) return;
@@ -52,6 +61,10 @@ export function Chat({
     enabled: false,
   });
   const ready = useUI((s) => s.status === "ready");
+  const hasProvider = !!session?.provider_profile_id;
+  const needsProvider = ready && !!session && !hasProvider && !session.scripted_provider;
+  const canResume = session?.last_turn_outcome?.reason === "paused" ||
+    (session?.last_turn_outcome?.reason === "stopped" && !!session?.undo_branch_id);
   useEffect(() => {
     const node = history.current;
     if (!node) return;
@@ -65,17 +78,20 @@ export function Chat({
   }, [session?.id, session?.messages.length, stream, session?.pending_approvals.length]);
   const send = (takes: 1 | 3 = 1) =>
     run(async () => {
-      if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready) return;
+      if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready || needsProvider) return;
       following.current = true;
       setSending(true);
+      const generation = useUI.getState().documentGeneration;
       try {
         await action("chat.send", {
           text: creativeRequest(text, style, takes),
           attachments,
           ...(novelty ? { novelty } : {}),
         });
-        setText("");
-        onAttachments([]);
+        if (useUI.getState().documentGeneration === generation) {
+          setText((current) => current === text ? "" : current);
+          onAttachments(currentAttachments.current.filter((id) => !attachments.includes(id)));
+        }
       } finally {
         setSending(false);
       }
@@ -84,10 +100,24 @@ export function Chat({
     <section className="chat pane" aria-label="Chat">
       <div className="pane-heading">
         <span>Art direction</span>
-        <span className={`connection-dot ${ready ? "online" : ""}`}>
-          {ready ? "Ready" : "Connecting"}
+        <span className={`connection-dot ${ready && !needsProvider ? "online" : ""}`}>
+          {!ready ? "Connecting" : needsProvider ? "AI not connected" : "Ready"}
         </span>
       </div>
+      {(session?.turn_running || session?.undo_branch_id || canResume) && (
+        <div className="manual-turn-controls">
+          {session?.turn_running && <button onClick={() => run(() => action("chat.pause"))}>Pause after operation</button>}
+          {!session?.turn_running && session?.undo_branch_id && <button onClick={() => run(() => action("chat.undo"))}>Undo last AI turn</button>}
+          {!session?.turn_running && canResume && !needsProvider && (
+            <button disabled={sending} onClick={() => run(async () => {
+              if (session?.pause_before_finish) await action("chat.finish_checkpoint", { enabled: false });
+              await action("chat.send", {
+                text: "Resume the previous request using the current corrected images and locked settings. Finishing effects are now allowed."
+              });
+            })}>Resume and allow finishing</button>
+          )}
+        </div>
+      )}
       <div
         className="chat-history"
         ref={history}
@@ -96,15 +126,17 @@ export function Chat({
           if (node) following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 40;
         }}
       >
-        {!session?.messages.length && (
+        {needsProvider && <div className="chat-provider">
+          <p>Connect a provider to direct edits from chat.</p>
+          <button className="primary" onClick={onConnect}>Connect AI</button>
+        </div>}
+        {!needsProvider && !session?.messages.length && (
           <div className="chat-welcome">
-            <div className="little-logo">
-              b<span>✱</span>
-            </div>
+            <div className="welcome-label">The cut &amp; paste department</div>
             <h1>
-              Good tools.
+              Cut. Paste.
               <br />
-              Bad intentions.
+              <span>Make it worse.</span>
             </h1>
             <p>
               {session?.provider_profile_id === ON_DEVICE
@@ -127,7 +159,7 @@ export function Chat({
               ))}
             </div>
             <div className="welcome-note">
-              <Sparkles size={14} />
+              <Scissors size={14} />
               Real pixels. No image generation.
             </div>
           </div>
@@ -187,7 +219,7 @@ export function Chat({
                 <ArtifactThumb
                   key={i}
                   id={part.artifact_id}
-                  onClick={() => useUI.getState().set({ selectedArtifact: part.artifact_id! })}
+                  onClick={() => { useUI.getState().set({ selectedArtifact: part.artifact_id! }); onViewImage?.(); }}
                 />
               ) : null,
             )}
@@ -198,7 +230,7 @@ export function Chat({
                   return (
                     <button
                       key={id}
-                      onClick={() => useUI.getState().set({ selectedStep: id, selectedArtifact: null })}
+                      onClick={() => { useUI.getState().set({ selectedStep: id, selectedArtifact: null }); onViewStep?.(); }}
                     >
                       {step?.status === "done" ? <Check size={12} /> : <SlidersHorizontal size={12} />}{" "}
                       {step?.tool ?? id}
@@ -251,7 +283,7 @@ export function Chat({
                   iconSize={14}
                 />
                 <Button
-                  onClick={() => useUI.getState().set({ selectedStep: id, selectedArtifact: null })}
+                  onClick={() => { useUI.getState().set({ selectedStep: id, selectedArtifact: null }); onViewStep?.(); }}
                   label="Edit"
                   icon={SlidersHorizontal}
                   iconSize={14}
@@ -295,6 +327,11 @@ export function Chat({
         <div aria-hidden="true" />
       </div>
       <div className="composer">
+        <details className="chat-options">
+          <summary>Direction options</summary>
+          <label><input type="checkbox" checked={session?.pause_before_finish ?? false}
+            disabled={!ready || needsProvider || session?.turn_running}
+            onChange={(event) => run(() => action("chat.finish_checkpoint", { enabled: event.target.checked }))} /> Pause before finishing effects</label>
         <SelectField
           label="Novelty"
           labelClassName="creative-direction"
@@ -322,6 +359,7 @@ export function Chat({
             ...creativeStyles.map((item) => [item.id, item.name] as const),
           ]}
         />
+        </details>
         <div className="attachments">
           {attachments.map((id) => (
             <div key={id}>
@@ -356,7 +394,7 @@ export function Chat({
           <Button
             type="button"
             title="Make three different compositions; uses more steps"
-            disabled={!ready || (!text.trim() && !attachments.length) || sending || session?.turn_running}
+            disabled={!ready || needsProvider || (!text.trim() && !attachments.length) || sending || session?.turn_running}
             onClick={() => send(3)}
             label="Three takes"
           />
@@ -369,7 +407,7 @@ export function Chat({
             <button
               className="send"
               aria-label="Send message"
-              disabled={!ready || (!text.trim() && !attachments.length) || sending}
+              disabled={!ready || needsProvider || (!text.trim() && !attachments.length) || sending}
               onClick={() => send()}
             >
               <ArrowUp size={19} />
@@ -381,7 +419,7 @@ export function Chat({
         <span>You can change every step.</span>
         {errorAction === "retry-turn" && (
           <Button
-            disabled={session?.turn_running || sending}
+            disabled={needsProvider || session?.turn_running || sending}
             title="Retry failed provider turn"
             onClick={() => run(() => action("chat.retry"))}
             label="Retry turn"

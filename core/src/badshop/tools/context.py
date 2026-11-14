@@ -6,7 +6,7 @@ from badshop.engine.result import Output
 
 
 class Store(Protocol):
-    """Where tool inputs come from and outputs go. The CLI uses files; sessions (Plan 2) use artifacts."""
+    """Tool inputs and outputs: files for the CLI, artifacts for sessions."""
 
     def load(self, ref: str) -> Image.Image: ...
 

@@ -235,6 +235,7 @@ class CLIProvider:
         self.profile = profile
         self.cli = profile.cli
         self.actor = f"cli:{self.cli}"
+        self.authorization_id: str | None = None
         self.info = inspect_cli(self.cli, profile.executable)
         if not self.info["supported"]:
             raise ProviderError(self.info.get("error", "unsupported CLI"))

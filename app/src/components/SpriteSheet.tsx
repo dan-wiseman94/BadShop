@@ -3,7 +3,7 @@ import { InputField, SelectField } from "./Fields";
 import { useState } from "react";
 import { useOperation } from "../useOperation";
 import { action, imageUrl, useArtifact, useSession } from "../data";
-import { useSelectedArtifact, useUI } from "../store";
+import { useCanvasArtifact, useUI } from "../store";
 import { ArtifactThumb } from "./Viewer";
 
 type Margins = [number, number, number, number];
@@ -62,7 +62,7 @@ export function sheetCells(
 export function SpriteSheet({ onAttach }: { onAttach: (id: string) => void }) {
   const { data: session } = useSession();
   const ready = useUI((s) => s.status === "ready");
-  const current = useSelectedArtifact(session?.steps);
+  const { id: current } = useCanvasArtifact(session);
   const [sourceId, setSourceId] = useState(current ?? "");
   const [rows, setRows] = useState(2);
   const [columns, setColumns] = useState(2);

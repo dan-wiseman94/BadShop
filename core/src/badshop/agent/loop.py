@@ -6,12 +6,13 @@ import asyncio
 import json
 import threading
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from badshop.agent.approval import ApprovalGate, needs_approval
 from badshop.agent.context import CHANGES_NOTE, build_messages, image_placeholder, model_result, tool_definitions
 from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
+from badshop.session.invocation_policy import ExecutionBudget, FINISH_TOOLS
 from badshop.engine.errors import EngineError
 from badshop.session.models import ArtifactMeta, Message, Part, Step
 from badshop.session.session import RUNNABLE, Emit, Session
@@ -29,6 +30,11 @@ class TurnConfig:
     step_budget: int = 40  # executed steps per turn
     max_invalid: int = 3  # consecutive invalid calls end the turn
     before_request: Callable[[], None] | None = None  # recheck the app's current network policy
+    pause_requested: bool = False
+    budget: ExecutionBudget = field(init=False)
+
+    def __post_init__(self):
+        self.budget = ExecutionBudget(self.step_budget)
 
 
 def _arguments(call: ToolCallRequest) -> dict:
@@ -119,27 +125,20 @@ def _reject(session: Session, step_id: str, note: str) -> str:
 
 
 def _execute(session: Session, step_id: str, params: dict | None,
-             cancel: threading.Event) -> tuple[bool, str]:
-    """Run an approved (or user-edited) step, with `cancel` as its stop signal. Returns whether a tool ran,
-    and what the model hears back."""
+             cancel: threading.Event, budget: ExecutionBudget) -> str:
+    """Run an approved step through shared admission and return what the model hears back."""
     step = _find(session, step_id)
     if step is None:
-        return False, "not run: the user deleted this step"
+        return "not run: the user deleted this step"
     if step.status not in RUNNABLE:  # settled elsewhere while it waited: answer with what happened
-        return False, _as_it_is(step)
-    try:
-        step = session.run(step_id, params, cancel=cancel)
-    except EngineError as e:
-        if params is None:  # a proposed step on its own params always runs: a bug, and the turn says so
-            raise
-        # The user's edit didn't resolve (an image id that isn't in the session, from a gate without
-        # `resolve`). run() checks before it changes anything, so the step is still waiting: reject it.
-        session.reject(step_id, f"the edited parameters were refused: {e.message}")
-        return False, f"rejected by user: their edited parameters were refused ({e.message})"
+        return _as_it_is(step)
+    step = session.run_approved(step_id, params, cancel=cancel, budget=budget)
+    if step.status == 'rejected':
+        return model_result(step)
     text = model_result(step)  # structured coordinates and bounded untrusted source text for the model
     if params is not None:
         text = f"the user edited the parameters before it ran: {json.dumps(step.params)}\n{text}"
-    return True, text
+    return text
 
 
 def _wind_up(session: Session, message_id: str | None, unanswered: dict[str, str | None], note: str) -> None:
@@ -189,7 +188,6 @@ class _Turn:
                  emit: Emit, blocking: Blocking):
         self.session, self.provider, self.gate, self.cfg = session, provider, gate, cfg
         self.emit, self.blocking = emit, blocking
-        self.executed = 0  # steps run this turn (the budget)
         self.invalid = 0  # consecutive invalid calls
         self.message_id: str | None = None  # the assistant message of the reply being handled
         self.unanswered: dict[str, str | None] = {}  # its call ids without a result -> their step ids
@@ -232,6 +230,8 @@ class _Turn:
                                + [Part(type="image", artifact_id=m.id) for m in images])
         tools = tool_definitions()
         while True:
+            if self.cfg.pause_requested:
+                return "paused"
             messages = await self.call(build_messages, self.session,
                                        getattr(self.provider, "full_image_ids", False),
                                        getattr(self.provider, "thought_signatures", False))
@@ -258,7 +258,10 @@ class _Turn:
             return "done"
         why = reply.text.strip()[:500] or None  # the model's stated reason, shown on approval cards
         for call in reply.tool_calls:
-            if self.executed >= self.cfg.step_budget:
+            if self.cfg.pause_requested or (self.session.data.pause_before_finish and call.name in FINISH_TOOLS):
+                await self.answer_rest("not run: paused for manual corrections; wait for the user to resume")
+                return "paused"
+            if self.cfg.budget.exhausted:
                 await self.answer_rest(f"not run: this turn's budget of {self.cfg.step_budget} steps is used "
                                        "up; the user can send a message to continue")
                 return "budget"
@@ -284,18 +287,17 @@ class _Turn:
         if message is not None:  # the reply again, now listing the step: clients upsert messages by id
             self.emit("message.done", {"message": message})
         params = None
-        if needs_approval(spec, self.cfg.approval_mode):
+        if step.lock_review or needs_approval(spec, self.cfg.approval_mode):
             decision = await self.gate.request(step)
             if decision.decision == "reject":
                 content = await self.call(_reject, self.session, step.id, decision.note or "no reason given")
                 await self.answer(call.id, content)
                 return
             params = decision.params if decision.decision == "edit" else None
+            step.lock_approved = True
         self.stopping = threading.Event()  # one per step: it goes with this call and no other
-        ran, content = await self.call(_execute, self.session, step.id, params, self.stopping)
+        content = await self.call(_execute, self.session, step.id, params, self.stopping, self.cfg.budget)
         self.stopping = None
-        if ran:
-            self.executed += 1
         await self.answer(call.id, content)
 
     async def stop(self, note: str) -> None:

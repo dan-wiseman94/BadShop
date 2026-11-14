@@ -3,18 +3,104 @@ on:
   schedule:
     - cron: '23 8 * * 1'
   workflow_dispatch:
+    inputs:
+      stack:
+        type: choice
+        options: [all, python, frontend, rust]
+        default: all
+      package:
+        description: Optional package in the selected stack; blank checks all compatible updates
+        type: string
 permissions:
   contents: read
 jobs:
   refreshed-lock:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [python, frontend, rust]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      STACK: ${{ matrix.stack }}
+      SELECTED: ${{ inputs.stack || 'all' }}
+      PACKAGE: ${{ inputs.package }}
+      TAURI_CONFIG: '{"bundle":{"resources":[]}}'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Select refresh
+        id: selection
+        shell: bash
+        run: |
+          if [ "$SELECTED" = all ] && [ -n "$PACKAGE" ]; then
+            echo 'Select one stack when specifying a package'; exit 1
+          fi
+          if [[ "$PACKAGE" == -* ]]; then echo 'Package must be a package name'; exit 1; fi
+          if [ "$SELECTED" = all ] || [ "$SELECTED" = "$STACK" ]; then
+            echo enabled=true >> "$GITHUB_OUTPUT"
+          fi
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - run: uv lock --project core --upgrade
-      - run: uv run --project core pytest core/tests -q
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        if: always()
+        if: steps.selection.outputs.enabled == 'true'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        if: steps.selection.outputs.enabled == 'true' && matrix.stack != 'python'
         with:
-          name: candidate-lock
-          path: core/uv.lock
+          node-version: 22
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        if: steps.selection.outputs.enabled == 'true' && matrix.stack != 'python'
+        with:
+          version: 10
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: steps.selection.outputs.enabled == 'true' && matrix.stack == 'rust'
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: steps.selection.outputs.enabled == 'true' && matrix.stack == 'rust'
+        with:
+          workspaces: app/src-tauri
+      - name: Rust native prerequisites
+        if: steps.selection.outputs.enabled == 'true' && matrix.stack == 'rust'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev
+      - name: Refresh and verify candidate
+        if: steps.selection.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          mkdir -p artifacts/verification/dependencies
+          exec > >(tee artifacts/verification/dependencies/refresh.log) 2>&1
+          case "$STACK" in
+            python)
+              if [ -n "$PACKAGE" ]; then uv lock --project core --upgrade-package "$PACKAGE"; else uv lock --project core --upgrade; fi
+              uv sync --project core --locked
+              uv run --project core --locked pytest core/tests -q -m 'not models and not network and not live'
+              ;;
+            frontend)
+              if [ -n "$PACKAGE" ]; then pnpm --dir app update --lockfile-only --no-save "$PACKAGE"; else pnpm --dir app update --lockfile-only --no-save; fi
+              uv sync --project core --locked
+              pnpm --dir app install --frozen-lockfile
+              uv run --project core --locked python scripts/generate_wire_types.py --check
+              pnpm --dir app test
+              pnpm --dir app exec playwright install --with-deps chromium
+              ./verify.sh browser
+              ;;
+            rust)
+              if [ -n "$PACKAGE" ]; then cargo update --manifest-path app/src-tauri/Cargo.toml --package "$PACKAGE"; else cargo update --manifest-path app/src-tauri/Cargo.toml; fi
+              pnpm --dir app install --frozen-lockfile
+              pnpm --dir app build
+              cargo test --manifest-path app/src-tauri/Cargo.toml --locked
+              ;;
+          esac
+      - name: Retain candidate diff and status
+        if: always() && steps.selection.outputs.enabled == 'true'
+        shell: bash
+        env:
+          RESULT: ${{ job.status }}
+        run: |
+          mkdir -p artifacts/verification/dependencies
+          git diff -- core/uv.lock app/pnpm-lock.yaml app/package.json app/src-tauri/Cargo.lock > artifacts/verification/dependencies/candidate.patch
+          printf 'Stack: %s\nSource: %s\nResult: %s\nCandidate only; no changes promoted.\n' "$STACK" "$GITHUB_SHA" "$RESULT" | tee artifacts/verification/dependencies/result.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always() && steps.selection.outputs.enabled == 'true'
+        with:
+          name: candidate-${{ matrix.stack }}
+          path: |
+            artifacts/verification/
+            core/uv.lock
+            app/pnpm-lock.yaml
+            app/src-tauri/Cargo.lock

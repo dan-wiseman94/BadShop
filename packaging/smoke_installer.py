@@ -81,7 +81,7 @@ def main() -> None:
 
                 smoke_editing(executable, args.screenshot, ROOT / 'core/tests/fixtures/lincoln.png', root)
             else:
-                smoke([str(executable)], args.screenshot)
+                smoke([str(executable)], args.screenshot, restart_core=sys.platform == 'linux')
         finally:
             if uninstaller:
                 # NSIS's _?= form runs in place rather than starting a detached temp copy.

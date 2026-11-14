@@ -15,6 +15,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -35,6 +43,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -125,6 +141,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -135,6 +159,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -145,6 +177,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -155,6 +195,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -165,6 +213,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -175,6 +231,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -185,6 +249,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -195,6 +267,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -205,6 +285,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -215,6 +303,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -225,6 +321,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -235,6 +339,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -245,6 +357,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -255,6 +375,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -265,6 +393,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -275,6 +411,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -285,6 +429,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -295,6 +447,14 @@
       {
         "file": "license-notices/540ae4c81adb5f64a9f61e222b688880da24300e.txt",
         "source": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+      },
+      {
+        "file": "license-notices/objc2-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+      },
+      {
+        "file": "license-notices/objc2-original-MIT.txt",
+        "source": "https://github.com/madsmtm/objc2/blob/9961247c1a82027d6edbe6c516011b1363b9354c/LICENSE.txt"
       }
     ],
     "review_required": "Upstream notice describes Apple SDK derivation and links the license terms; review redistribution obligations for the actual Mac build."
@@ -421,13 +581,16 @@
   },
   {
     "purl": "pkg:npm/%40cfworker/json-schema@4.1.6",
-    "notices": [{
-      "file": "license-notices/cfworker-4.1.6-MIT.txt",
-      "source": "https://github.com/cfworker/cfworker/blob/1a0aa37471850c28a4673e12e871e010ea6c26e0/LICENSE.md"
-    }, {
-      "file": "license-notices/cfworker-4.1.6-THIRD_PARTY_NOTICES.txt",
-      "source": "https://github.com/cfworker/cfworker/blob/1a0aa37471850c28a4673e12e871e010ea6c26e0/THIRD_PARTY_NOTICES.md"
-    }],
+    "notices": [
+      {
+        "file": "license-notices/cfworker-4.1.6-MIT.txt",
+        "source": "https://github.com/cfworker/cfworker/blob/1a0aa37471850c28a4673e12e871e010ea6c26e0/LICENSE.md"
+      },
+      {
+        "file": "license-notices/cfworker-4.1.6-THIRD_PARTY_NOTICES.txt",
+        "source": "https://github.com/cfworker/cfworker/blob/1a0aa37471850c28a4673e12e871e010ea6c26e0/THIRD_PARTY_NOTICES.md"
+      }
+    ],
     "review_required": null
   }
 ]

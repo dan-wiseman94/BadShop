@@ -1,6 +1,11 @@
 # badshop desktop app — design spec
 
-**Date:** 2026-09-26 · **Status:** draft for review · **Owner:** Dan Wiseman
+**Date:** 2026-09-26 · **Status:** historical design, implemented with later updates · **Owner:** Dan Wiseman
+
+Current implementation guidance starts at [the documentation index](../../README.md).
+The product rules remain requirements. Historical field lists, provider launch flags,
+dependency versions, UI layouts and milestone plans below are not current contracts.
+Use the linked current owners before implementing a change.
 
 ## 1. Summary
 
@@ -204,6 +209,10 @@ Completed steps are kept.
 
 ### 5.5 `providers/`
 
+**Current owner:** [compatibility](../../compatibility.md) and the tested adapters in
+`core/src/badshop/providers/`. The launch table below records the initial proposal;
+do not restore its unverified flags or fallbacks over the current adapters.
+
 **Provider profiles** (user-created, several allowed; one is active per session):
 `{id, kind, label, model, api_base?, api_key_ref?, cli?, capability_overrides}`.
 
@@ -274,6 +283,10 @@ only supplies tools through MCP and observes and gates them through `session/`:
 
 ## 6. Data model
 
+**Superseded details:** current projects write schema 3 and read schemas 1–3.
+See [project compatibility](../../compatibility.md#project-compatibility-and-recovery)
+and `core/src/badshop/session/models.py`. The schema-1 illustration below is historical.
+
 ```ts
 Session  { id, name, created_at, provider_profile_id, approval_mode,
            messages: Message[], steps: Step[], artifacts: Record<ArtifactId, Artifact> }
@@ -293,6 +306,10 @@ refuses with a message; older schemas are migrated. The provider profile is refe
 ID only; keys never go into the file.
 
 ## 7. Protocol
+
+**Current owner:** RPC registration in `core/src/badshop/server/app.py` and its API
+modules. The initial list below predates revision-guarded saves, branches and other
+implemented workflows; use [state machines](../../state-machines.md) for their behavior.
 
 **Requests (client → core):** `session.new|open|save|save_as|export_recipe`,
 `chat.send {text, attachments}`, `chat.stop`, `tools.list`, `tools.run {tool, params}`
@@ -320,6 +337,10 @@ The same gate applies to CLI agents through the MCP proxy, which blocks until th
 decides, sending progress heartbeats (§5.5).
 
 ## 8. UI
+
+**Current owner:** [the user walkthrough](../../../README.md) and workflow documents
+linked from [the documentation index](../../README.md). These wireframes record the
+initial controller layout, not a request to undo the current onboarding or workspace.
 
 Main window, three panes, all resizable:
 
@@ -404,6 +425,10 @@ otherwise on first use). Ends at an empty session with example prompts.
 
 ## 11. Testing
 
+**Current owner:** [development and focused checks](../../development.md).
+Use its selection rules and current verification commands instead of treating this
+initial test plan as a requirement to run every suite on every change.
+
 - **Engine:** port behavior tests from the CLI session's checks. Golden-image tests with
   fixed seeds per tool (small fixture images in `core/tests/fixtures`, freely licensed). Face
   detection is tested on fixture portraits with tolerance boxes.
@@ -425,6 +450,10 @@ otherwise on first use). Ends at an empty session with example prompts.
   handshake, call `tools.list`, run `find` on a fixture, then quit.
 
 ## 12. Build and release
+
+**Current owner:** [releasing](../../releasing.md), platform setup guides, manifests
+and committed lockfiles. Dependency versions, OS runners and packaging scope below
+are historical and must not override those sources.
 
 - Monorepo layout:
   ```

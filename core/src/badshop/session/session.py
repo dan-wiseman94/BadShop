@@ -5,6 +5,7 @@ approvals, edits and replay work the same for every caller. Engine rules still h
 and every failure a caller can act on is an EngineError."""
 
 import copy
+import io
 import json
 import re
 import threading
@@ -15,8 +16,9 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 from pydantic import TypeAdapter, ValidationError
+from PIL.PngImagePlugin import PngInfo
 
-from badshop import files
+from badshop import atomic, files
 from badshop.engine.errors import EngineError
 from badshop.engine.result import Output
 from badshop.engine.types import FileName
@@ -25,9 +27,11 @@ from badshop.session.artifacts import ArtifactStore, describe, short
 from badshop.session.execution import (CRASH_HINT, STOPPED, Executor, InProcessExecutor, OutputRecord,
                                        ToolCall, ToolOutcome, cache_key, json_safe)
 from badshop.session.models import ArtifactMeta, Message, Part, SessionData, Source, Step, StepError
+from badshop.session.invocation_policy import ExecutionBudget
 from badshop.tools import registry, runner
 
 Emit = Callable[[str, dict], None]
+BYPASS_TOOLS = frozenset({"filter", "deepfry", "save", "eyes", "sparkle", "flare", "watermark", "warp", "censor", "palette"})
 
 RUNNABLE = ("proposed", "approved")  # a step waiting to run; anything else has run, failed or been rejected
 _MARKS = {"done": "✓", "error": "✗"}  # summary() writes every other status as its name
@@ -131,7 +135,9 @@ class Session:
                  emit: Emit | None = None, output_dir: Path | None = None,
                  on_change: Callable[[], None] | None = None, decoder=None):
         self.data, self.artifacts = data, artifacts
-        self.artifacts.decoder = decoder
+        self.incarnation = uuid.uuid4().hex  # reopening the same saved ID creates a new live owner
+        if decoder is not None:
+            self.artifacts.decoder = decoder
         # One dict: a snapshot or a project file of `data` always lists every artifact the store holds.
         self.data.artifacts = artifacts.meta
         self.executor: Executor = executor if executor is not None else InProcessExecutor()
@@ -153,6 +159,8 @@ class Session:
         names = [s.id for s in self.data.steps] + [m.id for m in self.data.messages]
         names += [sid for m in self.data.messages for sid in m.step_ids]
         names += [a.produced_by for a in self.artifacts.meta.values() if a.produced_by]
+        for snapshot in [*self.data.manual_undo, *self.data.manual_redo]:
+            names.extend((f's{snapshot.max_step_number}', f'm{snapshot.max_message_number}'))
         numbers = [int(n[len(prefix):]) for n in names if n.startswith(prefix) and n[len(prefix):].isdigit()]
         return f"{prefix}{max(numbers, default=0) + 1}"
 
@@ -285,14 +293,29 @@ class Session:
             if allowed:
                 raw['allow_sources'] = allowed
         params = self._resolved(runner.validate(tool, raw, actor))
+        if not runner.is_trusted(actor):
+            self.data.manual_undo.clear()
+            self.data.manual_redo.clear()
         step = Step(id=self._next_id("s"), index=len(self.data.steps) + 1, tool=tool, params=params,
                     actor=actor, status="proposed", reason=reason)
+        if not runner.is_trusted(actor) and registry.get(tool).mutates:
+            ancestry = set(_image_refs(step))
+            for previous in reversed(self.data.steps):
+                if ancestry.intersection(previous.outputs):
+                    ancestry.update(_image_refs(previous))
+            step.lock_review = any(previous.locked_fields and (
+                ancestry.intersection(previous.outputs) or
+                (previous.tool == tool and ancestry.intersection(_image_refs(previous)))
+            ) for previous in self.data.steps)
+            if step.lock_review:
+                step.reason = "Review required: this operation may change a result with pinned settings. " + (reason or "")
         self.data.steps.append(step)
         self._emit("step.proposed", step)
         self._changed()
         return step
 
-    def run(self, step_id: str, raw: dict | None = None, *, cancel: threading.Event | None = None) -> Step:
+    def run(self, step_id: str, raw: dict | None = None, *, cancel: threading.Event | None = None,
+            budget: ExecutionBudget | None = None) -> Step:
         """Run a proposed step, with the user's edited params when given (validated as the user's).
         `cancel` is the caller's stop signal for this one run (the agent's Stop): it goes to the executor
         with the call, and a stopped run is a failed step with the executor's "stopped by the user"."""
@@ -300,14 +323,34 @@ class Session:
         if step.status not in RUNNABLE:
             raise EngineError(f"step {step.id} is {step.status}, so it can't run",
                               hint="only a proposed step runs; edit a finished step and replay it instead")
+        if step.lock_review and not step.lock_approved and not runner.is_trusted(step.actor):
+            raise EngineError("this operation requires review of pinned settings")
+        if budget is not None and budget.exhausted:
+            return self.reject(step_id, "this turn's tool budget is used up")
         if raw is not None:
             params = self.validate_step_params(step_id, raw)
             if params != step.params:
                 step.params, step.edited = params, True
+        if budget is not None:
+            budget.record_execution()
         self._execute(step, cancel)
         if step.actor == "user":
             self.changes.append(self._change_note(step))
         return step
+
+    def run_approved(self, step_id: str, raw: dict | None = None, *, cancel: threading.Event | None = None,
+                     budget: ExecutionBudget | None = None) -> Step:
+        """Settle a decided approval even if its edited parameters no longer resolve.
+
+        The caller holds the document lock. Validation failures without an edit
+        are programming errors and propagate; invalid edits leave no orphan waiter.
+        """
+        try:
+            return self.run(step_id, raw, cancel=cancel, budget=budget)
+        except EngineError as error:
+            if raw is None:
+                raise
+            return self.reject(step_id, f"the edited parameters were refused: {error.message}")
 
     def run_tool(self, tool: str, raw: dict, actor: str, reason: str | None = None) -> Step:
         return self.run(self.propose(tool, raw, actor, reason).id)
@@ -330,10 +373,21 @@ class Session:
         stem = self._stem(step)
         step.status, step.started_at, step.finished_at = "running", time.time(), None
         step.outputs, step.result_text, step.data, step.error = [], "", None, None
-        step.cache_key = cache_key(step.tool, step.params)
+        step.cache_key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
         self._emit("step.started", step)  # no on_change here: an autosave never holds a running step
         try:
-            if registry.get(step.tool).writes_files:
+            if step.bypassed:
+                if step.tool not in BYPASS_TOOLS:
+                    raise EngineError("this tool cannot be bypassed")
+                if self.artifacts.meta[step.params["image"]].frames > 1:
+                    raise EngineError("bypass is only available for still images")
+                source = self.artifacts.image(step.params["image"])
+                buffer = io.BytesIO()
+                metadata = PngInfo()
+                metadata.add_text("badshop-bypass", step.id)
+                source.save(buffer, "PNG", pnginfo=metadata)
+                outcome = ToolOutcome(True, [OutputRecord("result", buffer.getvalue(), "result.png")])
+            elif registry.get(step.tool).writes_files:
                 outcome = self._run_here(step, stem, cancel)
             else:
                 inputs = {id: self.artifacts.data(self.artifacts.resolve(id)) for id in _image_refs(step)}
@@ -415,13 +469,12 @@ class Session:
             for _ in range(_EXPORT_TRIES):
                 path = files.final_path(self.output_dir, stem, meta.ext)
                 try:
-                    with open(path, "xb") as f:  # "x": a file that appeared since final_path looked is kept
-                        f.write(data)
+                    atomic.write_new_bytes(path, data)
                     return path
                 except FileExistsError:
                     # Another program took the name since final_path looked: the next try gets the next
                     # name. Not so for a broken link: final_path doesn't see it (it doesn't "exist"), so it
-                    # would hand back this name forever, and "x" never replaces it.
+                    # would hand back this name forever, and publication never replaces it.
                     if path.is_symlink() and not path.exists():
                         raise EngineError(f"can't write {path.name}: a broken link with that name is in "
                                           f"{self.output_dir}",
@@ -451,6 +504,10 @@ class Session:
             line = f"{step.index}. {step.tool} by {step.actor} {_MARKS.get(step.status, step.status)}"
             if step.edited:
                 line += " (edited)"
+            if step.bypassed:
+                line += " (bypassed)"
+            if step.locked_fields:
+                line += " locked settings: " + json.dumps({key: step.params.get(key) for key in step.locked_fields})
             if step.outputs:
                 line += " → " + ", ".join(self._named(i) for i in step.outputs)
             if step.error is not None:
@@ -505,6 +562,58 @@ class Session:
         params = self._resolved(runner.validate(step.tool, raw, "user"))
         self._refuse_later(step, pos, params)
         return params
+
+    def preview_edit(self, step_id: str, raw: dict, *, final_result: bool = False) -> list[OutputRecord]:
+        """Render one local step without publishing artifacts, history or change events."""
+        step = self.step(step_id)
+        self._refuse_busy(self.data.steps)
+        if step.bypassed:
+            raise EngineError("enable this effect before previewing its settings")
+        params = self.validate_step_params(step_id, raw)
+        if final_result:
+            todo = self.data.steps[self._position(step_id):]
+            if len(todo) > 60:
+                raise EngineError("final preview is limited to 60 operations")
+            for item in todo:
+                if item.status == "rejected":
+                    continue
+                spec = registry.get(item.tool)
+                if spec.network or spec.writes_files:
+                    raise EngineError("final preview requires local steps without file writes",
+                                      hint="preview this step alone instead")
+            # Own metadata and dictionaries; immutable bytes can safely be shared.
+            store = self.artifacts.fork()
+            try:
+                shadow = Session(self.data.model_copy(deep=True), store, executor=self.executor,
+                                 output_dir=self.output_dir, decoder=self.artifacts.decoder)
+                shadow.no_remote = True
+                shadow.edit(step_id, params)
+                completed = shadow.replay_from(step_id)
+                failed = next((item for item in completed if item.status == "error"), None)
+                if failed:
+                    raise EngineError(failed.error.message, hint=failed.error.hint)
+                last = next((item for item in reversed(completed) if item.outputs), None)
+                return [OutputRecord("preview", store.data(aid), "preview.png", "")
+                        for aid in (last.outputs if last else [])]
+            finally:
+                store.close()
+        return self.preview_tool(step.tool, params)
+
+    def preview_tool(self, tool: str, raw: dict) -> list[OutputRecord]:
+        """Use the existing executor for a disposable preview; never publish project state."""
+        self._refuse_busy(self.data.steps)
+        spec = registry.get(tool)
+        if spec.network or spec.writes_files:
+            raise EngineError("preview requires a local image tool")
+        params = self._resolved(runner.validate(tool, raw, "user"))
+        draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
+        inputs = {aid: self.artifacts.data(aid) for aid in _image_refs(draft)}
+        outcome = self.executor.run(ToolCall(
+            tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True,
+        ))
+        if not outcome.ok:
+            raise EngineError(outcome.error_message or "preview failed", hint=outcome.error_hint)
+        return outcome.outputs
 
     def edit(self, step_id: str, raw: dict) -> list[Step]:
         """Give a finished (or failed, stale or rejected) step new params, as the user. It and every later
@@ -571,7 +680,7 @@ class Session:
             if remap:
                 step.params = _map_refs(step.tool, step.params, lambda id: remap.get(id, id))
             old = list(step.outputs or step.previous_outputs)
-            key = cache_key(step.tool, step.params)
+            key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
             hit = cache.get(key)
             if hit is not None and all(id in self.artifacts for id in hit.outputs):
                 self._reuse(step, hit, key)
@@ -659,36 +768,39 @@ class Session:
         return ids & set(self.artifacts.ids())
 
     def referenced_ids(self) -> set[str]:
-        """The artifacts the session still points at, which project save (Task 9) keeps: every image the
-        user imported, used or not; every step's inputs and outputs (and a stopped replay's
-        previous_outputs); the images in messages; what each step a message names made first (its
-        produced_by), which for a deleted step is what is left of its outputs; every artifact whose short
-        id appears in the transcript or in a message's text; and the originals of all of those that are
-        imports. So a reopened session never loses a picture the user added or the chat or the model
-        still points at (spec 2, criterion 4)."""
-        meta = self.artifacts.meta
-        # The user's imports are the working copies no step produced. They stay even before any step,
-        # message or agent turn names them, so a save or autosave right after a drop keeps the picture.
-        originals = {a.original_id for a in meta.values() if a.original_id}
-        ids = {i for i, a in meta.items() if a.produced_by is None and i not in originals}
-        ids.update(self.data.creative.source_roles.values())
-        for s in self.data.steps:
-            ids.update(_image_refs(s), s.outputs, s.previous_outputs)
-        named: set[str] = set()
-        texts: list[str] = []
-        for m in self.data.messages:
-            named.update(m.step_ids)
-            ids.update(p.artifact_id for p in m.content if p.type == "image" and p.artifact_id)
-            texts.extend(p.text for p in m.content if p.text)
-        ids.update(i for i, a in meta.items() if a.produced_by in named)
-        by_short: dict[str, list[str]] = {}
-        for i in meta:
-            by_short.setdefault(short(i), []).append(i)
-        for found in self._mentioned([self.data.transcript, texts], set(by_short)):
-            ids.update(by_short[found])
-        for branch in self.data.branches.values():
-            ids.update(branch.artifact_ids)
-            ids.update(branch.creative.source_roles.values())
-        originals = [meta[i].original_id for i in ids if i in meta]
-        ids.update(o for o in originals if o)
-        return ids
+        return referenced_ids(self.data, self.artifacts.meta)
+
+
+def referenced_ids(data: SessionData, meta: dict[str, ArtifactMeta]) -> set[str]:
+    """The artifacts the session still points at, which project save (Task 9) keeps: every image the
+    user imported, used or not; every step's inputs and outputs (and a stopped replay's
+    previous_outputs); the images in messages; what each step a message names made first (its
+    produced_by), which for a deleted step is what is left of its outputs; every artifact whose short
+    id appears in the transcript or in a message's text; and the originals of all of those that are
+    imports. So a reopened session never loses a picture the user added or the chat or the model
+    still points at (spec 2, criterion 4)."""
+    # The user's imports are the working copies no step produced. They stay even before any step,
+    # message or agent turn names them, so a save or autosave right after a drop keeps the picture.
+    originals = {a.original_id for a in meta.values() if a.original_id}
+    ids = {i for i, a in meta.items() if a.produced_by is None and i not in originals}
+    ids.update(data.creative.source_roles.values())
+    for s in data.steps:
+        ids.update(_image_refs(s), s.outputs, s.previous_outputs)
+    named: set[str] = set()
+    texts: list[str] = []
+    for m in data.messages:
+        named.update(m.step_ids)
+        ids.update(p.artifact_id for p in m.content if p.type == "image" and p.artifact_id)
+        texts.extend(p.text for p in m.content if p.text)
+    ids.update(i for i, a in meta.items() if a.produced_by in named)
+    by_short: dict[str, list[str]] = {}
+    for i in meta:
+        by_short.setdefault(short(i), []).append(i)
+    for found in Session._mentioned([data.transcript, texts], set(by_short)):
+        ids.update(by_short[found])
+    for branch in [*data.branches.values(), *data.manual_undo, *data.manual_redo]:
+        ids.update(branch.artifact_ids)
+        ids.update(branch.creative.source_roles.values())
+    originals = [meta[i].original_id for i in ids if i in meta]
+    ids.update(o for o in originals if o)
+    return ids

@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 
 import httpx
 
@@ -44,9 +45,11 @@ class LocalVisionProvider:
         if tools and isinstance(text, str) and LASER.search(text):
             return await self._laser(text, user, turn)
         result = next((item["content"] for item in reversed(turn) if item["role"] == "tool"), None)
-        if tools and isinstance(result, str):
+        # Invalid image references never create a step. Give the model its validation result
+        # so the agent's existing bounded repair loop can correct the reference itself.
+        if tools and isinstance(result, str) and not result.startswith("error: no such artifact:"):
             if result.startswith(NOT_APPLIED):
-                return Reply("The edit wasn’t applied. See the step for details, or try a simpler request.")
+                return Reply(f"The edit wasn’t applied.\n\n{result}")
             return Reply("Edit applied.")
         async with httpx.AsyncClient(trust_env=False, timeout=180) as client:
             # Qwen accepts one leading system message. Retain recent session notes alongside the instructions.
@@ -56,7 +59,18 @@ class LocalVisionProvider:
                                                     *history],
                     "temperature": 0, "max_tokens": 320, "chat_template_kwargs": {"enable_thinking": False}}
             if tools:
-                body["tools"] = [tool for tool in tools if tool["function"]["name"] in TOOLS]
+                definitions = [deepcopy(tool) for tool in tools if tool["function"]["name"] in TOOLS]
+                image_ids = []
+                if isinstance(user, list):
+                    for part, preview in zip(user, user[1:]):
+                        match = ARTIFACT.search(part.get("text", ""))
+                        if match and preview.get("type") == "image_url":
+                            image_ids.append(match[1])
+                for tool in definitions:
+                    image = tool["function"].get("parameters", {}).get("properties", {}).get("image")
+                    if image is not None and image_ids:
+                        image["enum"] = image_ids
+                body["tools"] = definitions
             message = await self._request(client, body)
         try:
             text = message.get("content") or ""

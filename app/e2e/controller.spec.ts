@@ -29,7 +29,7 @@ test("oversized image paste keeps the socket and waiting approval usable", async
     clipboardData.items.add(image);
     element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData }));
   });
-  await expect(page.getByText(/exceeds the 47 MiB paste limit/)).toBeVisible();
+  await expect(page.getByText(/exceeds the 47 MiB upload limit/)).toBeVisible();
   expect(await core.call("session.get")).toEqual(before);
   await expect(approval).toBeVisible();
 
@@ -57,6 +57,17 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   page,
   core,
 }) => {
+  let holdReplay = false;
+  let releaseReplay: () => void = () => { throw new Error("Replay request was not intercepted"); };
+  await page.routeWebSocket(`ws://127.0.0.1:${core.port}/`, client => {
+    const server = client.connectToServer();
+    client.onMessage(frame => {
+      if (holdReplay && JSON.parse(String(frame)).method === "steps.replay_from") {
+        holdReplay = false;
+        releaseReplay = () => server.send(frame);
+      } else server.send(frame);
+    });
+  });
   await page.addInitScript(() => {
     localStorage.setItem("badshop.welcome", "1");
     localStorage.setItem("badshop.theme", "dark");
@@ -81,7 +92,11 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await seed.fill("11");
   await steps.getByRole("button", { name: "Apply & replay" }).click();
   await expect(steps.getByText("edited", { exact: true })).toBeVisible();
+  holdReplay = true;
   await steps.getByRole("button", { name: "Replay from here" }).click();
+  await expect(steps.getByRole("button", { name: "Replay from here" })).toBeDisabled();
+  releaseReplay();
+  await expect(steps.getByRole("button", { name: "Replay from here" })).toBeEnabled();
   await page
     .getByRole("button", { name: "Coordinate grid", exact: true })
     .click();
@@ -91,7 +106,8 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   const project = path.join(core.folder, "test.badshop");
   page.once("dialog", (dialog) => dialog.accept(project));
   await page.getByRole("button", { name: "Save session", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Saved to");
+  await expect.poll(async () => (await core.call("session.get") as Session).unsaved_changes).toBe(false);
+  expect((await readFile(project)).length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
   await page.getByRole("textbox", { name: "Search tools" }).fill("info");
   await page.getByRole("button", { name: /info print an image/ }).click();
@@ -207,42 +223,62 @@ test("cloud provider presets save an editable model and the selected key environ
   await expect(keyEnv).toHaveValue("OPENROUTER_API_KEY");
 });
 
-test("first run reaches manual tools and Stop settles a waiting approval", async ({
-  page,
-  core,
-}) => {
-  await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
-  await expect(
-    page.getByRole("dialog", { name: "Welcome to badshop" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Edit a photo without AI" }).click();
-  await page.getByLabel("Message your agent").fill("Deep fry this.");
-  await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText("Your call", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Stop", exact: true }).click();
-  await expect(page.getByText("Your call", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("rejected", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Send message" }),
-  ).toBeVisible();
-});
+for (const unavailableStorage of [false, true]) {
+  test(`first run reaches manual tools and Stop settles a waiting approval${unavailableStorage ? " with unavailable preferences" : ""}`, async ({
+    page,
+    core,
+  }) => {
+    if (unavailableStorage) {
+      await page.addInitScript(() => {
+        Object.defineProperty(window, "localStorage", {
+          get() { throw new DOMException("Storage disabled", "SecurityError"); },
+        });
+      });
+    }
+    await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
+    await expect(
+      page.getByRole("dialog", { name: "Welcome to badshop" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Edit a photo without AI" }).click();
+    await page.getByLabel("Message your agent").fill("Deep fry this.");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByText("Your call", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(page.getByText("Your call", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("rejected", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Send message" }),
+    ).toBeVisible();
+  });
+}
 
 test("rejects an agent proposal with a note and exposes provider failures for retry", async ({
   page,
   core,
 }) => {
-  // Let a real session snapshot overtake the final notification, as in the CI race.
+  // A snapshot can overtake both the reply delta and final notification.
   let completionHeld = false;
+  let delayRetryText = false;
   const withheld: (string | Buffer)[] = [];
+  const lateText: (string | Buffer)[] = [];
   let releaseCompletion = () => {};
+  let releaseText = () => {};
   await page.routeWebSocket(`ws://127.0.0.1:${core.port}/`, (client) => {
     const server = client.connectToServer();
+    releaseText = () => {
+      delayRetryText = false;
+      for (const frame of lateText.splice(0)) client.send(frame);
+    };
     releaseCompletion = () => {
       completionHeld = false;
       for (const frame of withheld.splice(0)) client.send(frame);
     };
     server.onMessage((frame) => {
       const message = JSON.parse(String(frame));
+      if (delayRetryText && message.method === "message.delta") {
+        lateText.push(frame);
+        return;
+      }
       if (
         message.method === "message.done" &&
         message.params?.message?.role === "assistant" &&
@@ -285,6 +321,7 @@ test("rejects an agent proposal with a note and exposes provider failures for re
   await expect(page.getByRole("alert")).toContainText(
     "Provider rate limit reached",
   );
+  delayRetryText = true;
   await page
     .getByRole("alert")
     .getByRole("button", { name: "Retry turn" })
@@ -296,6 +333,10 @@ test("rejects an agent proposal with a note and exposes provider failures for re
       .locator(".message.assistant:not(.streaming)")
       .filter({ hasText: "Ready after retry." }),
   ).toHaveCount(1);
+  expect(lateText.length).toBeGreaterThan(0);
+  releaseText();
+  await page.getByLabel("Approval mode").selectOption("ask_changes");
+  await expect(page.getByText("Ready after retry.")).toHaveCount(1);
   await expect(page.getByText("Ready after retry.")).toBeVisible();
   releaseCompletion();
   await expect(page.getByText("Ready after retry.")).toHaveCount(1);

@@ -16,7 +16,7 @@ const session: Session = {
   id: "s",
   name: "Chat",
   path: null,
-  provider_profile_id: null,
+  provider_profile_id: "test-provider",
   approval_mode: "auto",
   messages: [],
   steps: [],
@@ -28,9 +28,9 @@ const session: Session = {
   document_revision: 0,
 };
 beforeEach(() =>
-  useUI.getState().set({ status: "starting", error: null, errorAction: null }),
+  useUI.getState().set({ status: "starting", error: null, errorAction: null, chatDraft: "" }),
 );
-function renderChat(value: Session) {
+function renderChat(value: Session, onConnect?: () => void) {
   const client = new QueryClient();
   client.setQueryData(["session.get"], value);
   return {
@@ -42,11 +42,22 @@ function renderChat(value: Session) {
           onAttachments={() => {}}
           onImport={() => {}}
           onPaste={() => {}}
+          onConnect={onConnect}
         />
       </QueryClientProvider>,
     ),
   };
 }
+
+it("retains the unsent draft across panel remount and clears it on document replacement", () => {
+  const first = renderChat(session);
+  fireEvent.change(screen.getByLabelText("Message your agent"), { target: { value: "Unsent idea" } });
+  first.unmount();
+  renderChat(session);
+  expect(screen.getByLabelText("Message your agent")).toHaveValue("Unsent idea");
+  act(() => useUI.getState().set({ documentGeneration: useUI.getState().documentGeneration + 1 }));
+  expect(screen.getByLabelText("Message your agent")).toHaveValue("");
+});
 
 it("keeps the reader position when new messages arrive while reading earlier messages", async () => {
   const { client } = renderChat({
@@ -108,4 +119,25 @@ it("waits for a pending submission before acknowledging queued briefs and consum
   expect(screen.getByRole("textbox", { name: "Message your agent" })).toHaveValue("Brief A\n\nBrief B");
   expect(send).toHaveBeenCalledTimes(1);
   send.mockRestore();
+});
+
+it("offers provider setup before the first turn and only offers Resume after an interrupted turn", async () => {
+  const connect = vi.fn();
+  const { client } = renderChat({ ...session, provider_profile_id: null }, connect);
+  client.setQueryDefaults(["session.get"], { staleTime: Infinity });
+  act(() => useUI.getState().set({ status: "ready" }));
+  fireEvent.change(screen.getByLabelText("Message your agent"), { target: { value: "Keep this idea" } });
+  expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Resume and allow finishing" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Connect AI" }));
+  expect(connect).toHaveBeenCalledOnce();
+  await act(async () => {
+    client.setQueryData(["session.get"], {
+      ...session,
+      last_turn_outcome: { run_id: "paused-run", reason: "paused" },
+    });
+  });
+  expect(await screen.findByRole("button", { name: "Resume and allow finishing" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  expect(screen.getByLabelText("Message your agent")).toHaveValue("Keep this idea");
 });

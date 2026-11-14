@@ -10,20 +10,26 @@ export const themes = [
   {
     id: "dark",
     name: "Dark",
-    description: "The original workbench",
-    era: "The workbench",
+    description: "Charcoal, acid yellow, hard edges. The BadShop workbench.",
+    era: "Cut · Paste · Repeat",
   },
   {
     id: "light",
     name: "Light",
-    description: "A bright workbench",
-    era: "The workbench",
+    description: "Warm stock, black ink, yellow labels. Lights on in the shop.",
+    era: "Cut · Paste · Repeat",
   },
   {
     id: "classic",
     name: "Classic Desktop",
     description: "Teal desktop, battleship gray, proper raised buttons.",
     era: "1995 · Personal computer",
+  },
+  {
+    id: "xp",
+    name: "XP",
+    description: "Luna blue, cream buttons, orange tabs. Welcome home.",
+    era: "2001 · Personal computing",
   },
   {
     id: "terminal",
@@ -40,13 +46,13 @@ export const themes = [
   {
     id: "y2k",
     name: "Y2K",
-    description: "Liquid chrome, violet gel, the future on CD-ROM.",
+    description: "Pinstriped chrome, violet gel, the future on CD-ROM.",
     era: "2001 · Digital playground",
   },
   {
     id: "paper",
     name: "Paper",
-    description: "Letterpress headlines, ruled columns, red printer’s ink.",
+    description: "Black ink, broadsheet headlines, ruled newsprint columns.",
     era: "1932 · Evening edition",
   },
   {

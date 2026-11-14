@@ -27,11 +27,14 @@ packaging/flatpak-repo/
 packaging/.flatpak-builder/
 packaging/*.flatpak
 packaging/*.sbom.json
+packaging/*.licenses.json
 
 # Local verification evidence and isolated task checkouts
 artifacts/verification/
 .worktrees/
 .tooling/
+# Hypothesis failures include reproduction blobs in retained pytest logs.
+.hypothesis/
 
 # Mutation testing scratch checkout
 /core/mutants/

@@ -1,7 +1,8 @@
 import { QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AssetRow, Settings } from "../src/components/Settings";
+import { AssetRow, Settings, Welcome } from "../src/components/Settings";
 import { action, queries } from "../src/data";
 import { rpc } from "../src/rpc";
 import { useUI } from "../src/store";
@@ -99,14 +100,14 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
                 : [],
       ) as never,
   );
-  render(<Settings updates={{ automatic: true, info: null, phase: "idle", error: "", progress: null,
+  render(<Settings updates={{ automatic: true, track: "stable", setTrack: () => {}, info: null, phase: "idle", error: "", progress: null,
     check: async () => {}, install: async () => {}, cancel: async () => {}, localOnly: false, setAutomatic: () => {} }} />, { wrapper });
   expect(screen.getByText(/provider may charge/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Check setup" }));
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith("providers.test", {
       profile_id: profile.id,
-    }),
+    }, undefined, undefined),
   );
   await waitFor(() =>
     expect(screen.getByText(/No test request was sent/)).toBeVisible(),
@@ -117,9 +118,41 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
     expect(request).toHaveBeenCalledWith("providers.test", {
       profile_id: profile.id,
       probe: true,
-    }),
+    }, undefined, undefined),
   );
   await waitFor(() =>
     expect(screen.getByText("Connection succeeded.")).toBeVisible(),
   );
+});
+
+it("finishing on-device setup after leaving onboarding preserves the chosen workspace", async () => {
+  let finish!: () => void;
+  let activated = false;
+  const local = { ...profile, id: "badshop-on-device", label: "On-device AI" };
+  const snapshot = () => ({ ...session, provider_profile_id: activated ? local.id : null });
+  const assets = [{ name: "local-vision/test.gguf", label: "Test model", approx_mb: 1, present: true }];
+  queries.setQueryData(["providers.list"], []);
+  queries.setQueryData(["assets.status"], assets);
+  vi.spyOn(rpc, "request").mockImplementation(method => {
+    if (method === "providers.on_device") return new Promise(resolve => {
+      finish = () => { activated = true; resolve(snapshot()); };
+    }) as never;
+    return Promise.resolve(method === "session.get" ? snapshot()
+      : method === "providers.list" ? (activated ? [local] : [])
+        : method === "assets.status" ? assets : []) as never;
+  });
+  function Workspace() {
+    const [workspace, setWorkspace] = useState("welcome");
+    return workspace === "welcome"
+      ? <Welcome onQuick={() => setWorkspace("Quick ideas")} onAdvanced={() => setWorkspace("Art director")} />
+      : <p>{workspace}</p>;
+  }
+  render(<Workspace />, { wrapper });
+  fireEvent.click(screen.getByText("Connect AI", { exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Use on-device AI" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Setting up…" })).toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: "Start with a quick idea" }));
+  expect(screen.getByText("Quick ideas", { exact: true })).toBeVisible();
+  await act(async () => { finish(); });
+  expect(screen.getByText("Quick ideas", { exact: true })).toBeVisible();
 });

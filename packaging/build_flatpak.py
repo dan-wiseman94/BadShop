@@ -4,11 +4,15 @@ Requires flatpak-builder >= 1.3.4 and org.gnome.{Sdk,Platform}//49.
 No host package installation.
 """
 import argparse
+from datetime import UTC, datetime
+import io
 import re
 import shutil
 import subprocess
 import tempfile
+import tarfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,6 +43,20 @@ def extract_deb(deb: Path, staging: Path) -> None:
         subprocess.run(['bsdtar', '-x', '-f', '-', '-C', str(staging)], stdin=payload, check=True)
 
 
+def package_version(deb: Path) -> str:
+    """Read the version of the actual payload, including nightly package versions."""
+    if shutil.which('dpkg-deb'):
+        return subprocess.check_output(['dpkg-deb', '-f', str(deb), 'Version'], text=True).strip()
+    members = subprocess.check_output(['ar', 't', str(deb)], text=True).splitlines()
+    control, = [name for name in members if name == 'control.tar' or name.startswith('control.tar.')]
+    data = subprocess.check_output(['ar', 'p', str(deb), control])
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        member, = [entry for entry in archive.getmembers() if Path(entry.name).name == 'control']
+        text = archive.extractfile(member).read().decode('utf-8')
+    version, = re.findall(r'^Version: (\S+)$', text, re.MULTILINE)
+    return version
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('deb', type=Path)
@@ -51,8 +69,15 @@ def main():
         shutil.rmtree(staging)
     staging.mkdir()
     extract_deb(args.deb.resolve(), staging)
-    for name in ('io.github.danwiseman94.badshop.desktop', 'io.github.danwiseman94.badshop.metainfo.xml'):
-        shutil.copy(ROOT / 'packaging' / name, staging / name)
+    name = 'io.github.danwiseman94.badshop.desktop'
+    shutil.copy(ROOT / 'packaging' / name, staging / name)
+    name = 'io.github.danwiseman94.badshop.metainfo.xml'
+    metadata = ElementTree.parse(ROOT / 'packaging' / name)
+    releases = metadata.getroot().find('releases')
+    assert releases is not None, 'AppStream template must contain a releases element'
+    ElementTree.SubElement(releases, 'release', version=package_version(args.deb.resolve()),
+                           date=datetime.now(UTC).date().isoformat())
+    metadata.write(staging / name, encoding='utf-8', xml_declaration=True)
     shutil.copy(ROOT / 'app/src-tauri/icons/512x512.png', staging / 'icon.png')
     if args.prepare_only:
         return

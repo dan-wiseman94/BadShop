@@ -127,3 +127,7 @@ if __name__ == "__main__":
         parser.error("label must contain lowercase letters, digits and hyphens")
     result = build(args.destination)
     (ROOT / "packaging" / f"badshop-{args.label}.sbom.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    coverage = json.loads((args.destination / "coverage.json").read_text(encoding="utf-8"))
+    coverage["label"] = args.label
+    (ROOT / "packaging" / f"badshop-{args.label}.licenses.json").write_text(
+        json.dumps(coverage, indent=2) + "\n", encoding="utf-8")

@@ -14,6 +14,7 @@ import pytest
 from PIL import EpsImagePlugin, Image
 
 import badshop
+from badshop.build_identity import build_identity, source_identity
 from badshop.engine import assets, basic, sources
 from badshop.engine.common import load_image
 from badshop.engine.errors import EngineError
@@ -445,7 +446,7 @@ def test_calls_and_outcomes_cross_a_process_boundary():
 
 def test_cache_key(monkeypatch):
     key = cache_key("paste", {"base": "a" * 64, "scale": 1.1, "at": [1, 2]})
-    blob = json.dumps({"engine": badshop.__version__, "runtime": runtime_fingerprint(), "tool": "paste",
+    blob = json.dumps({"engine": badshop.__version__, "build": build_identity(), "runtime": runtime_fingerprint(), "tool": "paste",
                        "params": {"at": [1, 2], "base": "a" * 64, "scale": 1.1}},
                       separators=(",", ":"), sort_keys=True)
     assert key == hashlib.sha256(blob.encode()).hexdigest() and len(key) == 64
@@ -454,6 +455,25 @@ def test_cache_key(monkeypatch):
     assert cache_key("warp", {"base": "a" * 64, "scale": 1.1, "at": [1, 2]}) != key
     monkeypatch.setattr(badshop, "__version__", "99.0.0")
     assert cache_key("paste", {"base": "a" * 64, "scale": 1.1, "at": [1, 2]}) != key  # a new engine re-runs
+
+
+def test_cache_identity_tracks_source_edits_at_the_same_release(tmp_path, monkeypatch):
+    from badshop.session import execution
+
+    source = tmp_path / "tool.py"
+    source.write_bytes(b"result = 1\r\n")
+    first = source_identity(tmp_path)
+    source.write_bytes(b"result = 1\n")
+    assert source_identity(tmp_path) == first  # checkout newline conventions are not semantics
+    monkeypatch.setattr(execution, "build_identity", lambda: source_identity(tmp_path))
+    key = cache_key("test", {})
+    source.write_text("result = 2\n")
+    assert source_identity(tmp_path) != first
+    assert cache_key("test", {}) != key
+    (tmp_path / "helper.py").write_text("value = 3\n")
+    added = cache_key("test", {})
+    source.unlink()
+    assert cache_key("test", {}) != added
 
 
 def test_in_process_executor():

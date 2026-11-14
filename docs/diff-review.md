@@ -15,6 +15,11 @@ callers and inspect the assertions independently.
 > replacements remove obsolete paths and dependencies, and that compatibility code
 > names its supported version/format and removal condition. Review the maintenance
 > growth report; file size alone is not a finding.
+> Inspect its safeguard-change section and the PR's rationale. Does an updated expected
+> result hide a regression? Does removing an assertion, adding a skip, or expanding an
+> analyzer exception lose failure coverage? Check the actual remaining test. Review
+> resource reports against a comparable baseline when present; missing measurements
+> are not zero. Identify unrelated cleanup and maintenance cost without a current caller.
 >
 > For each actionable finding, give a file and line, the input or sequence that triggers the
 > problem, the wrong observable result, and the smallest test that would distinguish it.

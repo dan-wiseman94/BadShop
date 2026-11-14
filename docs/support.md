@@ -14,7 +14,8 @@ actual error and steps that led to it.
 If a task stalls, use Stop or Cancel, retain the current project, and retry with a smaller image
 or the manual workflow. If the core disconnects, use the offered reconnect/restart/recovery
 controls. Save recovered work under a new filename until you have checked it. Unsupported
-HEIC/AVIF images should be converted to PNG/JPEG first. Model download and memory requirements
+HEIC images should be converted to PNG/JPEG first; older releases also require conversion
+for AVIF. Model download and memory requirements
 are listed in [compatibility.md](compatibility.md).
 
 There is currently no published paid-support SLA, subscription promise, hosted-generation quota,

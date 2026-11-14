@@ -107,7 +107,9 @@ def test_perplexity_image_approval_and_tool_result(env, monkeypatch, model, deci
                 assert initial["max_output_tokens"] == 8192
             assert initial["tools"] and {tool["type"] for tool in initial["tools"]} == {"function"}
             assert any(tool["name"] == "cutout" and "parameters" in tool for tool in initial["tools"])
-            assert await client.event("message.delta") == {"text": "I can crop that."}
+            assert await client.event("message.delta") == {
+                "text": "I can crop that.", "run_id": app._snapshot()["run_id"],
+            }
             image_url, = [part["image_url"] for item in initial["input"]
                           if isinstance(item.get("content"), list)
                           for part in item["content"] if part["type"] == "input_image"]
@@ -120,7 +122,7 @@ def test_perplexity_image_approval_and_tool_result(env, monkeypatch, model, deci
                                   params={"image": aid, "box": EDITED, "no_ai": True})
             else:
                 await client.call("approval.respond", step_id=step_id, decision="reject", note="Leave it intact")
-            assert await client.event("turn.finished") == {"reason": "done"}
+            assert await client.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()["run_id"]}
             await idle(client)
             sent = requests[1][2]["input"]
             replayed, result = sent[-2:]

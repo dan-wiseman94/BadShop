@@ -16,8 +16,9 @@ class Output:
     fmt: str = "PNG"
     quality: int | None = None
     frames: list[Image.Image] | None = None  # animated GIF frames; image is frames[0]
-    duration: int | None = None
+    duration: int | list[int] | None = None
     caption: str = ""  # printed after the path on the same line
+    loop: int = 0
 
     def ext(self) -> str:
         return EXT[self.fmt]
@@ -26,7 +27,7 @@ class Output:
         buf = io.BytesIO()
         if self.frames:
             self.frames[0].save(buf, "GIF", save_all=True, append_images=self.frames[1:],
-                                duration=self.duration, loop=0, optimize=False)
+                                duration=self.duration, loop=self.loop, optimize=False)
         elif self.fmt == "JPEG":
             kw = {"quality": self.quality} if self.quality is not None else {}
             self.image.save(buf, "JPEG", **kw)

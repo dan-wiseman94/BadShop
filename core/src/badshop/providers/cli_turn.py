@@ -10,7 +10,8 @@ from badshop.agent.provider import ProviderError
 from badshop.session.models import Part
 
 
-async def run_cli_turn(app, session, provider, text, attachments, cfg, emit, *, retry=False):
+async def run_cli_turn(app, run, provider, text, attachments, emit, *, retry=False):
+    session, cfg = run.session, run.config
     message = None
     chunks = []
     emit("turn.started", {})
@@ -58,8 +59,7 @@ async def run_cli_turn(app, session, provider, text, attachments, cfg, emit, *, 
             return assistant, prompt
 
         message, prompt = await app._blocking(prepare)
-        app._cli_turn_actor, app._cli_message_id = provider.actor, message.id
-        app._cli_remaining = cfg.step_budget
+        run.cli_actor, run.assistant_message_id = provider.actor, message.id
         emit("message.done", {"message": message.model_dump(mode="json")})
 
         def on_event(event):
@@ -83,7 +83,7 @@ async def run_cli_turn(app, session, provider, text, attachments, cfg, emit, *, 
             session.on_change()
         await app._blocking(finish)
         emit("message.done", {"message": message.model_dump(mode="json")})
-        emit("turn.finished", {"reason": "budget" if app._cli_remaining == 0 else "done"})
+        emit("turn.finished", {"reason": "budget" if cfg.budget.exhausted else "done"})
     except asyncio.CancelledError:
         await provider.stop()
         emit("turn.finished", {"reason": "stopped"})
@@ -99,5 +99,4 @@ async def run_cli_turn(app, session, provider, text, attachments, cfg, emit, *, 
                 session.on_change()
             await app._blocking(partial)
             emit("message.done", {"message": message.model_dump(mode="json")})
-        app._cli_turn_actor = app._cli_message_id = None
-        app._cli_remaining = None
+        run.cli_actor = run.assistant_message_id = None

@@ -2,11 +2,10 @@
 
 import hashlib
 import json
-import os
 import time
 import urllib.parse
 import urllib.error
-import uuid
+from badshop.atomic import write_text
 from badshop.engine import assets, source_keys
 from badshop.engine.errors import EngineError
 
@@ -61,7 +60,6 @@ def search(source, query, n):
             ) from None
         if source == "pixabay":
             cache.parent.mkdir(parents=True, exist_ok=True)
-            tmp = cache.with_suffix("." + uuid.uuid4().hex + ".tmp")
             entries = sorted(cache.parent.glob("*.json"), key=lambda p: p.stat().st_mtime)
             used = sum(p.stat().st_size for p in entries)
             for entry in entries:
@@ -69,11 +67,7 @@ def search(source, query, n):
                     break
                 used -= entry.stat().st_size
                 entry.unlink(missing_ok=True)
-            try:
-                tmp.write_text(json.dumps(data), encoding="utf-8")
-                os.replace(tmp, cache)
-            finally:
-                tmp.unlink(missing_ok=True)
+            write_text(cache, json.dumps(data))
     if source == "pexels":
         return [
             _candidate(

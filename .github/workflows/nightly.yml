@@ -1,0 +1,85 @@
+name: nightly
+on:
+  schedule:
+    - cron: '23 8 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+jobs:
+  prepare:
+    # Dispatch from main only; all called workflows check out this event's SHA.
+    if: github.repository == 'dan-wiseman94/BadShop' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Building main at $GITHUB_SHA"
+  security:
+    needs: prepare
+    uses: ./.github/workflows/security.yml
+  core:
+    needs: prepare
+    uses: ./.github/workflows/core.yml
+    with:
+      full: true
+  frontend:
+    needs: prepare
+    uses: ./.github/workflows/frontend-checks.yml
+  bundle:
+    needs: prepare
+    uses: ./.github/workflows/native-desktop.yml
+    secrets: inherit
+    with:
+      nightly: true
+  stage:
+    needs: [prepare, core, frontend, bundle, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      # Generate here so re-running only stage also receives a fresh tag.
+      - name: Name this immutable nightly
+        id: identity
+        shell: bash
+        run: echo "tag=nightly-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          path: artifacts
+          pattern: badshop-*
+      - name: Check versions and hash every asset
+        run: |
+          python packaging/check_version.py
+          python packaging/update_manifest.py artifacts "$NIGHTLY_TAG" "$GITHUB_REPOSITORY" --nightly-run "$GITHUB_RUN_ID"
+          python packaging/release_gate.py stage artifacts "$NIGHTLY_TAG"
+          python packaging/release_checksums.py artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_TAG: ${{ steps.identity.outputs.tag }}
+      - name: Attest nightly asset provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/**/*
+      - name: Stage complete prerelease
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.identity.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: BadShop ${{ steps.identity.outputs.tag }}
+          files: artifacts/**/*
+          fail_on_unmatched_files: true
+          draft: true
+          prerelease: true
+          make_latest: 'false'
+          body: |
+            Development candidate of main. Publication requires recorded acceptance. May contain regressions.
+
+            Source: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+            Build and platform verification: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+
+            Select Nightly in Settings Ã¢â€ â€™ Updates to receive signed nightly updates. Stable users are never offered nightlies.
+            This replaces an existing installation and shares its settings. Back up projects before testing.
+            OS code signing/notarization is not provided. SHA256SUMS and GitHub provenance cover the attached downloads.
