@@ -86,8 +86,10 @@ expand the current product scope.
 The executable contracts remain authoritative for serialized fields and accepted
 arguments: [session models](../core/src/badshop/session/models.py), the
 [tool registry](../core/src/badshop/tools/registry.py), and
-[RPC handlers](../core/src/badshop/server/app.py).
+[RPC handlers](../core/src/badshop/server/app.py) and
+[response/event contracts](../core/src/badshop/server/contracts.py).
 [wire.generated.ts](../app/src/wire.generated.ts) is generated from the shared
-Python models. Manifests and committed lockfiles
+Python models and registered handler signatures; it includes the complete command
+map and runtime validation schemas. Manifests and committed lockfiles
 own dependency versions. Current verification evidence belongs under
 `artifacts/verification/` for the actual revision tested.

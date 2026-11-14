@@ -45,7 +45,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
   useEffect(() => { setRevision(savedCaption); }, [step?.id, savedCaption]);
   const disabled = !ready || busy || importing || !!session?.turn_running || !!session?.batch_running;
   const definitions = layouts.find(l => l.id === chosen?.template);
-  const selectOutput = (output: string, stepId: string) => useUI.getState().set({ selectedArtifact: output, selectedStep: stepId });
+  const selectOutput = (stepId: string) => useUI.getState().set({ selectedArtifact: { stepId, outputIndex: 0 }, selectedStep: stepId });
   return <section className="quick-start pane" aria-label="Quick ideas">
     <div className="pane-heading"><span>Make something terrible</span><button onClick={onAdvanced}>All tools</button></div>
     <div className="quick-content">
@@ -87,7 +87,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
           } });
           if (result.status !== "done" || !result.outputs[0]) throw new Error(result.error?.message ?? "The idea could not be created. Your images are still here.");
           if (generation !== useUI.getState().documentGeneration) return;
-          selectOutput(result.outputs[0], result.id);
+          selectOutput(result.id);
           setImage(source);
           setChosen(null);
           useUI.getState().set({ notice: "Ready to share. Change the punchline below, copy the image, or export it." });
@@ -107,7 +107,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
       </form>}
       {step && <form className="quick-form" onSubmit={e => { e.preventDefault(); if (disabled) return; void perform(async () => {
         const captions = [...(step.params.captions as string[] ?? [])]; captions[0] = revision;
-        await action("steps.edit", { step_id: step.id, params: { ...step.params, captions } });
+        await action("steps.edit", { step_id: step.id, params: { ...step.params, captions }, auto_replay: false });
         const replayed = await action("steps.replay_from", { step_id: step.id });
         const failed = replayed.find(item => item.status === "error");
         if (failed) throw new Error(failed.error?.message ?? "The caption could not be changed. Try again or open History for details.");

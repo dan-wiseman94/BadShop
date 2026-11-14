@@ -6,7 +6,7 @@ import threading
 import pytest
 from PIL import Image
 
-from badshop import files
+from badshop import atomic, files
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult
 from badshop.engine.sources import TWEMOJI_URL
@@ -262,6 +262,47 @@ def test_export_refuses_a_broken_link(session, tmp_path, symlinks):
     with pytest.raises(EngineError, match=f"can't write {work.label}.png: a broken link with that name") as e:
         session.export(work.id)
     assert "remove it" in e.value.hint and os.listdir(out) == [f"{work.label}.png"]
+
+
+@pytest.mark.parametrize("failure", ["write", "close", "sync"])
+def test_export_failure_never_publishes_partial_image(session, tmp_path, monkeypatch, failure):
+    work = session.import_image(LINCOLN, "lincoln")
+    out = tmp_path / "out"
+    out.mkdir()
+    previous = out / "previous.png"
+    previous.write_bytes(b"existing export")
+    real_fdopen = atomic.os.fdopen
+
+    class FailingFile:
+        def __init__(self, fd, mode):
+            self.file = real_fdopen(fd, mode)
+
+        def __enter__(self):
+            return self
+
+        def write(self, data):
+            self.file.write(data[:10] if failure == "write" else data)
+            if failure == "write":
+                raise OSError("disk full")
+
+        def flush(self):
+            self.file.flush()
+            if failure == "sync":
+                raise OSError("flush failed")
+
+        def fileno(self):
+            return self.file.fileno()
+
+        def __exit__(self, *args):
+            self.file.close()
+            if failure == "close":
+                raise OSError("close failed")
+
+    monkeypatch.setattr(atomic.os, "fdopen", FailingFile)
+    with pytest.raises(EngineError, match="can't write into"):
+        session.export(work.id)
+    assert list(out.iterdir()) == [previous]
+    assert previous.read_bytes() == b"existing export"
 
 
 def test_export_never_loops_on_a_name_it_cannot_take(session, tmp_path, monkeypatch):

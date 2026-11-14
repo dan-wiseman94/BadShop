@@ -285,7 +285,7 @@ land on a new Session with reused step IDs. Recovery saves are atomic temp+repla
 | guarded replacement | revision changed or unsaved without discard | refuse, preserve current document |
 | New / Open success | replacement complete | baseline user-saved; Open retains project path unless it is recovery storage |
 | Restore success | consume recovery offer | untitled/unsaved; recovery of it becomes current autosave |
-| next core launch | runtime leases acquired, then claim_autosave | move session.badshop to previous.badshop before any new mutation; offer restore; competing owner refused (R2) |
+| next core launch | runtime leases acquired, then claim_autosave | settle any hot SQLite journal, move session.sqlite to previous.sqlite before any new mutation; offer legacy archives if no SQLite recovery exists; competing owner refused (R2) |
 | project load | validate schema, sizes, IDs, hashes/decoders/refs | new Session or clean error; interrupted steps normalized |
 | closing | Stop, drain work, final autosave, executor/provider cleanup | closed; no managed turn starts |
 

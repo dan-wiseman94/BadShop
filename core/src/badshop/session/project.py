@@ -25,12 +25,13 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import ValidationError
 
+from badshop.atomic import sync_directory
 from badshop.cli.argparse_gen import to_argv
 from badshop.engine import assets
 from badshop.engine.errors import EngineError
 from badshop.session.artifacts import ArtifactStore, short
 from badshop.session.models import SCHEMA, ArtifactMeta, SessionData, StepError
-from badshop.session.session import Session, result_text
+from badshop.session.session import Session, referenced_ids, result_text
 from badshop.tools import runner
 from badshop.tools.registry import REGISTRY, map_image_refs
 
@@ -132,6 +133,7 @@ def save(session: Session, path: Path) -> Path:
     the same folder and moved over `path` in one step, so a crash mid-save leaves the previous file whole.
     The file gets the mode any saved file gets (the umask decides), or keeps the mode of the file it
     replaces. A project over open_project's size limits is refused before anything is written."""
+    session.data.collect_history()
     path = Path(path)
     if path.suffix.lower() != EXT:
         path = path.with_name(path.name + EXT)
@@ -151,7 +153,7 @@ def save(session: Session, path: Path) -> Path:
     # escape and read back unchanged, where UTF-8 could not encode it at all.
     session_json = json.dumps(payload, indent=1).encode("ascii")
     recipe_json = (json.dumps(export_recipe(session), indent=2) + "\n").encode("ascii")
-    problem = _size_problem(len(session_json), {aid: len(session.artifacts.data(aid)) for aid in keep})
+    problem = _size_problem(len(session_json), {aid: session.artifacts.size(aid) for aid in keep})
     if problem:
         raise EngineError(f"can't save {path.name}: the project would be too big to open again ({problem})",
                           hint=TOO_BIG_HINT)
@@ -174,7 +176,9 @@ def save(session: Session, path: Path) -> Path:
             os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
         with tmp.open("rb") as file:
             _preflight(path, file)
+        _preserve_legacy(path)
         os.replace(tmp, path)
+        sync_directory(path.parent)
     except BaseException as e:
         if created:
             with contextlib.suppress(OSError):
@@ -328,7 +332,8 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
         raise EngineError(f"{path.name} was saved by a newer badshop (project schema {schema}; "
                           f"this badshop reads schema {SCHEMA})", hint="update badshop to open it")
     try:
-        data = SessionData.model_validate(payload)
+        from badshop.session.history import migrate
+        data = SessionData.model_validate(migrate(payload))
     except ValidationError as e:
         raise _damaged(path, "session.json isn't a badshop session", hint=runner.explain(e)) from None
     data.transcript = _imported_transcript(path, data.transcript)
@@ -364,16 +369,24 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
     if data.active_branch_id is not None and data.active_branch_id not in data.branches:
         raise _damaged(path, "the active creative direction is missing")
     for bid, branch in [*data.branches.items(), *((s.id, s) for s in [*data.manual_undo, *data.manual_redo])]:
+        state = data.branch_state(branch)
         if bid != branch.id:
             raise _damaged(path, "a creative direction is listed under the wrong id")
         if any(aid not in data.artifacts for aid in branch.artifact_ids):
             raise _damaged(path, "a creative direction references a missing artifact")
         # Reuse the same step/parameter/id checks, without nesting branch data recursively.
         branch_payload = {"schema": SCHEMA, "id": data.id, "name": branch.name,
-                          "created_at": branch.created_at, "steps": [s.model_dump() for s in branch.steps],
-                          "messages": [m.model_dump() for m in branch.messages],
-                          "transcript": branch.transcript}
-        branch.transcript = _session_data(path, json.dumps(branch_payload).encode("ascii")).transcript
+                          "created_at": branch.created_at, "steps": [s.model_dump() for s in state.steps],
+                          "messages": [m.model_dump() for m in state.messages],
+                          "transcript": state.transcript}
+        state.transcript = _session_data(path, json.dumps(branch_payload).encode("ascii")).transcript
+        # Serialized counters are only hints. Recompute from validated IDs so
+        # an older/manual writer cannot make a retained undo ID reusable.
+        step_ids = [step.id for step in state.steps] + [sid for message in state.messages for sid in message.step_ids]
+        branch.max_step_number = max((int(sid[1:]) for sid in step_ids), default=0)
+        branch.max_message_number = max((int(message.id[1:]) for message in state.messages), default=0)
+        data.set_branch_state(branch, state)
+    data.collect_history()
     return data
 
 
@@ -388,6 +401,53 @@ def _finish_interrupted(data: SessionData, artifacts: ArtifactStore) -> None:
             step.status, step.finished_at = "error", now
             step.error = INTERRUPTED_ERROR.model_copy()
             step.result_text = result_text(step, artifacts)
+
+
+def _preserve_legacy(path: Path) -> None:
+    """Keep a verified, byte-identical pre-v5 archive before format replacement.
+
+    Never replace an earlier backup. Publication is exclusive and only happens
+    after the bounded project reader has verified metadata and every image.
+    """
+    if not path.exists():
+        return
+    try:
+        with path.open('rb') as file, zipfile.ZipFile(_preflight(path, file)) as archive:
+            raw = _read(path, archive, archive.getinfo(SESSION_JSON), MAX_SESSION_BYTES)
+            payload = json.loads(raw)
+            schema = payload.get('schema') if isinstance(payload, dict) else None
+    except (zipfile.BadZipFile, KeyError, ValueError):
+        return  # Saving over a non-project file is not a format migration.
+    if type(schema) is not int or not 1 <= schema < 5:
+        return
+    temporary = path.with_name(f'.{path.name}.{secrets.token_hex(8)}.backup.part')
+    try:
+        with path.open('rb') as source, temporary.open('xb') as target:
+            remaining = MAX_ARCHIVE_BYTES
+            while chunk := source.read(min(READ_CHUNK, remaining + 1)):
+                remaining -= len(chunk)
+                if remaining < 0:
+                    raise _too_big(path, 'legacy backup exceeds the archive limit')
+                target.write(chunk)
+            target.flush()
+            os.fsync(target.fileno())
+        verified = open_project(temporary)
+        verified.artifacts.close()
+        index = 0
+        while True:
+            suffix = f'-{index}' if index else ''
+            backup = path.with_name(f'{path.stem}.pre-v5{suffix}{EXT}')
+            try:
+                if os.name == 'nt':
+                    os.rename(temporary, backup)
+                else:
+                    os.link(temporary, backup)
+                break
+            except FileExistsError:
+                index += 1
+        sync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _preflight(path: Path, file: BinaryIO) -> BinaryIO:
@@ -412,6 +472,9 @@ def open_project(path: Path, **session_kw) -> Session:
     approval comes back rejected; one saved while approved or running comes back failed. Every failure is
     an EngineError; nothing outside the returned Session changes."""
     path = Path(path)
+    if path.suffix == '.sqlite' and path.resolve().parent == autosave_path().resolve().parent:
+        from badshop.session.recovery import load
+        return load(path, **session_kw)
     try:
         with path.open("rb") as file, zipfile.ZipFile(_preflight(path, file)) as zf:
             members = _index(path, zf)
@@ -444,14 +507,22 @@ def open_project(path: Path, **session_kw) -> Session:
     except _ZIP_ERRORS as e:
         raise EngineError(f"{path.name} isn't a badshop project, or it is damaged ({type(e).__name__}: {e})",
                           hint="open a .badshop file saved by badshop; " + DAMAGED_HINT) from None
+    return _restore(path, data, artifacts, session_kw)
+
+
+def _restore(path, data, artifacts, session_kw):
+    """Shared normalization and reference validation for archive and local recovery."""
     _finish_interrupted(data, artifacts)
     session = Session(data, artifacts, **session_kw)  # Session makes data.artifacts the store's metas
     missing = session.referenced_ids() - set(artifacts.ids())
     for branch in [*data.branches.values(), *data.manual_undo, *data.manual_redo]:
+        state = data.branch_state(branch)
         branch_data = SessionData(id=data.id, name=branch.name, created_at=branch.created_at,
-                                  steps=branch.steps, messages=branch.messages, transcript=branch.transcript)
+                                  steps=state.steps, messages=state.messages, transcript=state.transcript)
         _finish_interrupted(branch_data, artifacts)
-        missing |= Session(branch_data, artifacts).referenced_ids() - set(artifacts.ids())
+        state.steps, state.transcript = branch_data.steps, branch_data.transcript
+        data.set_branch_state(branch, state)
+        missing |= referenced_ids(branch_data, artifacts.meta) - set(artifacts.ids())
     if missing:
         raise _damaged(path, f"artifact {short(min(missing))} is missing")
     return session
@@ -459,31 +530,62 @@ def open_project(path: Path, **session_kw) -> Session:
 
 def autosave_path() -> Path:
     """Where the open session is saved after every change (spec §9)."""
-    return assets.data_dir() / "autosave" / f"session{EXT}"
+    return assets.data_dir() / "autosave" / "session.sqlite"
 
 
 def autosave(session: Session) -> None:
     """Save the open session to the data dir (spec §9); raises EngineError like save."""
-    save(session, autosave_path())
+    from badshop.session.recovery import collect, save as save_recovery
+    save_recovery(session, autosave_path())
+    # Collection failure must not turn a committed recovery into a failed save.
+    with contextlib.suppress(OSError):
+        collect(autosave_path().parent)
 
 
 def claim_autosave() -> Path | None:
     """Set the autosave the last run left behind out of this run's way, and return it (None: there is none).
 
-    A core calls this once at launch, before its session can change. Every autosave replaces
-    `autosave/session.badshop`, so without this the new session's first change would overwrite what a
+    A core calls this once at launch, before its session can change. Every autosave commits
+    `autosave/session.sqlite`, so without this the new session's first change would overwrite what a
     crashed run left there before anyone could restore it (spec §9: the next launch offers to restore it;
-    §10: a restarted core reopens it). The file is moved to `autosave/previous.badshop` and that path is
+    §10: a restarted core reopens it). The file is moved to `autosave/previous.sqlite` and that path is
     returned. With nothing to move (the last run changed nothing, or crashed again before it did), a
-    previous.badshop that no later run replaced is still returned, so the offer outlives a crash loop.
+    previous.sqlite that no later run replaced is still returned, so the offer outlives a crash loop.
     Creates nothing and never raises: a file that can't be moved stays where it is and None is returned
     (a folder that refuses the rename usually refuses the autosave's temp file too, so the file waits for the
     next launch)."""
     path = autosave_path()
-    previous = path.with_name(f"previous{EXT}")
+    previous = path.with_name('previous.sqlite')
     try:
+        if path.exists():
+            from badshop.session.recovery import settle
+            settle(path)
         with contextlib.suppress(FileNotFoundError):
             os.replace(path, previous)
-        return previous if previous.is_file() else None
+        if previous.is_file():
+            return previous
+        # Old ZIP recovery is a migration input, never overwritten by the new writer.
+        # Restoring it validates all bytes, then the next change commits SQLite.
+        legacy = path.with_name(f'session{EXT}')
+        backup = path.with_name(f'previous{EXT}')
+        with contextlib.suppress(FileNotFoundError):
+            os.replace(legacy, backup)
+        if backup.is_file():
+            return backup
+        preserved = list(path.parent.glob('corrupt-*.sqlite'))
+        return max(preserved, key=lambda p: p.stat().st_mtime) if preserved else None
+    except EngineError as error:
+        # Preserve an unreadable standalone database as evidence, so fresh work
+        # can still autosave. Never separate a database from an unsettled journal,
+        # or replace a store belonging to a newer supported-format migration.
+        companions = [path.with_name(path.name + suffix) for suffix in ('-journal', '-wal', '-shm')]
+        if error.message == 'could not settle interrupted recovery' and not any(p.exists() for p in companions):
+            preserved = path.with_name(f'corrupt-{secrets.token_hex(8)}.sqlite')
+            try:
+                os.replace(path, preserved)
+                return preserved
+            except OSError:
+                pass
+        return path
     except OSError:
         return None

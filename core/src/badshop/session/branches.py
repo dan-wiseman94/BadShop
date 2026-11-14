@@ -4,19 +4,28 @@ Switching snapshots the outgoing direction first: a switch is an edit to one doc
 request to discard it. Saving that document includes all snapshots and their referenced artifacts.
 """
 
-import copy
 import time
 import uuid
 from contextlib import contextmanager
 
 from badshop.engine.errors import EngineError
 from badshop.session.models import BranchSnapshot
+from badshop.session.history import capture
+
+MAX_AUTOMATIC_BRANCHES = 10  # five recent before/after turn pairs; named directions are never pruned
 
 
-def _snapshot(session, id: str, name: str, created_at: float) -> BranchSnapshot:
-    return BranchSnapshot(id=id, name=name, created_at=created_at,
-                          steps=copy.deepcopy(session.data.steps), messages=copy.deepcopy(session.data.messages),
-                          transcript=copy.deepcopy(session.data.transcript),
+def _snapshot(session, id: str, name: str, created_at: float, automatic: bool = False) -> BranchSnapshot:
+    revision = capture(session.data.history_nodes, {
+        'steps': [step.model_dump(mode='json') for step in session.data.steps],
+        'messages': [message.model_dump(mode='json') for message in session.data.messages],
+        'transcript': session.data.transcript,
+    })
+    return BranchSnapshot(id=id, name=name, created_at=created_at, automatic=automatic, revision=revision,
+                          max_step_number=max((int(sid[1:]) for sid in (
+                              [step.id for step in session.data.steps]
+                              + [sid for message in session.data.messages for sid in message.step_ids])), default=0),
+                          max_message_number=max((int(message.id[1:]) for message in session.data.messages), default=0),
                           creative=session.data.creative.model_copy(deep=True),
                           artifact_ids=sorted(session.visible_artifact_ids()))
 
@@ -29,14 +38,14 @@ def _remember(session) -> None:
         session.data.active_branch_id = active
     else:
         old = session.data.branches[active]
-        session.data.branches[active] = _snapshot(session, active, old.name, old.created_at)
+        session.data.branches[active] = _snapshot(session, active, old.name, old.created_at, old.automatic)
 
 
 def listing(session) -> dict:
     active = session.data.active_branch_id
     rows = []
     for branch in session.data.branches.values():
-        steps = session.data.steps if branch.id == active else branch.steps
+        steps = session.data.steps if branch.id == active else session.data.branch_state(branch).steps
         preview = next((s.outputs[0] for s in reversed(steps) if s.status == "done" and s.outputs), None)
         rows.append({"id": branch.id, "name": branch.name, "created_at": branch.created_at,
                      "step_count": len(steps), "preview_id": preview})
@@ -48,7 +57,7 @@ def _idle(session) -> None:
         raise EngineError("finish or reject pending steps before changing directions")
 
 
-def create(session, name: str, from_step: str | None = None) -> None:
+def create(session, name: str, from_step: str | None = None, *, automatic: bool = False) -> None:
     _idle(session)
     index = None
     if from_step is not None:
@@ -58,20 +67,22 @@ def create(session, name: str, from_step: str | None = None) -> None:
         index = session.data.steps.index(target)
     _remember(session)
     id = uuid.uuid4().hex
-    branch = _snapshot(session, id, name, time.time())
+    branch = _snapshot(session, id, name, time.time(), automatic)
     if index is not None:
-        removed = {s.id for s in branch.steps[index + 1:]}
-        branch.steps = branch.steps[:index + 1]
+        state = session.data.branch_state(branch)
+        removed = {s.id for s in state.steps[index + 1:]}
+        state.steps = state.steps[:index + 1]
         branch.artifact_ids = [aid for aid in branch.artifact_ids
                                if session.artifacts.meta[aid].produced_by not in removed]
-        kept = {s.id for s in branch.steps}
+        kept = {s.id for s in state.steps}
         # A conversation after the cut may describe images no longer in this direction. Start a fresh
         # transcript and retain only self-contained user inputs and messages about retained steps.
-        last_kept_message = max((i for i, m in enumerate(branch.messages)
+        last_kept_message = max((i for i, m in enumerate(state.messages)
                                  if m.step_ids and set(m.step_ids) <= kept), default=-1)
-        branch.messages = [m for m in branch.messages[:last_kept_message + 1]
+        state.messages = [m for m in state.messages[:last_kept_message + 1]
                            if not m.step_ids or set(m.step_ids) <= kept]
-        branch.transcript = []
+        state.transcript = []
+        session.data.set_branch_state(branch, state)
     session.data.branches[id] = branch
     _activate(session, branch)
 
@@ -81,11 +92,13 @@ def _activate(session, branch: BranchSnapshot, *, clear_history: bool = True) ->
         session.data.manual_undo.clear()
         session.data.manual_redo.clear()
     session.data.active_branch_id = branch.id
-    session.data.steps = copy.deepcopy(branch.steps)
-    session.data.messages = copy.deepcopy(branch.messages)
+    state = session.data.branch_state(branch)
+    session.data.steps = state.steps
+    session.data.messages = state.messages
     session.data.creative = branch.creative.model_copy(deep=True)
     # CLI processes are retired by CoreApp, API conversations are rebuilt with the new timeline.
-    session.data.transcript = copy.deepcopy(branch.transcript)
+    session.data.transcript = state.transcript
+    session.data.collect_history()
     session.changes = [f"the user switched to creative direction {branch.name!r}; use its current timeline"]
     session._changed()
 
@@ -96,6 +109,7 @@ def switch(session, id: str) -> None:
         raise EngineError("no such creative direction")
     if id == session.data.active_branch_id:
         return
+    session.data.branches[id].automatic = False  # explicitly choosing a direction retains it
     _remember(session)
     _activate(session, session.data.branches[id])
     if id == session.data.undo_branch_id:
@@ -106,6 +120,7 @@ def rename(session, id: str, name: str) -> dict:
     if id not in session.data.branches:
         raise EngineError("no such creative direction")
     session.data.branches[id].name = name
+    session.data.branches[id].automatic = False
     session._changed()
     return listing(session)
 
@@ -118,6 +133,7 @@ def remove(session, id: str) -> dict:
     if id not in session.data.branches:
         raise EngineError("no such creative direction")
     del session.data.branches[id]
+    session.data.collect_history()
     session._changed()
     return listing(session)
 
@@ -133,11 +149,21 @@ def begin_turn(session) -> None:
         return
     _idle(session)
     changes = list(session.changes)
-    create(session, "Before AI turn")
+    create(session, "Before AI turn", automatic=True)
     checkpoint = session.data.active_branch_id
-    create(session, "AI turn")
+    create(session, "AI turn", automatic=True)
     session.changes = changes
     session.data.undo_branch_id = checkpoint
+    automatic = sorted((b for b in session.data.branches.values() if b.automatic), key=lambda b: b.created_at)
+    protected = {session.data.active_branch_id, checkpoint}
+    remaining = len(automatic)
+    for branch in automatic:
+        if remaining <= MAX_AUTOMATIC_BRANCHES:
+            break
+        if branch.id not in protected:
+            del session.data.branches[branch.id]
+            remaining -= 1
+    session.data.collect_history()
     session._changed()
 
 
@@ -156,6 +182,7 @@ def undo_turn(session) -> None:
 def manual_edit(session, name: str):
     """Record one user transaction using the same snapshots as creative directions."""
     pending = any(step.status in ("proposed", "approved", "running") for step in session.data.steps)
+    existing_nodes = set(session.data.history_nodes)
     active = session.data.active_branch_id or uuid.uuid4().hex
     before = _snapshot(session, active, name, time.time())
     try:
@@ -172,7 +199,13 @@ def manual_edit(session, name: str):
                     session.data.branches[active] = after.model_copy(update={"name": "Original"})
                 session.data.manual_undo = [*session.data.manual_undo, before][-30:]
                 session.data.manual_redo.clear()
+            session.data.collect_history()
             session._changed()
+        else:
+            # Capturing is speculative until the edit changes the document. Do not
+            # leave records behind when a rejected edit has no observable effect.
+            for key in set(session.data.history_nodes) - existing_nodes:
+                del session.data.history_nodes[key]
 
 
 def manual_restore(session, *, redo: bool = False) -> None:

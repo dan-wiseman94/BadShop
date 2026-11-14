@@ -16,6 +16,7 @@ from typing import Protocol, runtime_checkable
 from PIL import Image, UnidentifiedImageError, features
 
 import badshop
+from badshop.build_identity import build_identity
 from badshop.engine.common import load_image
 from badshop.engine.errors import EngineError
 from badshop.engine.result import Output
@@ -197,9 +198,9 @@ def runtime_fingerprint() -> dict:
 
 
 def cache_key(tool: str, params: dict) -> str:
-    """Identifies one execution: the engine version, the tool and its stored params. Image refs in
+    """Identifies one execution: the engine build/runtime, tool and stored params. Image refs in
     stored params are full artifact ids (content hashes), so the key covers the input bytes too."""
-    blob = json.dumps({"engine": badshop.__version__, "runtime": runtime_fingerprint(),
+    blob = json.dumps({"engine": badshop.__version__, "build": build_identity(), "runtime": runtime_fingerprint(),
                        "tool": tool, "params": params},
                       sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()

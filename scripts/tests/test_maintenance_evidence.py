@@ -11,10 +11,23 @@ from pydantic import create_model
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import generate_wire_types as wire
-from resource_report import comparison, sizes
+from resource_report import comparison, history_workload, sizes
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_history_workload_records_real_roundtrip_and_archive_limit_failures(self):
+        report = history_workload(4, 2)
+        self.assertEqual(report['status'], 'passed')
+        self.assertEqual(len(report['raw']['edit_seconds']), 4)
+        self.assertEqual(len(report['raw']['checkpoint_seconds']), 2)
+        self.assertGreater(report['measurements']['archive_bytes'], 0)
+        from badshop.session import project
+        with patch.object(project, 'MAX_SESSION_BYTES', 10):
+            failed = history_workload(1, 0)
+        self.assertEqual(failed['status'], 'failed')
+        self.assertIn('over', failed['error'])
+        self.assertNotIn('archive_bytes', failed['measurements'])
+
     def test_wire_check_rejects_schema_drift_and_regeneration_restores_it(self):
         with tempfile.TemporaryDirectory() as folder:
             destination = Path(folder) / 'wire.ts'
@@ -29,6 +42,8 @@ class EvidenceTests(unittest.TestCase):
                     self.assertEqual(wire.main(), 0)
 
     def test_wire_nullability_and_unknown_schema_are_not_silently_erased(self):
+        self.assertEqual(wire.ts_type({'type': 'object', 'patternProperties': {
+            '^[a-z]+$': {'$ref': '#/$defs/RecipeInput'}}}), 'Record<string, RecipeInput>')
         self.assertEqual(wire.ts_type({'anyOf': [{'type': 'string'}, {'type': 'null'}]}), 'string | null')
         with self.assertRaisesRegex(ValueError, 'Unsupported wire schema'):
             wire.ts_type({'oneOf': [{'type': 'string'}]})

@@ -40,6 +40,31 @@ TOKEN = "t0ken-for-tests"
 WAIT_S = 120  # generous: the first tool call also starts the worker process
 
 
+def test_native_updater_welcome_fixture_matches_core_contract():
+    from badshop.server.protocol import PROTOCOL_VERSION, Welcome
+
+    fixture = Path(__file__).resolve().parents[2] / 'app/src-tauri/tests/fixtures/core-update-wire.json'
+    welcome = Welcome.model_validate_json(fixture.read_text())
+    assert welcome.protocol == PROTOCOL_VERSION
+    assert welcome.actor == 'updater'
+
+
+def test_standalone_grant_is_retired_when_welcome_cannot_be_sent(env):
+    class ClosedDuringWelcome:
+        async def recv(self):
+            return json.dumps({'type': 'hello', 'actor': 'cli:claude',
+                               'token': actor_token(TOKEN, 'cli:claude')})
+
+        async def send(self, message):
+            raise ConnectionClosed(None, None)
+
+    async def body(app):
+        await transport._connection(app, TOKEN, transport._Clients(), ClosedDuringWelcome())
+        assert not app._grants._ids
+        assert not app._grants._tokens
+    run(body)
+
+
 def test_browser_origins_are_checked_before_token_handshake(env):
     async def body(app):
         async with await serve(app, TOKEN) as server:
@@ -111,7 +136,9 @@ async def client(port: int, token: str, actor: str = "user"):
     async with connect(f"ws://127.0.0.1:{port}", max_size=None) as ws:
         await ws.send(json.dumps({"type": "hello", "token": actor_token(token, actor), "actor": actor}))
         welcome = json.loads(await asyncio.wait_for(ws.recv(), WAIT_S))
-        assert welcome == {"type": "welcome", "actor": actor, "version": __version__}
+        assert welcome['type'] == 'welcome' and welcome['actor'] == actor and welcome['version'] == __version__
+        assert welcome['protocol'] == 1 and len(welcome['build_id']) == 64
+        assert len(welcome['core_instance_id']) == 32 and welcome['event_seq'] >= 0
         yield Client(ws)
 
 
@@ -131,6 +158,8 @@ class FakeApp:
     waits for `release`; a cancelled "slow" takes a moment to clean up, as CoreApp waits for its thread."""
 
     def __init__(self):
+        self.core_instance_id = "0" * 32
+        self._event_seq = 0
         self.dispatcher = self
         self.subscribers = []
         self.gone = 0
@@ -246,7 +275,7 @@ def test_fast_chat_stream_keeps_websocket_open_and_saves_full_reply(env, monkeyp
                 assert await ui.call("chat.send", {"text": "Stream a reply"}) == {"started": True}
                 await ui.event("message.delta")  # show text even while the provider is paused
                 release.set()
-                assert await ui.event("turn.finished") == {"reason": "done"}
+                assert await ui.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()['run_id']}
                 assert await ui.call("session.get")
                 streamed = "".join(e["params"]["text"] for e in ui.seen if e["method"] == "message.delta")
                 assert streamed == burst + tail
@@ -255,7 +284,7 @@ def test_fast_chat_stream_keeps_websocket_open_and_saves_full_reply(env, monkeyp
                 assert not any(e["method"] == "message.delta" for e in ui.seen[assistant:])
 
     run(scenario)
-    saved = open_project(env / "data" / "autosave" / "session.badshop")
+    saved = open_project(env / "data" / "autosave" / "session.sqlite")
     assert saved.data.messages[-1].content[0].text == burst + tail
 
 
@@ -586,8 +615,9 @@ def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_ser
                     assert sent == {"started": True}
                     first = (await ui.event("approval.needed"))["step"]
                     assert first["tool"] == "cutout" and first["status"] == "proposed"
+                    first_run_id = (await ui.call('session.get'))['run_id']
                 # the UI closed with the cutout still waiting: the turn stops
-                assert await watcher.event("turn.finished") == {"reason": "stopped"}
+                assert await watcher.event("turn.finished") == {"reason": "stopped", "run_id": first_run_id}
                 assert (await watcher.fails("session.get"))["code"] == -32001  # a user-only method
                 async with client(port, token) as ui:  # the app comes back and sees the session
                     snap = await ui.call("session.get")
@@ -613,7 +643,7 @@ def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_ser
             async with client(relaunched.port, relaunched.token) as ui:
                 snap = await ui.call("session.get")
                 assert snap["steps"] == []  # a new session, and the offer to restore the last one
-                assert Path(snap["restorable"]) == data / "autosave" / "previous.badshop"
+                assert Path(snap["restorable"]) == data / "autosave" / "previous.sqlite"
                 restored = await ui.call("session.restore")
                 assert restored["path"] is None  # the autosave is not the user's project file
                 assert [(s["id"], s["status"]) for s in restored["steps"]] == [
@@ -658,7 +688,8 @@ def test_the_core_stops_cleanly_when_its_stdin_closes(tmp_path):
 
     step_id = asyncio.run(scenario())
     assert "badshop-core: stdin closed" in (tmp_path / "core.log").read_text(encoding="utf-8")
-    autosaved = open_project(data / "autosave" / "session.badshop")
+    from badshop.session.recovery import load
+    autosaved = load(data / "autosave" / "session.sqlite")
     assert [(s.id, s.tool, s.status) for s in autosaved.data.steps] == [(step_id, "info", "done")]
     assert trump in autosaved.data.artifacts
 
@@ -721,7 +752,7 @@ def test_end_to_end_turn_save_reopen_and_replay(tmp_path):
                     need = (await ui.event("approval.needed"))["step"]
                     assert need["tool"] == tool
                     await ui.call("approval.respond", {"step_id": need["id"], "decision": "approve"})
-                assert await ui.event("turn.finished") == {"reason": "done"}
+                terminal = await ui.event("turn.finished")
                 assert ui.methods()[0] == "turn.started"
                 said = "".join(e["params"]["text"] for e in ui.seen if e["method"] == "message.delta")
                 assert "Done: bad, as requested." in said
@@ -730,6 +761,7 @@ def test_end_to_end_turn_save_reopen_and_replay(tmp_path):
                     ("find", "done"), ("cutout", "done"), ("paste", "done"), ("text", "done")]
 
                 snap = await ui.call("session.get")
+                assert terminal == {"reason": "done", "run_id": snap['run_id']}
                 steps = snap["steps"]
                 assert [(s["tool"], s["actor"], s["status"]) for s in steps] == [
                     (tool, "agent:fake", "done") for tool in ("find", "cutout", "paste", "text")]

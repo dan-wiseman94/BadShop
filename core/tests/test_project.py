@@ -227,7 +227,7 @@ def test_save_then_open_restores_the_session_exactly(tmp_path):
         payload = json.loads(zf.read("session.json"))
         recipe = json.loads(zf.read("recipe.json"))
     assert names == {"session.json", "recipe.json"} | {art(s, aid) for aid in keep}
-    assert payload["schema"] == 4 and "schema_" not in payload and set(payload["artifacts"]) == keep
+    assert payload["schema"] == 5 and "schema_" not in payload and set(payload["artifacts"]) == keep
     assert recipe == project.export_recipe(s)
 
     reopened = project.open_project(path, output_dir=tmp_path / "exports")
@@ -489,7 +489,7 @@ BAD = {  # case -> (make the file from the good one, what the error says)
     "lzma members": (recompressed(zipfile.ZIP_LZMA), "compressed in a way badshop never writes"),
     "no session.json": (edited(lambda m, p: m.update({"session.json": None})), "no session.json"),
     "session.json isn't json": (edited(lambda m, p: m.update({"session.json": b"{not json"})), "isn't JSON"),
-    "newer schema": (edited(lambda m, p: p.update(schema=5)), "newer badshop"),
+    "newer schema": (edited(lambda m, p: p.update(schema=6)), "newer badshop"),
     "no schema": (edited(lambda m, p: p.pop("schema")), "no schema number"),
     "not a session": (edited(lambda m, p: p.update(steps="lots")), "isn't a badshop session"),
     "unknown tool": (edited(lambda m, p: p["steps"][0].update(tool="nope")), "doesn't have"),
@@ -609,14 +609,14 @@ def test_the_good_file_opens(saved, tmp_path):
 
 def test_autosave_lands_in_the_data_dir_and_is_found_again(tmp_path, monkeypatch):
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "data"))
-    assert project.autosave_path() == tmp_path / "data" / "autosave" / "session.badshop"
+    assert project.autosave_path() == tmp_path / "data" / "autosave" / "session.sqlite"
     assert not project.autosave_path().is_file()
     s = meme(tmp_path)
     project.autosave(s)
     assert project.autosave_path().is_file()
     s.run_tool("filter", {"image": s.data.steps[0].outputs[0], "names": ["emboss"]}, "user")
     project.autosave(s)  # after every step: the same file, replaced
-    assert [p.name for p in project.autosave_path().parent.iterdir()] == ["session.badshop"]
+    assert {p.name for p in project.autosave_path().parent.iterdir()} == {"session.sqlite", "blobs"}
     restored = project.open_project(project.autosave_path(), output_dir=tmp_path)
     assert [st.tool for st in restored.data.steps] == ["filter", "cutout", "paste", "deepfry", "animate", "filter"]
 
@@ -625,7 +625,7 @@ def test_claim_autosave_sets_the_last_runs_autosave_aside_for_a_restore(tmp_path
     # spec §9: after a crash the next launch offers to restore the autosave, so the new session's first
     # change must not overwrite it (§10: a restarted core reopens it)
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "data"))
-    previous = tmp_path / "data" / "autosave" / "previous.badshop"
+    previous = tmp_path / "data" / "autosave" / "previous.sqlite"
     assert project.claim_autosave() is None  # a first launch: nothing to offer
     assert not (tmp_path / "data").exists()  # and nothing made
     project.autosave(meme(tmp_path))  # the last run, which then crashed

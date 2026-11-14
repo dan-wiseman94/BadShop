@@ -1,5 +1,5 @@
 import { QueryClient, useQuery } from "@tanstack/react-query";
-import { rpc } from "./rpc";
+import { rpc, RpcError } from "./rpc";
 import { useUI, showError } from "./store";
 import { getConnection, onCoreStatus } from "./native";
 import type {
@@ -17,20 +17,28 @@ export const queries = new QueryClient({
     queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30000 },
   },
 });
+function showTurnOutcome(outcome: Params) {
+  if (outcome.error)
+    useUI.getState().set({ error: String(outcome.error),
+      errorAction: outcome.reason === "provider_error" ? "retry-turn" : null });
+  else if (outcome.reason === "budget")
+    useUI.getState().set({ error: "The agent reached the step limit for this turn. Send another message to continue, or raise Maximum steps per turn in Settings.", errorAction: null });
+  else if (outcome.reason === "invalid_calls")
+    useUI.getState().set({ error: "The agent stopped after repeated invalid tool calls. Check the failed steps, then send a clearer instruction or choose another model.", errorAction: null });
+}
+type QueryResult<K extends keyof MethodMap> = K extends "session.get" ? Session : MethodMap[K][1];
 export function useCoreQuery<K extends keyof MethodMap>(method: K) {
   const ready = useUI((s) => s.status === "ready");
-  return useQuery({
+  return useQuery<QueryResult<K>>({
     queryKey: [method],
     queryFn: async ({ signal }) => {
       const value = await rpc.request(method, undefined, signal);
-      return (
-        method === "session.get"
-          ? reconcileSessionSnapshot(
-              value as Session,
-              queries.getQueryData<Session>(["session.get"]),
-            )
-          : value
-      ) as MethodMap[K][1];
+      if (method !== "session.get") return value as QueryResult<K>;
+      const previous = queries.getQueryData<Session>(["session.get"]);
+      const snapshot = reconcileSessionSnapshot(value as Session, previous);
+      const outcome = snapshot.last_turn_outcome;
+      if (outcome && outcome.run_id !== previous?.last_turn_outcome?.run_id) showTurnOutcome(outcome);
+      return snapshot as QueryResult<K>;
     },
     enabled: ready,
   });
@@ -40,7 +48,13 @@ export function reconcileSessionSnapshot(
   snapshot: Session,
   previous?: Session,
 ): Session {
-  if (previous?.id !== snapshot.id) return { ...snapshot, stream_text: "" };
+  if (previous?.context && snapshot.context &&
+      previous.context.core_instance_id === snapshot.context.core_instance_id &&
+      (snapshot.context.revision < previous.context.revision ||
+       (snapshot.context.revision === previous.context.revision && snapshot.context.event_seq < previous.context.event_seq)))
+    return previous;
+  if (previous?.id !== snapshot.id || previous.context?.document_incarnation !== snapshot.context?.document_incarnation)
+    return { ...snapshot, stream_text: snapshot.stream_text ?? "" };
   const knownAssistantIds = new Set(
     previous.messages
       .filter((message) => message.role === "assistant")
@@ -52,7 +66,7 @@ export function reconcileSessionSnapshot(
   );
   return {
     ...snapshot,
-    stream_text: !snapshot.turn_running || completedReply ? "" : (previous.stream_text ?? ""),
+    stream_text: !snapshot.turn_running ? "" : (snapshot.stream_text ?? (completedReply ? "" : previous.stream_text ?? "")),
   };
 }
 export function useSession() {
@@ -90,7 +104,7 @@ function acceptSessionReplacement(
   queries.removeQueries({ queryKey: ["artifact"] });
   queries.setQueryData<Session>(["session.get"], {
     ...session,
-    stream_text: "",
+    stream_text: session.stream_text ?? "",
   });
   ui.set({
     selectedStep:
@@ -129,9 +143,13 @@ export async function action<K extends keyof MethodMap>(
   let value: MethodMap[K][1];
   let downloadError: string | undefined;
   try {
-    value = await rpc.request(method, params);
+    value = await rpc.request(method, params, undefined, queries.getQueryData<Session>(["session.get"])?.context);
   } catch (error) {
     downloadError = error instanceof Error ? error.message : String(error);
+    // A conflict is not permission to replay the command. Refresh the visible
+    // document so the user can review its current state before trying again.
+    if (error instanceof RpcError && error.code === -32002)
+      await queries.invalidateQueries({ queryKey: ["session.get"] });
     throw error;
   } finally {
     if (downloadName) {
@@ -182,7 +200,29 @@ export async function action<K extends keyof MethodMap>(
 export function run<T>(work: () => Promise<T>) {
   void work().catch(showError);
 }
-export function applyCoreEvent({ method, params }: CoreEvent) {
+export function applyCoreEvent({ method, params, context }: CoreEvent) {
+  if (method === "core.resync") {
+    void queries.invalidateQueries();
+    return;
+  }
+  const current = queries.getQueryData<Session>(["session.get"]);
+  if (context && current?.context) {
+    const owner = current.context;
+    if (owner.core_instance_id !== context.core_instance_id || context.revision < owner.revision ||
+        context.event_seq <= owner.event_seq) return;
+    if (owner.document_incarnation !== context.document_incarnation ||
+        owner.document_id !== context.document_id || owner.branch_id !== context.branch_id) {
+      // A core-owned AI checkpoint can change branches without a renderer action.
+      void queries.invalidateQueries({ queryKey: ["session.get"] });
+      return;
+    }
+    if (typeof params.run_id === "string" && current.run_id !== params.run_id) {
+      void queries.invalidateQueries({ queryKey: ["session.get"] });
+      return;
+    }
+    queries.setQueryData<Session>(["session.get"], { ...current, context,
+      document_revision: Math.max(current.document_revision, context.revision) });
+  }
   if (method === "message.delta") {
     queries.setQueryData<Session>(["session.get"], (old) =>
       old
@@ -273,23 +313,7 @@ export function applyCoreEvent({ method, params }: CoreEvent) {
     if (method === "turn.finished") {
       next.turn_running = false;
       next.stream_text = "";
-      if (params.error)
-        useUI.getState().set({
-          error: String(params.error),
-          errorAction: params.reason === "provider_error" ? "retry-turn" : null,
-        });
-      else if (params.reason === "budget")
-        useUI.getState().set({
-          error:
-            "The agent reached the step limit for this turn. Send another message to continue, or raise Maximum steps per turn in Settings.",
-          errorAction: null,
-        });
-      else if (params.reason === "invalid_calls")
-        useUI.getState().set({
-          error:
-            "The agent stopped after repeated invalid tool calls. Check the failed steps, then send a clearer instruction or choose another model.",
-          errorAction: null,
-        });
+      showTurnOutcome(params);
     }
     return next;
   });
@@ -297,7 +321,7 @@ export function applyCoreEvent({ method, params }: CoreEvent) {
     void queries.invalidateQueries({ queryKey: ["session.get"] });
   if (["step.finished", "step.failed", "step.deleted"].includes(method))
     void queries.invalidateQueries({ queryKey: ["branches.list"] });
-  if (method === "step.done" || method === "step.deleted")
+  if (method === "step.finished" || method === "step.deleted")
     void queries.invalidateQueries({ queryKey: ["sources.status"] });
 }
 export function startCore() {

@@ -3,9 +3,12 @@
 import hashlib
 import io
 import re
+import os
+import shutil
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
-from pathlib import PurePath
+from functools import cached_property
+from pathlib import Path, PurePath
 
 from PIL import Image, UnidentifiedImageError
 from pillow_heif import register_heif_opener
@@ -14,6 +17,7 @@ from badshop.engine.common import fit, has_alpha, load_image, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.sources import slugify
 from badshop.session.models import ArtifactMeta, Source
+from badshop.session.blobs import BlobStore
 
 # The decoders an import may use: never EPS (it runs Ghostscript) or Pillow's rarer plugins (SEC-S1).
 register_heif_opener()
@@ -91,8 +95,16 @@ class ArtifactStore:
 
     def __init__(self, decoder: Callable[[bytes, str, int], Image.Image] | None = None):
         self.meta: dict[str, ArtifactMeta] = {}
-        self._data: dict[str, bytes] = {}
+        self._data: dict[str, Path] = {}
         self.decoder = decoder
+
+    @cached_property
+    def _blobs(self):
+        return BlobStore()
+
+    def close(self):
+        if '_blobs' in self.__dict__:
+            self._blobs.close()
 
     def _open(self, data: bytes, name: str, frame: int = 0) -> Image.Image:
         if self.decoder is not None:
@@ -115,7 +127,7 @@ class ArtifactStore:
 
     def _capacity(self, *blobs: bytes) -> None:
         incoming = {hashlib.sha256(blob).hexdigest(): len(blob) for blob in blobs}
-        total = sum(map(len, self._data.values())) + sum(size for aid, size in incoming.items() if aid not in self._data)
+        total = sum(path.stat().st_size for path in self._data.values()) + sum(size for aid, size in incoming.items() if aid not in self._data)
         if total > MAX_STORED_BYTES:
             raise EngineError("this project has reached its 2 GB image storage limit",
                               hint="save this project and start another, or remove unused images")
@@ -143,15 +155,32 @@ class ArtifactStore:
             meta = ArtifactMeta(id=id, label=label, width=im.width, height=im.height, format=fmt,
                                 mime=MIME[fmt], frames=_frames(im, label), produced_by=produced_by,
                                 source=source, original_id=original_id)
-        self._data[id] = data
+        self._data[id] = self._blobs.put(data)
         self.meta[id] = meta
         return meta
 
     def data(self, id: str) -> bytes:
         try:
-            return self._data[id]
+            path = self._data[id]
         except KeyError:
             raise EngineError(f"no such artifact: {id}", hint=REF_HINT) from None
+        return self._blobs.read(path, id)
+
+    def size(self, id: str) -> int:
+        return self._data[id].stat().st_size
+
+    def fork(self):
+        """Borrow immutable inputs, but own all temporary preview outputs separately."""
+        store = ArtifactStore(decoder=self.decoder)
+        store.meta = dict(self.meta)
+        for aid, path in self._data.items():
+            target = store._blobs.path(aid)
+            try:
+                os.link(path, target)
+            except OSError:
+                shutil.copyfile(path, target)
+            store._data[aid] = target
+        return store
 
     def image(self, id: str, frame: int = 0) -> Image.Image:
         """A fresh decoded copy (upright; an animation is at its first frame)."""
@@ -175,6 +204,9 @@ class ArtifactStore:
     def drop(self, ids: Iterable[str]) -> None:
         """Forget artifacts (ids not in the store are ignored)."""
         for id in list(ids):
+            path = self._data.get(id)
+            if path is not None:
+                path.unlink(missing_ok=True)
             self.meta.pop(id, None)
             self._data.pop(id, None)
 

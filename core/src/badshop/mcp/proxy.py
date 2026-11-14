@@ -15,6 +15,7 @@ from websockets.exceptions import ConnectionClosed
 
 from badshop.agent.context import model_result
 from badshop.session.models import Step
+from badshop.server.protocol import CLI_METHODS, PROTOCOL_VERSION, DocumentContext
 
 
 class CoreError(Exception):
@@ -29,17 +30,29 @@ class CoreConnection:
         if actor not in ("cli:claude", "cli:codex", "cli:gemini"):
             raise ValueError("MCP requires a CLI actor")
         self.url, self.token, self.actor = url, token, actor
+        self._context: DocumentContext | None = None
 
     async def call(self, method: str, params: dict | None = None):
-        if method not in ("tools.list", "tools.run", "artifacts.get"):
+        if method not in CLI_METHODS:
             raise CoreError("method is outside the MCP tool scope")
         # A separate connection per request lets cancellation close precisely that tool call.
         # Closing its socket cancels the server request and rejects a pending approval.
         async with connect(self.url, max_size=64 * 2**20, compression=None) as ws:
-            await ws.send(json.dumps({"type": "hello", "token": self.token, "actor": self.actor}))
+            request = {"type": "hello", "token": self.token, "actor": self.actor, "protocol": PROTOCOL_VERSION}
+            if self._context is not None:
+                request['context'] = self._context.model_dump(mode='json')
+            await ws.send(json.dumps(request))
             hello = json.loads(await asyncio.wait_for(ws.recv(), 10))
             if hello.get("type") != "welcome":
                 raise CoreError("the badshop core refused the MCP connection")
+            if hello.get('protocol') != PROTOCOL_VERSION:
+                raise CoreError('incompatible core protocol; update the MCP proxy and core together')
+            if 'cli-session-grant' not in hello.get('capabilities', []):
+                context = DocumentContext.model_validate(hello.get('context'))
+                if self._context is not None and any(getattr(context, key) != getattr(self._context, key) for key in (
+                        'core_instance_id', 'document_id', 'document_incarnation', 'branch_id')):
+                    raise CoreError('the MCP document changed; reconnect explicitly before continuing')
+                self._context = context
             await ws.send(json.dumps({"jsonrpc": "2.0", "id": 1, "method": method,
                                       "params": params or {}}))
             async for raw in ws:

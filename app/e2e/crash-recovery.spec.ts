@@ -15,11 +15,11 @@ test("a killed core restores unsaved pixels through project home and saves a reu
   const before = await emptyCore.call("session.get") as Session;
   const output = before.steps[0].outputs[0];
   const pixels = await emptyCore.call("artifacts.get", { id: output }) as { data: string };
-  const autosave = path.join(emptyCore.folder, "data/autosave/session.badshop");
+  const autosave = path.join(emptyCore.folder, "data/autosave/session.sqlite");
   await expect.poll(() => {
     try {
       const saved = JSON.parse(execFileSync(python, ["-c",
-        "import json,sys,zipfile; print(zipfile.ZipFile(sys.argv[1]).read('session.json').decode())", autosave], { encoding: "utf8" })) as Session;
+        "import sys; from badshop.session.recovery import load; print(load(__import__('pathlib').Path(sys.argv[1])).data.model_dump_json(by_alias=True))", autosave], { encoding: "utf8" })) as Session;
       return saved.steps[0]?.outputs[0];
     } catch { return null; } // Atomic autosave may not have completed yet.
   }).toBe(output);

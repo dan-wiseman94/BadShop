@@ -299,6 +299,12 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 print('Frozen video passed: bundled frame extraction and persisted pixels after source deletion', flush=True)
                 restored = await rpc('artifacts.get', id=image['working']['id'])
                 assert hashlib.sha256(base64.b64decode(restored['data'])).hexdigest() == image['working']['id']
+                # Exercise the bundled SQLite writer, not just portable ZIP Save.
+                from badshop.session.recovery import load as load_recovery
+                recovered = load_recovery(Path(folder) / 'data/autosave/session.sqlite')
+                assert recovered.data.id == opened['id']
+                assert recovered.artifacts.data(image['working']['id']) == base64.b64decode(restored['data'])
+                recovered.artifacts.close()
                 if metrics:
                     for cycle in range(cycles):
                         current = await rpc('session.get')

@@ -65,7 +65,7 @@ for (const outcome of ["restored", "damaged", "older"] as const) {
   }) => {
     const { readFile, writeFile } = await import("node:fs/promises");
     const folder = path.join(core.folder, "restarting-core");
-    const autosave = path.join(folder, "data/autosave/session.badshop");
+    const autosave = path.join(folder, "data/autosave/session.sqlite");
     const owned: Awaited<ReturnType<typeof startRecoveryCore>>[] = [];
     let restoreReply: string | Buffer | undefined;
     let releaseReply = () => {};
@@ -232,7 +232,7 @@ for (const persisted of [false, true]) {
       await expect(
         page.getByText("The core connection was lost."),
       ).toBeVisible();
-      await rm(path.join(folder, "data/autosave/session.badshop"), {
+      await rm(path.join(folder, "data/autosave/session.sqlite"), {
         force: true,
       });
       const second = await startRecoveryCore(folder);
