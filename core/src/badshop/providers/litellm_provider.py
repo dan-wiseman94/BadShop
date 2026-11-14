@@ -17,7 +17,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.diagnostics import register_secret
 
 
@@ -44,29 +44,44 @@ def _get(obj: Any, name: str, default=None):
     return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
 
 
-def safe_error(exc: Exception) -> str:
+def measured_reply(reply: Reply, payload: Any) -> Reply:
+    """Keep only measured counts/model identity; never persist SDK response bodies."""
+    usage = _get(payload, 'usage', {}) or {}
+    for field, names in (('input_tokens', ('input_tokens', 'prompt_tokens')),
+                         ('output_tokens', ('output_tokens', 'completion_tokens'))):
+        for name in names:
+            value = _get(usage, name)
+            if type(value) is int and 0 <= value < 2**63:
+                setattr(reply, field, value)
+                break
+    model = _get(payload, 'model')
+    if isinstance(model, str) and 0 < len(model) <= 512:
+        reply.actual_model = model
+    return reply
+
+
+def safe_error(exc: Exception) -> ProviderError:
     """Class/status only; never interpolate an SDK exception or its response body."""
     kind = type(exc).__name__
     status = getattr(getattr(exc, "response", None), "status_code", getattr(exc, "status_code", None))
     if kind == "AuthenticationError" or status == 401:
-        return "model authentication failed; check the provider's API key"
+        return ProviderError("model authentication failed; check the provider's API key", category='authentication', retryable=False)
     if kind == "PermissionDeniedError" or status == 403:
-        return "the provider refused access; check the key's permissions and model access"
+        return ProviderError("the provider refused access; check the key's permissions and model access", category='permission', retryable=False)
     if kind == "NotFoundError" or status == 404:
-        return "the model or endpoint is unavailable; check the model name and API base, or choose another model"
+        return ProviderError("the model or endpoint is unavailable; check the model name and API base, or choose another model", category='unavailable', retryable=False)
     if kind == "RateLimitError" or status == 429:
-        return "the model's rate limit or quota was reached; wait or check your provider account"
+        return ProviderError("the model's rate limit or quota was reached; wait or check your provider account", category='rate_limit', retryable=True)
     if kind == "ContextWindowExceededError":
-        return "the conversation exceeds the model's context window; start a new session or choose a larger model"
+        return ProviderError("the conversation exceeds the model's context window; start a new session or choose a larger model", category='context', retryable=False)
     if isinstance(exc, TimeoutError) or kind in ("Timeout", "APITimeoutError", "ConnectTimeout", "ReadTimeout"):
-        return "the model request timed out; check the connection and try again"
+        return ProviderError("the model request timed out; check the connection and try again", category='timeout', retryable=True)
     if kind in ("APIConnectionError", "ServiceUnavailableError", "ConnectError"):
-        return "can't reach the model provider; check its endpoint and your connection"
+        return ProviderError("can't reach the model provider; check its endpoint and your connection", category='connection', retryable=True)
     if kind in ("BadRequestError", "UnsupportedParamsError") or status == 400:
-        return ("the provider refused the request; check the model's image and tool support "
-                "and its configured context limit")
-    return "the model request failed; check the provider settings and try again"
-
+        return ProviderError("the provider refused the request; check the model's image and tool support "
+                             "and its configured context limit", category="request", retryable=False)
+    return ProviderError("the model request failed; check the provider settings and try again", category='unknown', retryable=True)
 
 async def _close_stream(stream) -> None:
     """Release the HTTP stream on success, errors, and Stop (including a repeated Stop)."""
@@ -152,7 +167,7 @@ def _json_reply(text: str) -> Reply:
                             "Try again or choose a model with native tool support") from None
 
 
-class LiteLLMProvider:
+class LiteLLMProvider(Provider):
     def __init__(self, model: str, *, api_base: str | None = None, api_key: str | None = None,
                  actor: str = "agent:litellm", capability_overrides: dict[str, bool] | None = None,
                  timeout_s: float = 120):
@@ -294,11 +309,11 @@ class LiteLLMProvider:
                     calls.append(ToolCallRequest(id=call_id, name=name, arguments=args))
                 if len(calls) != len(seen_calls):
                     raise ProviderError("the provider's streamed tool calls could not be rebuilt; try another model")
-                return Reply(text=text, tool_calls=calls)
+                return measured_reply(Reply(text=text, tool_calls=calls), rebuilt)
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(safe_error(exc)) from None
+            raise safe_error(exc) from None
         finally:
             if stream is not None:
                 await _close_stream(stream)

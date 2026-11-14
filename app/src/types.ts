@@ -25,6 +25,10 @@ export interface Session {
   document_revision: number;
   /** Transient event-cache state, never sent to or saved by the core. */
   stream_text?: string;
+  read_only_reason?: string | null;
+  provider_usage?: { requested_model?: string | null; actual_model?: string | null;
+    input_tokens?: number | null; output_tokens?: number | null; duration_ms: number;
+    request_bytes: number; omitted_turns?: number } | null;
   id: string;
   name: string;
   path: string | null;

@@ -26,6 +26,7 @@ from badshop.tools import runner
 
 CRASH_HINT = "this is a bug in badshop; other steps are unaffected"
 STOPPED = "stopped by the user"  # a stopped call's error_message, whichever executor stopped it
+MAX_INPUT_BYTES = 256 * 2**20
 
 
 @dataclass(frozen=True)
@@ -199,7 +200,7 @@ def runtime_fingerprint() -> dict:
 
 def cache_key(tool: str, params: dict) -> str:
     """Identifies one execution: the engine build/runtime, tool and stored params. Image refs in
-    stored params are full artifact ids (content hashes), so the key covers the input bytes too."""
+    stored params are immutable artifact-use identities, each bound to one verified blob."""
     blob = json.dumps({"engine": badshop.__version__, "build": build_identity(), "runtime": runtime_fingerprint(),
                        "tool": tool, "params": params},
                       sort_keys=True, separators=(",", ":"))

@@ -17,11 +17,11 @@ def test_legacy_overwrite_preserves_verified_bytes_and_existing_backup(tmp_path)
     source = FIXTURES / 'projects' / 'desktop-v0.1.0.badshop'
     path = tmp_path / 'project.badshop'
     shutil.copyfile(source, path)
-    occupied = tmp_path / 'project.pre-v5.badshop'
+    occupied = tmp_path / 'project.pre-v6.badshop'
     occupied.write_bytes(b'never replace this backup')
     session = project.open_project(path)
     project.save(session, path)
-    backup = tmp_path / 'project.pre-v5-1.badshop'
+    backup = tmp_path / 'project.pre-v6-1.badshop'
     assert backup.read_bytes() == source.read_bytes()
     assert occupied.read_bytes() == b'never replace this backup'
     restored = project.open_project(path)
@@ -41,7 +41,7 @@ def test_failed_backup_publication_leaves_legacy_project_intact(tmp_path, monkey
     original = getattr(project.os, publication)
 
     def fail(source, destination, *args, **kwargs):
-        if '.pre-v5' in str(destination):
+        if '.pre-v6' in str(destination):
             raise OSError('backup disk failure')
         return original(source, destination, *args, **kwargs)
 

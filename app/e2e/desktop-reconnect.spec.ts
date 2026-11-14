@@ -79,6 +79,7 @@ for (const outcome of ["restored", "damaged", "older"] as const) {
         server.send(frame);
       });
       server.onMessage((frame) => {
+        if (typeof frame !== "string") { client.send(frame); return; }
         const message = JSON.parse(String(frame));
         if (hold && restoreId !== undefined && message.id === restoreId) {
           restoreReply = frame;

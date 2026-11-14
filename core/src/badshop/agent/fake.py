@@ -4,12 +4,13 @@ Playwright suite drive real turns with it: offline, fast and the same every time
 import asyncio
 import copy
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.engine.errors import EngineError
 from badshop.tools.runner import explain
 
@@ -32,7 +33,7 @@ class _ScriptReply(BaseModel):
     error: str | None = None  # the provider fails with this message instead of replying
 
 
-class ScriptedProvider:
+class ScriptedProvider(Provider):
     """Plays `replies` in order, one per completion. A ProviderError in the list is raised at its turn."""
 
     actor = "agent:fake"
@@ -77,7 +78,26 @@ class ScriptedProvider:
             reply = Reply(text=END_OF_SCRIPT)
         if isinstance(reply, ProviderError):
             raise reply
+        reply = copy.deepcopy(reply)
+        # Offline integration scripts can follow the latest image exposed to a
+        # real provider, without guessing a future logical artifact identity.
+        labels = [part.get('text', '') for message in messages if message.get('role') == 'user'
+                  and isinstance(message.get('content'), list) for part in message['content']
+                  if part.get('type') == 'text' and part.get('text', '').startswith('[image ')]
+        latest = re.match(r'\[image ([0-9a-f]{6,64}):', labels[-1]) if labels else None
+        def bind(value):
+            if value == '$latest_image':
+                if latest is None:
+                    raise ProviderError('script requested a latest image but the context has none')
+                return latest.group(1)
+            if isinstance(value, dict):
+                return {key: bind(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [bind(item) for item in value]
+            return value
+        for call in reply.tool_calls:
+            call.arguments = bind(call.arguments)
         for i in range(0, len(reply.text), CHUNK):
             await asyncio.sleep(0)  # a real stream waits on the network between chunks: Stop can land here
             on_delta(reply.text[i:i + CHUNK])
-        return copy.deepcopy(reply)
+        return reply

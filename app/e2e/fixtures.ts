@@ -1,9 +1,23 @@
-import { test as base, expect, type TestInfo } from "@playwright/test";
+import { test as base, expect, type TestInfo, type Locator } from "@playwright/test";
+import { createHash } from 'node:crypto';
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startCore, root, type Core } from "./core";
 export { root, python, startCore, type Core } from "./core";
+
+export async function expectImageBytes(image: Locator, base64: string) {
+  const expected = createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+  await expect.poll(async () => image.evaluate(async node => {
+    const element = node as HTMLImageElement;
+    if (!element.complete || !element.naturalWidth || !element.src) return null;
+    try {
+      const bytes = await (await fetch(element.src)).arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+    } catch { return null; } // a replaced/revoked view is retried against the current element
+  })).toBe(expected);
+}
 
 type RunningCore = Awaited<ReturnType<typeof startCore>>;
 

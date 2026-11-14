@@ -2,7 +2,8 @@
 
 Implementation baseline: `fb1ad675546bd466d5578fbf324a72361458a619`.
 The five audit documents were inherited task material, retained in checkpoint `2f8316c`. The full W0–W14
-plan remains authorized; this ledger does not mark it complete.
+plan remains authorized. Earlier sections below are chronological checkpoints; the final
+continuation records current implementation and distinguishes external acceptance gates.
 
 ## Implemented
 
@@ -251,7 +252,7 @@ creation-workflow golden changes were preserved during reconciliation.
   nullability/pattern-property regression passed. No full-suite failure is hidden
   by the earlier focused reruns.
 
-### Remaining
+### Remaining at the storage checkpoint (superseded by the continuation below)
 
 The full W0–W14 modernization is **not complete**. W4 explicit artifact-use,
 invocation and named-output identities remain open. W5 now shares branch/undo
@@ -353,3 +354,242 @@ enters the timeline using Tab. It failed because no mounted row remained tabbabl
 (`20261114T070622Z-349191`). Keeping the first row as the initial roving Tab stop
 fixed the failure; the same test passed (`20261114T070729Z-349733`) with bounded
 mounted rows, full keyboard navigation and all 250 core steps preserved.
+
+## Schema 6 / operation / context completion continuation
+
+Task baseline and fetched upstream: `105f37e73abfe7067868e392dd2b669a825f7b58`.
+This includes the merged #54 history work and upstream #53/#55/#56 installed
+acceptance, Flatpak and release/licence work. No release tag is created by this task.
+The Windows implementation worktree is `architecture-audit/BadShop`, branch
+`codex/modernization-completion`; Linux verification uses the isolated
+`badshop-linux-test/worktrees/architecture-completion` checkout and its own venv.
+
+### Implemented ownership and acceptance
+
+- W2/W3/W6: document commands have durable pending/committed receipts; retries
+  retain the same operation identity and never repeat a pending side effect.
+  Document events follow a successful commit. Running steps commit before worker
+  execution. Disk-full admission fails without executing; interrupted runs recover
+  as errors. Steps retain parent operation IDs and recipe row/item positions.
+  Receipt inspection links retained invocations; oversized/evicted cached replies
+  retain deduplication tombstones. Chat acceptance and terminal run completion
+  remain distinct. No exactly-once external-file claim is made.
+- W4: immutable logical artifact uses share byte hashes, with distinct provenance
+  for identical imports and outputs. Named producer/output bindings replace
+  positional replay substitution. Missing ports fail explicitly. Unknown tools
+  open read-only; structurally invalid documents are still refused. Schema 1–5
+  migration preserves existing ambiguity, and schema 6 save preserves a verified
+  pre-v6 archive. Recovery storage 1 upgrades with a verified, exclusive pre-v2
+  backup, including when an older/damaged backup already occupies its name.
+- W5: shared branch/undo records remain authoritative; temporary history leases
+  protect a manual transaction's undo snapshot during running-step commits.
+  The current timeline is deliberately materialized for editing. There is no
+  second live event-sourced document or alternate mutation executor.
+- W6/W11: storage inspection checks recovery and library integrity without
+  overwriting evidence. Healthy library entries remain available when another
+  entry is corrupt. Shared-library blob collection uses a one-day grace period
+  and refuses collection on unreadable metadata. UI library pages bound mounted
+  cards and thumbnail requests; full collection exports gather all entries.
+- W7: worker writes/partial reads have idle and absolute watchdogs; encoded inputs
+  and IPC frames have explicit ceilings. Media decode admission is separate from
+  document mutation locking. Authenticated WebSocket binary replies replace the
+  renderer's base64 transport; no file-serving HTTP endpoint is introduced.
+  Core/renderer view caches have byte ceilings, and Blob URL effects own cleanup.
+  Aged scratch reclamation requires a marker and proof its process is dead.
+- W8: a normalized projection supplies step/output lookup, live text has its own
+  store, completed Markdown is memoized, and long chat/gallery/timeline views are
+  windowed with keyboard navigation. Saved-library views use 50-entry pages.
+- W9: canonical conversation records replace persisted OpenAI envelopes. Request
+  projection retains complete bounded turns and images; continuation metadata is
+  scoped to adapter/model/document/branch/version. Measured request bytes, timing,
+  reported usage and omitted turns are visible; unknown costs are not invented.
+  Local one-edit/face-selection policy moved from HTTP transport into the agent
+  layer; face geometry follows the recorded invocation, independent of prose.
+- W10/W12/W13: existing pane isolation, close/recovery ownership, release receipt,
+  package identity and promotion gates are retained. The supplied scope is one
+  coordinated migration PR as explicitly requested, superseding the normal
+  one-behavior-per-PR preference. No engine pixel algorithm or pixel golden changes.
+- W14: current architecture/compatibility guides describe the actual new owners,
+  bounds, schema migration, backup and rollback limitations. Legacy format readers
+  and protocol-1 JSON media name their supported clients and removal conditions.
+
+### Decisions and gates that are not implementation passes
+
+The original plan contains experiments and external acceptance work as well as
+code. ACP adoption, shared-memory IPC, immutable active-timeline storage, portal
+permission reduction and installer payload pruning are not automatically better
+architectures. The current explicit owners and bounded paths remain; adoption of
+those alternatives requires the plan's comparative measurements and compatibility
+exit criteria. No unverified alternate runtime is enabled merely to check a box.
+
+Live provider authentication/actual image and continuation behavior, installed
+Windows/macOS acceptance, signed update/rollback, native screen-reader observation,
+publisher signing/notarization and consenting beta-user return studies are separate
+release/field gates. Fixture tests and a source Linux debug build cannot satisfy
+those gates. No invitations, credential provisioning, paid model calls, signing
+identity setup or public release publication are implied by this implementation.
+The full original W0–W14 acceptance remains open wherever such evidence is absent.
+
+### Verification in this continuation
+
+Evidence is retained under the Linux worktree's `artifacts/verification/`:
+
+- `20261114T155231Z-1944`: 101 receipt, history, worker, library, identity and real
+  WebSocket checks passed; one model test deselected.
+- `stream-component.log`: 30 stream/document-replacement/RPC component checks passed.
+- `20261114T160230Z-5665`: 50 receipt/migration and recipe/layout checks passed.
+- `20261114T160250Z-5787`: broad run found two core expectation/commit failures,
+  one protocol fixture failure and a missing snapshot field; not a passing run.
+- `20261114T160629Z-21447`: 119 passed, one canonical invocation-link expectation
+  failed and was corrected without removing content or pixel assertions.
+- `20261114T161103Z-778`: 1,533 core checks passed, two failed; 92 frontend checks
+  passed. Lint and frontend fixture compilation still required corrections.
+- `20261114T161524Z-657`: all 12 focused privacy/local-strategy/protocol/agent checks
+  passed after those fixes. Cold SDK import is outside the five-second active-request
+  cancellation bound; no cancellation assertion or timeout was weakened.
+
+Final browser/native, resource measurement, maintenance, negative control, frozen
+smoke and PR CI outcomes are recorded below after they run. Earlier passing runs
+are not represented as validation of edits made afterward.
+
+The user explicitly retained paid/live-model testing on 2026-11-14. It is excluded
+from this implementation PR, rather than represented as fixture-verified compatibility.
+
+
+### Upstream reconciliation and second-pass review
+
+Fetched main advanced from `105f37e` to `b4f6fcccea37f3a9ebc5a536069daf89a0b7e245`:
+#57 adds onboarding/compact workflows; #36 adds fuzz/mutation coverage. The merge
+preserves compact-view navigation with invocation/output selection, Settings tab
+selection with storage restoration, and scripted-provider availability alongside
+usage and read-only snapshot fields. Wire contracts were regenerated.
+
+The new fuzz test uses one real saved archive per test session: random artifact
+identities otherwise changed compressed size between Hypothesis replays. It still
+mutates archive bytes, checks clean refusal or exact saved state/pixels, and verifies
+that the original stays unchanged. Restored artifact stores close explicitly.
+
+The separate review traced changed entry points and found concrete regressions:
+concurrent media responses could over-admit cache bytes before query settlement;
+terminal events preceded the final durable revision; corrupt previous-launch
+receipts blocked fresh owned documents; and raw filesystem failures could omit a
+terminal outcome. Focused regressions cover byte admission/URL cleanup, persisted
+assistant content followed by an owned edit, preserved corrupt evidence with
+stale/legacy refusal and duplicate receipt reuse, and terminal error/run release.
+The active receipt store always fails closed. Old-context requests cannot bypass
+an unreadable previous store. Local face-edit policy now resolves geometry through
+the recorded invocation rather than parsing result prose.
+
+Final Linux verification moved to the isolated
+`badshop-linux-test/worktrees/architecture-completion-final` checkout. The older
+`20261114T162817Z-722` run is invalid environment evidence: dependencies disappeared;
+subsequently WSL was unavailable during user disk maintenance. It is not reported
+as a passing check or an application regression. The fresh checkout has a separate
+verified editable environment and retains the exact transferred-file manifest.
+
+- `20261114T163622Z-991`: 15 focused checks passed; the newly merged fuzz strategy
+  failed due to changing archive lengths. The fixed fixture passed in the full run.
+- `focused-frontend.log`: nine media/Settings/chat component checks and build passed.
+- `20261114T163742Z-733`: 1,545 core tests passed, 51 platform/opt-in skips;
+  94 frontend and 13 Rust tests passed, plus workflow checks, Ruff, Rust format and
+  production build. Gzipped frontend JavaScript is 324.47 KB. This predates the two
+  final storage-error review fixes; their follow-up is below.
+- `20261114T164557Z-770`: all ten receipt tests passed, including both review fixes.
+- `completion-ownership-probe`: the document-ownership test passed with the guard
+  and failed with the expected missing exception when the guard was removed.
+- `completion-negative-controls`: recovery isolation and concurrent media admission
+  each passed normally and failed the intended assertion with its guard removed.
+  Temporary mutations were restored and checked before further verification.
+
+
+The final W9 follow-up replaces optional provider context flags with an immutable
+`ContextPolicy` on the provider contract. Real adapters and scripted test adapters
+use the same safe defaults; local strategy requests full IDs and Perplexity opts
+into scoped continuation metadata. SDK failures carry safe typed categories and
+retry advice; authentication/permission/context/request failures do not offer
+continuation, while transient timeout/connection/rate-limit advice can. No raw
+SDK error body is exposed. Unknown adapters retain the existing explicit unknown
+category; no live support claim is inferred from a fixture.
+
+- `20261114T164632Z-1254`: full browser run passed 113, skipped one, and failed one
+  material-reuse test's assumed artifact count. The test now checks the new use
+  directly and retains equal-byte identity, composition inputs and reopen checks.
+- `20261114T165717Z-748`: 160 provider/agent/receipt checks passed; one test double
+  shadowed the new provider base name. `20261114T165812Z-1853` passed all 11 checks
+  in that file after renaming it. One opt-in engine-model journey was deselected.
+- `provider-advice-ui-final.log`: 12 component checks passed, including retry advice.
+
+
+### Final implementation evidence
+
+Pushed implementation `d54d989cb707aff9d738c2cdfecf04204247471c` incorporates the
+upstream merge. `committed-source.json` verified all 575 tracked Linux files against
+that commit, normalizing only text line endings: no mismatches. Linux's detached
+baseline plus transfer manifest is retained; the content digest identifies tested
+files independently of its baseline HEAD.
+
+- `20261114T165816Z-2015`: all 24 affected controller, provider-context and material
+  workflows passed serially, including the corrected reuse assertion.
+- `completion-maintenance`: import contracts, Ruff, high-confidence Vulture, strict
+  Knip, generated-wire drift check and final production build passed. All ten
+  maintenance guard tests passed with the worktree's tools on PATH. The initial
+  direct-Python invocation lacked those executable paths and the local bundle had
+  no origin/main ref; those are recorded prerequisite errors, not clean passes.
+  `growth-final.md` compares exact pushed head against `b4f6fcc`, after importing
+  its commit objects without overwriting the verification checkout.
+- `engine-model-journey.log`: the real WebSocket approval/save/reopen/replay journey
+  passed with deterministic engine face detection and fonts, without a paid model.
+- `identity-history-benchmark/summary.json` (Windows evidence) and Linux
+  `identity-history-benchmark.log`: 100/200/500/1,000 steps, 11 retained branches,
+  exact document/pixel recovery assertions, and ten warm commit samples per size.
+  At 1,000 steps there are 1,001 logical uses but two unique blobs; JSON metadata is
+  3.36 MB, the recovery database 12.22 MB and portable archive 0.818 MB. The largest
+  of ten commit samples (conservative sample p95) is 266 ms, portable save 140 ms,
+  and recovery open 1.60 seconds. At 100 steps the corresponding commit sample
+  bound is 21 ms and open is 125 ms. Metadata growth is approximately linear.
+  These are small 32-pixel deterministic images, not an image-heavy whole-process
+  RSS benchmark. Compared with the earlier hash-identity workload, the explicit
+  per-use records increase metadata and commit cost; no space-reduction claim is
+  made. Cache admission tests prove encoded-byte ceilings, not decoded GPU/RSS use.
+
+
+- `20261114T170317Z-660`: native build passed, but both native smoke paths found
+  the test oracle still looked up archive bytes by logical identity. Updated the
+  native/frozen/Windows acceptance oracles to resolve `blob_id`, retaining actual
+  SHA-256 and pixel checks. Four oracle checks cover both schema 1–5 and schema 6,
+  including corruption rejection (`native-oracle-final.log`). The Windows viewer
+  oracle now fetches Blob/data URL bytes; actual installed Windows acceptance is
+  still an external platform gate, not inferred from this code correction.
+- `20261114T170619Z-750`: desktop build, private-Xvfb native desktop and development
+  launcher passed. Actual clipboard pixels, native Save/Open, restart recovery and
+  close/process cleanup were exercised. This is source/debug evidence, not an
+  installed package acceptance claim. Final production JS is 324.66 KB gzip.
+- `frozen-build-final.log` / `frozen-smoke-final.log`: clean PyInstaller build and
+  frozen-core smoke passed; bundled HEIC/PDF/video bytes, spawned detection, guarded
+  save/open, SQLite recovery, clean EOF shutdown and forced core death leave no
+  orphan worker. OS keychain and downloaded background-removal tests were not
+  requested in this invocation and are not claimed.
+- `frozen-runtime.json`: five packaged lifecycle cycles passed. Handshake was
+  1.00 s, catalogue ready 1.03 s, idle RSS 104.28 MB and warmed cycle RSS 395.51–
+  395.56 MB, with 49,152 additional retained bytes between the first and fifth
+  cycles. These measured workloads do not establish a universal memory ceiling.
+
+Final CI follow-up found two remaining defects in the verification path:
+
+- A managed CLI grant token beginning with `-` was parsed as an option by the MCP
+  subprocess. Passing `--token=value` fixes the real launch failure. The existing
+  subprocess/MCP approval and budget workflows now force that token boundary;
+  `cli-dash-token-broken.log` records failure before the fix, and
+  `20261114T173115Z-6831` passes 37 CLI/MCP checks (two platform/opt-in skips).
+  The fake CLI also refuses a failed initial tool response instead of reporting
+  a successful answer. No paid provider was invoked.
+- The saved-library browser check read through a separate connection before the
+  UI's asynchronous import committed. It now polls the persisted artifact before
+  retaining all library/message assertions. `20261114T172842Z-1098` passes all
+  three long-history workflows. No timeout or assertion was weakened.
+
+Implementation changes and consequential review fixes are complete in this PR.
+Final PR checks must pass before merging PR #58. The original plan's
+live-provider, installed cross-platform, signing/rollback, assistive-technology and
+consenting-user field gates remain explicitly unclaimed; paid model checks belong
+to the user. No failing or skipped run above has been rewritten as a pass.

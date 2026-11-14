@@ -8,6 +8,7 @@ handler never runs."""
 import inspect
 import json
 import logging
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
@@ -16,8 +17,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, create_model
 
 from badshop.engine.errors import EngineError
+from badshop.session.invocation_policy import OPERATION_ID
 from badshop.tools.runner import explain, is_trusted
 from badshop.server.protocol import DocumentContext
+from badshop.server.media_wire import BINARY_ARTIFACTS, METHODS as MEDIA_METHODS, encode as encode_media
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -80,11 +83,12 @@ def params_model(name: str, fn: Handler) -> type[BaseModel]:
 
 
 class Dispatcher:
-    def __init__(self, *, contracts=None, check_context=None) -> None:
+    def __init__(self, *, contracts=None, check_context=None, execute_operation=None) -> None:
         self._methods: dict[str, tuple[Handler, type[BaseModel], str]] = {}
         self._contracts = contracts
         self._results: dict[str, TypeAdapter] = {}
         self._check_context = check_context
+        self._execute_operation = execute_operation
 
     def method(self, name: str, *, actors: str = "user") -> Callable[[Handler], Handler]:
         """Register an async handler. actors="user": only the trusted user may call it; "any": every
@@ -120,7 +124,7 @@ class Dispatcher:
             "long_running": self._contracts[name].long_running,
         } for name, (_, model, actors) in sorted(self._methods.items())}
 
-    async def handle(self, raw: str, actor: str) -> str | None:
+    async def handle(self, raw: str, actor: str) -> str | bytes | None:
         """One incoming frame -> the reply frame, or None for a notification (a request without an id).
         Calls are independent, so a transport may await several at once."""
         try:
@@ -137,8 +141,16 @@ class Dispatcher:
             return error_response(id_, RpcError(INVALID_REQUEST, "invalid request",
                                         {"hint": 'a request needs "jsonrpc": "2.0" and a "method" string'}))
         token = REQUEST_OWNERSHIP.set(None)
+        operation_token = OPERATION_ID.set(None)
+        media_token = BINARY_ARTIFACTS.set(actor == 'user' and msg['method'] in MEDIA_METHODS
+                                          and msg.get('response_encoding') == 'binary-artifact-v1')
         try:
             contract = self._contracts.get(msg['method']) if self._contracts else None
+            operation_id = msg.get('operation_id')
+            if operation_id is not None:
+                if not isinstance(operation_id, str) or not re.fullmatch(r'[0-9a-f]{32}', operation_id):
+                    raise RpcError(INVALID_PARAMS, 'invalid operation identity')
+                OPERATION_ID.set(operation_id)
             if 'context' in msg and contract and contract.scope == 'document':
                 try:
                     context = DocumentContext.model_validate(msg['context'], strict=True)
@@ -151,10 +163,15 @@ class Dispatcher:
                 owner = RequestOwnership(msg['method'], context, run_id=run_id, check_revision=actor == 'user',
                                          authorization_id=authorization_id)
                 REQUEST_OWNERSHIP.set(owner)
-                if self._check_context:
+                if self._check_context and not (operation_id and contract.mutates and self._execute_operation):
                     self._check_context(owner)
             result = await self._call(msg["method"], msg.get("params", {}), actor)
-            return json.dumps({"jsonrpc": "2.0", "id": id_, "result": result}) if is_request else None
+            if not is_request:
+                return None
+            envelope = {"jsonrpc": "2.0", "id": id_, "result": result}
+            return encode_media(envelope) if BINARY_ARTIFACTS.get() else json.dumps(envelope)
+        except EngineError as e:
+            return error_response(id_, RpcError(ENGINE_ERROR, e.message, {'hint': e.hint})) if is_request else None
         except RpcError as e:
             if not is_request:
                 log.warning("notification %s failed: %s", msg["method"], e.message)
@@ -164,6 +181,8 @@ class Dispatcher:
             return error_response(id_, RpcError(INTERNAL_ERROR, f"internal error ({e})")) if is_request else None
         finally:
             REQUEST_OWNERSHIP.reset(token)
+            OPERATION_ID.reset(operation_token)
+            BINARY_ARTIFACTS.reset(media_token)
 
     async def _call(self, method: str, params: Any, actor: str) -> Any:
         entry = self._methods.get(method)
@@ -182,12 +201,20 @@ class Dispatcher:
         except ValidationError as e:
             raise RpcError(INVALID_PARAMS, f"invalid params for {method}", {"hint": explain(e)}) from None
         try:
-            result = await fn(actor, **{name: getattr(checked, name) for name in type(checked).model_fields})
-            if method in self._results:
-                # Validate the JSON representation: tuples (e.g. saved crop boxes)
-                # are arrays on the wire, while string-to-number coercion is forbidden.
-                self._results[method].validate_json(json.dumps(result, allow_nan=False), strict=True)
-            return result
+            async def invoke():
+                result = await fn(actor, **{name: getattr(checked, name) for name in type(checked).model_fields})
+                if method in self._results:
+                    checked_result = result
+                    if BINARY_ARTIFACTS.get():
+                        if not isinstance(result.get('data'), bytes):
+                            raise TypeError('binary artifact handler must return encoded bytes')
+                        checked_result = {**result, 'data': ''}
+                    self._results[method].validate_json(json.dumps(checked_result, allow_nan=False), strict=True)
+                return result
+            contract = self._contracts.get(method) if self._contracts else None
+            if self._execute_operation and contract and contract.mutates and contract.scope == 'document':
+                return await self._execute_operation(method, checked.model_dump(mode='json'), actor, invoke)
+            return await invoke()
         except RpcError:
             raise
         except ValidationError as e:

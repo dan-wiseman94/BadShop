@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { test, expect, root, type Core } from "./fixtures";
+import { test, expect, expectImageBytes, root, type Core } from "./fixtures";
 import type { Session, Step } from "../src/types";
 
 async function openStudio(page: Page, core: Core, selectStep = false) {
@@ -30,9 +30,11 @@ test("quick idea uses the photo added from its own import button", async ({ page
   const built = (await emptyCore.call("session.get") as Session).steps.at(-1)!;
   expect(built.params.images).toEqual([photo.id]);
   const expected = await emptyCore.call("tools.run", { tool: "layout", params: { ...built.params, images: [photo.id] } }) as Step;
-  expect(built.outputs).toEqual(expected.outputs);
+  expect(built.outputs).not.toEqual(expected.outputs);
+  expect((await emptyCore.call('artifacts.get', { id: built.outputs[0] }) as { data: string }).data)
+    .toBe((await emptyCore.call('artifacts.get', { id: expected.outputs[0] }) as { data: string }).data);
   const pixels = await emptyCore.call("artifacts.get", { id: built.outputs[0] }) as { mime: string; data: string };
-  await expect(page.locator(".canvas-image")).toHaveAttribute("src", `data:${pixels.mime};base64,${pixels.data}`);
+  await expectImageBytes(page.locator(".canvas-image"), pixels.data);
 });
 
 test("preparing a source search preserves the generated idea briefs", async ({ page, core }) => {
@@ -94,7 +96,7 @@ test("inspecting a branch result reveals its actual image at full size", async (
   await page.getByRole("button", { name: "Inspect full size", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Images & directions", exact: true })).toBeHidden();
   const image = await core.call("artifacts.get", { id: first.outputs[0] }) as { mime: string; data: string };
-  await expect(page.locator(".canvas-image")).toHaveAttribute("src", `data:${image.mime};base64,${image.data}`);
+  await expectImageBytes(page.locator(".canvas-image"), image.data);
   await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1");
   await expect(page.getByRole("button", { name: "Before", exact: true })).toBeDisabled();
 });

@@ -10,7 +10,13 @@ export function CreationReplay() {
   const [delay, setDelay] = useState(600);
   const { busy, error, perform } = useOperation();
   const disabled = busy || !!session?.turn_running || !!session?.batch_running;
-  const results = [...new Set(session?.steps.filter(s => s.status === "done").flatMap(s => s.outputs) ?? [])];
+  const seen = new Set<string>();
+  const results = (session?.steps.filter(s => s.status === "done").flatMap(s => s.outputs) ?? []).filter(id => {
+    const bytes = session?.artifacts[id]?.blob_id ?? id;
+    if (seen.has(bytes)) return false;
+    seen.add(bytes);
+    return true;
+  });
   const frames = results.filter(id => selected.includes(id));
   return <section aria-label="Creation replay"><p>Tell the story in 2–12 pictures. Select finished results; the GIF follows History order, fits every frame to the first picture, and loops. Source photos are never added automatically.</p>
     <fieldset disabled={disabled}><legend>Replay frames</legend><div className="retro-inputs">{results.map(id => <label key={id}>

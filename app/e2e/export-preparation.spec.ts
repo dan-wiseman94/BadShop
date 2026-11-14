@@ -121,7 +121,7 @@ test("custom export prepares and saves exact dimensions within a readable size b
   expect(bytes.readUInt32BE(20)).toBe(160);
   const after = await emptyCore.call("session.get") as Session;
   expect(after.steps.at(-1)?.params.max_bytes).toBe(50000);
-  expect(after.steps.at(-1)?.outputs[0]).toBe(createHash("sha256").update(bytes).digest("hex"));
+  expect(after.artifacts[after.steps.at(-1)!.outputs[0]].blob_id).toBe(createHash("sha256").update(bytes).digest("hex"));
   expect(after.steps[0].outputs).toEqual(before.steps[0].outputs);
 });
 

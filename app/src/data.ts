@@ -1,7 +1,11 @@
 import { QueryClient, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from 'react';
+import type { BinaryArtifact } from './mediaWire';
+import { useStream } from './stream';
 import { rpc, RpcError } from "./rpc";
 import { useUI, showError } from "./store";
 import { getConnection, onCoreStatus } from "./native";
+import { WIRE_SCHEMAS } from './wire.generated';
 import type {
   CoreEvent,
   MethodMap,
@@ -17,10 +21,24 @@ export const queries = new QueryClient({
     queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30000 },
   },
 });
+const MEDIA_CACHE_BYTES = 128 * 2 ** 20;
+function reserveMedia(bytes: number, key: readonly unknown[]) {
+  const cached = queries.getQueryCache().findAll({ queryKey: ['artifact'] })
+    .filter(query => JSON.stringify(query.queryKey) !== JSON.stringify(key));
+  let retained = cached.reduce((sum, query) => sum + ((query.state.data as BinaryArtifact | undefined)?.byteLength ?? 0), 0);
+  for (const query of cached.sort((a, b) => a.state.dataUpdatedAt - b.state.dataUpdatedAt)) {
+    if (retained + bytes <= MEDIA_CACHE_BYTES) break;
+    if (!query.getObserversCount() && JSON.stringify(query.queryKey) !== JSON.stringify(key)) {
+      retained -= (query.state.data as BinaryArtifact | undefined)?.byteLength ?? 0;
+      queries.removeQueries({ queryKey: query.queryKey, exact: true });
+    }
+  }
+  if (retained + bytes > MEDIA_CACHE_BYTES) throw new Error('Visible images exceed the 128 MiB view budget. Close an image pane or use a thumbnail.');
+}
 function showTurnOutcome(outcome: Params) {
   if (outcome.error)
     useUI.getState().set({ error: String(outcome.error),
-      errorAction: outcome.reason === "provider_error" ? "retry-turn" : null });
+      errorAction: outcome.reason === "provider_error" && outcome.retryable !== false ? "retry-turn" : null });
   else if (outcome.reason === "budget")
     useUI.getState().set({ error: "The agent reached the step limit for this turn. Send another message to continue, or raise Maximum steps per turn in Settings.", errorAction: null });
   else if (outcome.reason === "invalid_calls")
@@ -35,10 +53,13 @@ export function useCoreQuery<K extends keyof MethodMap>(method: K) {
       const value = await rpc.request(method, undefined, signal);
       if (method !== "session.get") return value as QueryResult<K>;
       const previous = queries.getQueryData<Session>(["session.get"]);
-      const snapshot = reconcileSessionSnapshot(value as Session, previous);
+      const live = useStream.getState();
+      const snapshot = reconcileSessionSnapshot(value as Session, previous
+        ? { ...previous, stream_text: live.text, context: live.context ?? previous.context } : undefined);
+      useStream.setState({ text: snapshot.stream_text ?? '', context: snapshot.context });
       const outcome = snapshot.last_turn_outcome;
       if (outcome && outcome.run_id !== previous?.last_turn_outcome?.run_id) showTurnOutcome(outcome);
-      return snapshot as QueryResult<K>;
+      return { ...snapshot, stream_text: undefined } as QueryResult<K>;
     },
     enabled: ready,
   });
@@ -100,11 +121,12 @@ function acceptSessionReplacement(
   const selection = ui.selectedArtifact;
   const hasSelection = typeof selection === "string"
     ? !!session.artifacts[selection]
-    : !!selection && session.steps.some((step) => step.id === selection.stepId);
+    : !!selection && session.steps.some((step) => step.invocation_id === selection.invocationId);
   queries.removeQueries({ queryKey: ["artifact"] });
+  useStream.setState({ text: session.stream_text ?? '', context: session.context });
   queries.setQueryData<Session>(["session.get"], {
     ...session,
-    stream_text: session.stream_text ?? "",
+    stream_text: undefined,
   });
   ui.set({
     selectedStep:
@@ -172,7 +194,9 @@ export async function action<K extends keyof MethodMap>(
   if (["session.new", "session.open", "session.restore", "branches.create", "branches.switch", "chat.undo", "history.undo", "history.redo"].includes(method)) {
     acceptSessionReplacement(value as Session);
   }
-  await queries.invalidateQueries({ queryKey: ["session.get"] });
+  const contract = WIRE_SCHEMAS.methods[method];
+  if ((contract.scope === 'document' && contract.mutates) || method === 'providers.delete')
+    await queries.invalidateQueries({ queryKey: ["session.get"] });
   if (method.startsWith("session.") || method.startsWith("projects."))
     await queries.invalidateQueries({ queryKey: ["projects.recent"] });
   if (method.startsWith("providers."))
@@ -184,6 +208,7 @@ export async function action<K extends keyof MethodMap>(
   if (method.startsWith("assets."))
     await queries.invalidateQueries({ queryKey: ["assets.status"] });
   if (method.startsWith("library.") || method.startsWith("packs.")) {
+    await queries.invalidateQueries({ queryKey: ["library.page"] });
     await queries.invalidateQueries({ queryKey: ["library.list"] });
     queries.removeQueries({ queryKey: ["library.thumbnail"] });
   }
@@ -206,10 +231,14 @@ export function applyCoreEvent({ method, params, context }: CoreEvent) {
     return;
   }
   const current = queries.getQueryData<Session>(["session.get"]);
+  const live = useStream.getState();
   if (context && current?.context) {
     const owner = current.context;
     if (owner.core_instance_id !== context.core_instance_id || context.revision < owner.revision ||
         context.event_seq <= owner.event_seq) return;
+    if (live.context?.core_instance_id === context.core_instance_id &&
+        live.context.document_incarnation === context.document_incarnation &&
+        context.event_seq <= live.context.event_seq) return;
     if (owner.document_incarnation !== context.document_incarnation ||
         owner.document_id !== context.document_id || owner.branch_id !== context.branch_id) {
       // A core-owned AI checkpoint can change branches without a renderer action.
@@ -220,18 +249,14 @@ export function applyCoreEvent({ method, params, context }: CoreEvent) {
       void queries.invalidateQueries({ queryKey: ["session.get"] });
       return;
     }
-    queries.setQueryData<Session>(["session.get"], { ...current, context,
-      document_revision: Math.max(current.document_revision, context.revision) });
+    if (method !== 'message.delta') {
+      queries.setQueryData<Session>(["session.get"], { ...current, context,
+        document_revision: Math.max(current.document_revision, context.revision) });
+      useStream.setState({ context });
+    }
   }
   if (method === "message.delta") {
-    queries.setQueryData<Session>(["session.get"], (old) =>
-      old
-        ? {
-            ...old,
-            stream_text: (old.stream_text ?? "") + String(params.text ?? ""),
-          }
-        : old,
-    );
+    if (current) useStream.setState({ text: live.text + String(params.text ?? ''), context });
     return;
   }
   if (method === "asset.progress") {
@@ -272,7 +297,7 @@ export function applyCoreEvent({ method, params, context }: CoreEvent) {
         ...old.messages.filter((m) => m.id !== message.id),
         message,
       ];
-      next.stream_text = "";
+      useStream.setState({ text: '' });
     }
     if (params.step) {
       const step = params.step as unknown as Step;
@@ -308,11 +333,11 @@ export function applyCoreEvent({ method, params, context }: CoreEvent) {
     if (method === "turn.started") {
       useUI.getState().set({ error: null, errorAction: null });
       next.turn_running = true;
-      next.stream_text = "";
+      useStream.setState({ text: '' });
     }
     if (method === "turn.finished") {
       next.turn_running = false;
-      next.stream_text = "";
+      useStream.setState({ text: '' });
       showTurnOutcome(params);
     }
     return next;
@@ -375,6 +400,7 @@ export function startCore() {
       failed = false;
       recovering = false;
       useUI.getState().set({ status: "ready" });
+      useStream.setState({ text: '', context: undefined });
       queries.setQueryData<Session>(["session.get"], (old) =>
         old ? { ...old, stream_text: "" } : old,
       );
@@ -424,24 +450,38 @@ export function startCore() {
 }
 export function useArtifact(id: string | null, thumb = false, still = false, frame = 0) {
   const ready = useUI((s) => s.status === "ready");
-  return useQuery({
-    queryKey: ["artifact", id, thumb, still, frame],
+  const meta = queries.getQueryData<Session>(['session.get'])?.artifacts[id!];
+  const key = ["artifact", meta?.blob_id ?? id, thumb, still, frame, 'render-v1'];
+  const query = useQuery({
+    queryKey: key,
     queryFn: async ({ signal }) => {
-      const renderFrame = () => rpc.request("artifacts.frame", { id: id!, frame, ...(thumb ? { max_px: 160 } : {}) }, signal);
-      if (still || queries.getQueryData<Session>(["session.get"])?.artifacts[id!]?.format === "HEIF") return renderFrame();
-      const payload = await rpc.request(
-        "artifacts.get",
-        { id: id!, ...(thumb ? { max_px: 160 } : {}) },
-        signal,
-      );
-      return payload.mime === "image/heif" ? renderFrame() : payload;
+      const renderFrame = () => rpc.media("artifacts.frame", { id: id!, frame, ...(thumb ? { max_px: 160 } : {}) }, signal);
+      let payload = still || meta?.format === 'HEIF' ? await renderFrame()
+        : await rpc.media('artifacts.get', { id: id!, ...(thumb ? { max_px: 160 } : {}) }, signal);
+      if (payload.mime === 'image/heif') payload = await renderFrame();
+      signal.throwIfAborted();
+      reserveMedia(payload.byteLength, key);
+      // Publish the reservation in the same synchronous turn. Concurrent query
+      // completions must see these bytes before admitting their own payloads.
+      queries.setQueryData(key, payload);
+      return payload;
     },
     enabled: ready && !!id,
     staleTime: Infinity,
   });
+  const [view, setView] = useState<{ blob: Blob; url: string }>();
+  const blob = query.data?.blob;
+  useEffect(() => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    setView({ blob, url });
+    return () => URL.revokeObjectURL(url);
+  }, [blob]);
+  const url = view?.blob === blob ? view?.url : undefined;
+  return { ...query, data: query.data ? { ...query.data, meta: meta ?? query.data.meta, url } : undefined };
 }
-export function imageUrl(data: { mime: string; data: string } | undefined) {
-  return data ? `data:${data.mime};base64,${data.data}` : undefined;
+export function imageUrl(data: { mime: string; data?: string; url?: string } | undefined) {
+  return data?.url ?? (data?.data !== undefined ? `data:${data.mime};base64,${data.data}` : undefined);
 }
 const MAX_PASTE_MIB = 47; // Matches MAX_PASTE_BYTES in the core and leaves room for the RPC envelope.
 

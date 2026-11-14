@@ -210,6 +210,8 @@ def test_sdk_errors_never_expose_body_or_credentials(monkeypatch, kind, status, 
     with pytest.raises(ProviderError, match=match) as caught:
         complete(LiteLLMProvider("openai/test", api_key="secret-key"))
     assert "secret" not in str(caught.value) and "private-photo" not in str(caught.value)
+    assert caught.value.category in {'authentication', 'permission', 'unavailable', 'rate_limit', 'context', 'timeout', 'connection', 'request', 'unknown'}
+    assert caught.value.retryable is (kind in {'RateLimitError', 'Timeout', 'APIConnectionError'} or (kind == 'Unknown' and status is None))
     assert caught.value.__suppress_context__
     assert sdk.stream.closed
 

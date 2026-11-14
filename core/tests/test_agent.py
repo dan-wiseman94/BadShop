@@ -9,7 +9,7 @@ from badshop.agent.approval import ApprovalGate, Decision
 from badshop.agent.context import build_messages, image_placeholder, model_result
 from badshop.agent.fake import ScriptedProvider
 from badshop.agent.loop import TurnConfig, run_turn
-from badshop.agent.provider import Reply, ToolCallRequest
+from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.engine.errors import EngineError
 from badshop.session import execution
 from badshop.session.execution import InProcessExecutor, ToolOutcome
@@ -95,7 +95,7 @@ def tool_entries(session) -> dict[str, str]:
 
 
 def every_call_answered(transcript: list[dict]) -> bool:
-    calls = [c["id"] for e in transcript if e["role"] == "assistant" for c in e.get("tool_calls") or []]
+    calls = [c["id"] for e in transcript if e["role"] == "assistant" for c in e.get("calls", e.get("tool_calls")) or []]
     answers = [e["tool_call_id"] for e in transcript if e["role"] == "tool"]
     return sorted(calls) == sorted(answers)
 
@@ -170,14 +170,18 @@ def test_turn_runs_tools_and_reports_back(tmp_path):
     user, asked, answer, final = session.data.transcript
     assert user == {"role": "user", "content": "circle the face"}
     assert asked["role"] == "assistant" and asked["content"] == "Circling his face."
-    assert asked["tool_calls"][0]["id"] == "c1"
-    assert json.loads(asked["tool_calls"][0]["function"]["arguments"]) == {"image": img.id[:8],
+    assert asked["calls"][0]["id"] == "c1"
+    assert json.loads(asked["calls"][0]["arguments"]) == {"image": img.id[:8],
                                                                            "circle": [[200, 150, 60]]}
-    assert answer == {"role": "tool", "tool_call_id": "c1", "content": step.result_text}
+    assert answer == {"role": "tool", "tool_call_id": "c1", "content": step.result_text,
+                      "invocation_id": step.invocation_id}
     assert step.outputs[0][:8] in answer["content"] and "drew 1 shape" in answer["content"]  # + tool lines
-    assert final == {"role": "assistant", "content": "Done: a red circle."}
+    assert {key: value for key, value in final.items() if key != 'completion'} == {
+        "role": "assistant", "content": "Done: a red circle."}
+    assert final['completion']['duration_ms'] >= 0 and final['completion']['request_bytes'] > 0
     second = provider.received[1]
-    assert session.summary() not in second[0]["content"] and second[-1] == answer
+    assert session.summary() not in second[0]["content"]
+    assert second[-1] == {key: value for key, value in answer.items() if key != 'invocation_id'}
     assert any(part.get("text", "").endswith(json.dumps(session.summary(), ensure_ascii=True))
                for part in second[1]["content"])
 
@@ -365,7 +369,7 @@ def test_step_budget(tmp_path):
 
 
 def test_unexpected_failure_still_finishes_the_turn(tmp_path):
-    class Broken:
+    class Broken(Provider):
         actor = "agent:test"
 
         async def complete(self, messages, tools, on_delta):
@@ -712,7 +716,7 @@ def test_a_stop_before_the_executor_begins_still_stops_the_step(tmp_path, monkey
 
 
 def test_stop_while_the_model_streams(tmp_path):
-    class Chatty:
+    class Chatty(Provider):
         actor = "agent:test"
 
         async def complete(self, messages, tools, on_delta):
@@ -933,3 +937,14 @@ def test_deeply_nested_arguments_are_an_invalid_call(tmp_path):
     assert turn(session, provider, ev, mode="auto")[0] == "done"
     assert provider.received[1][-1] == {"role": "tool", "tool_call_id": "c1",
                                         "content": tool_entries(session)["c1"]}
+
+
+@pytest.mark.parametrize('category,retryable', [('authentication', False), ('timeout', True)])
+def test_provider_failure_advice_reaches_terminal_outcome(tmp_path, category, retryable):
+    session, _, events = new_session(tmp_path)
+    provider = ScriptedProvider([ProviderError('safe advice', category=category, retryable=retryable)])
+    reason, _ = turn(session, provider, events)
+    assert reason == 'provider_error'
+    assert events.of('turn.finished') == [{'reason': 'provider_error', 'error': 'safe advice',
+                                          'error_category': category, 'retryable': retryable}]
+    assert not session.data.steps

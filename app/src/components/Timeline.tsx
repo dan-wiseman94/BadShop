@@ -15,7 +15,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { action, run, useCoreQuery, useSession } from "../data";
-import { useCanvasArtifact, useUI } from "../store";
+import { outputSelection, useCanvasArtifact, useUI } from "../store";
 import { copyText, openLink } from "../native";
 import { ToolForm, normalizeSchema } from "./ToolForm";
 import { ArtifactThumb } from "./Viewer";
@@ -352,13 +352,13 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
               <pre>{JSON.stringify(step.data, null, 2)}</pre>
             </details>
           )}
-          {step.outputs.map((id, outputIndex) => {
+          {step.outputs.map((id) => {
             const artifact = session?.artifacts[id];
             return (
               <div key={id} className="provenance">
                 <ArtifactThumb
                   id={id}
-                  onClick={() => { useUI.getState().set({ selectedArtifact: { stepId: step.id, outputIndex } }); onViewImage?.(); }}
+                  onClick={() => { useUI.getState().set({ selectedArtifact: outputSelection(step, id) }); onViewImage?.(); }}
                 />
                 <div>
                   <strong>{artifact?.label}</strong>
@@ -432,7 +432,7 @@ export function ToolPalette() {
                 });
                 useUI.getState().set({
                   selectedStep: result.id,
-                  selectedArtifact: result.outputs.length ? { stepId: result.id, outputIndex: 0 } : null,
+                  selectedArtifact: outputSelection(result),
                   paletteOpen: false,
                 });
               }}

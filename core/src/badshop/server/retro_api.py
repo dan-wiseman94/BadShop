@@ -12,6 +12,7 @@ from badshop.agent.loop import _to_the_end
 from badshop.engine.errors import EngineError
 from badshop.session.preferences import CreativePreferences
 from badshop.session import branches, recipes
+from badshop.server.media_wire import BINARY_ARTIFACTS
 
 
 def register(app):
@@ -20,25 +21,27 @@ def register(app):
     @app.dispatcher.method("artifacts.frame", actors="user")
     async def frame(actor: str, id: str, frame: Annotated[int, Field(ge=0, le=1000)] = 0,
                     max_px: Annotated[int, Field(ge=1, le=1000)] | None = None):
+        session = app.session
         def decode():
-            aid = app.session.artifacts.resolve(id)
-            meta = app.session.artifacts.meta[aid]
+            aid = session.artifacts.resolve(id)
+            meta = session.artifacts.meta[aid]
             if frame >= meta.frames:
                 raise EngineError("frame is outside this animation")
-            out = io.BytesIO()
-            with app.session.artifacts.image(aid, frame) as im:
-                from PIL import Image
-                image = im.convert("RGBA")
-                if max_px:
-                    image.thumbnail((max_px, max_px), Image.Resampling.NEAREST)
-                image.save(out, "PNG")
+            def render():
+                with session.artifacts.image(aid, frame) as im, im.convert('RGBA') as image, io.BytesIO() as out:
+                    from PIL import Image
+                    if max_px:
+                        image.thumbnail((max_px, max_px), Image.Resampling.NEAREST)
+                    image.save(out, 'PNG')
+                    return out.getvalue()
+            pixels = session.artifacts.representation(aid, ('frame-v1', frame, max_px, 'RGBA', 'PNG'), render)
             return {
                 "meta": meta.model_dump(mode="json"),
                 "mime": "image/png",
-                "data": base64.b64encode(out.getvalue()).decode(),
+                "data": pixels if BINARY_ARTIFACTS.get() else base64.b64encode(pixels).decode(),
             }
 
-        return await app._blocking(decode)
+        return await app._media_read(decode)
 
     @app.dispatcher.method("sources.key", actors="user")
     async def source_key(actor: str, source: str, api_key: str = ""):

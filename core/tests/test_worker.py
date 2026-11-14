@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import threading
+import struct
 import time
 
 import psutil
@@ -29,6 +30,18 @@ def test_tools(monkeypatch):
 
 def call(tool: str, **params) -> ToolCall:
     return ToolCall(tool=tool, params=params, inputs={}, stem="")
+
+
+def test_worker_sender_refuses_oversized_payload_before_pipe_publication(monkeypatch):
+    monkeypatch.setattr(worker, 'MAX_IPC_BYTES', 1024)
+    receiver, sender = multiprocessing.Pipe(duplex=False)
+    try:
+        worker._Sender(sender)(b'x' * 2048)
+        outcome = receiver.recv()
+        assert not outcome.ok and 'transfer budget' in outcome.error_message
+    finally:
+        receiver.close()
+        sender.close()
 
 
 def run_in_thread(w: WorkerExecutor, c: ToolCall) -> tuple[threading.Thread, list]:
@@ -215,6 +228,46 @@ def test_download_progress_reaches_the_core_and_does_not_count_against_the_clock
         events.clear()
         unsized = w.run(call("_download", steps=50, every_s=0.001, sized=False))  # no Content-Length
         assert unsized.ok and events[-1] == ("_download", 50, None) and len(events) < 50
+
+
+def test_continuous_progress_cannot_extend_absolute_deadline(test_tools):
+    with WorkerExecutor(timeout_s=0.4) as executor:
+        assert executor.run(call('_sleep', seconds=0)).ok
+        started = time.monotonic()
+        result = executor.run(call('_download', steps=100, every_s=0.1))
+        assert not result.ok and 'longer than' in result.error_message
+        assert time.monotonic() - started < 5
+        assert executor.pid is None
+        assert executor.run(call('_sleep', seconds=0)).ok
+
+
+def _stall_pipe(connection, ready, partial):
+    if partial:
+        # A valid frame header with an incomplete payload leaves recv() blocked.
+        connection._send(struct.pack('!i', 10000) + b'x')
+    ready.set()
+    time.sleep(60)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX Connection frame injection; Windows uses named-pipe framing')
+@pytest.mark.parametrize('partial', [False, True], ids=['blocked-send', 'partial-receive'])
+def test_pipe_transfer_is_inside_deadline_and_releases_io_thread(partial):
+    with WorkerExecutor(timeout_s=0.3) as executor:
+        parent, child = executor._ctx.Pipe()
+        ready = executor._ctx.Event()
+        process = executor._ctx.Process(target=_stall_pipe, args=(child, ready, partial))
+        process.start()
+        child.close()
+        executor._proc, executor._conn, executor._pid = process, parent, process.pid
+        executor._ps = psutil.Process(process.pid)
+        assert ready.wait(10)
+        started = time.monotonic()
+        with pytest.raises(worker._Stopped):
+            executor._receive(started + 0.3, worker._failed('deadline'), None,
+                              send=None if partial else b'x' * (16 * 2**20))
+        assert time.monotonic() - started < 5
+        assert executor.pid is None
+        assert not any(thread.name == 'badshop-worker-io' for thread in threading.enumerate())
 
 
 def test_held_back_progress_goes_out_before_the_next_download_and_at_the_end(monkeypatch):

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { action, imageUrl, importBlob, useArtifact, useCoreQuery, useSession } from "../data";
-import { useUI } from "../store";
+import { outputSelection, useUI } from "../store";
 import { useOperation } from "../useOperation";
 import { InputField } from "./Fields";
 import starters from "../starters.json";
@@ -52,7 +52,6 @@ export function QuickStart({ onImport, onAdvanced, onResult, importedImage, impo
   useEffect(() => { setRevision(savedCaption); }, [step?.id, savedCaption]);
   const disabled = !ready || busy || importing || !!session?.turn_running || !!session?.batch_running;
   const definitions = layouts.find(l => l.id === chosen?.template);
-  const selectOutput = (stepId: string) => useUI.getState().set({ selectedArtifact: { stepId, outputIndex: 0 }, selectedStep: stepId });
   return <section className="quick-start pane" aria-label="Quick ideas">
     <div className="pane-heading"><span>Make something terrible</span><button onClick={onAdvanced}>All tools</button></div>
     <div className="quick-content">
@@ -103,7 +102,7 @@ export function QuickStart({ onImport, onAdvanced, onResult, importedImage, impo
           } });
           if (result.status !== "done" || !result.outputs[0]) throw new Error(result.error?.message ?? "The idea could not be created. Your images are still here.");
           if (generation !== useUI.getState().documentGeneration) return;
-          selectOutput(result.id);
+          useUI.getState().set({ selectedArtifact: outputSelection(result), selectedStep: result.id });
           setImage(source);
           setChosen(null);
           onResult?.();

@@ -298,7 +298,7 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 assert (await rpc('artifacts.get', id=video_id))['data'] == video_bytes
                 print('Frozen video passed: bundled frame extraction and persisted pixels after source deletion', flush=True)
                 restored = await rpc('artifacts.get', id=image['working']['id'])
-                assert hashlib.sha256(base64.b64decode(restored['data'])).hexdigest() == image['working']['id']
+                assert hashlib.sha256(base64.b64decode(restored['data'])).hexdigest() == image['working']['blob_id']
                 # Exercise the bundled SQLite writer, not just portable ZIP Save.
                 from badshop.session.recovery import load as load_recovery
                 recovered = load_recovery(Path(folder) / 'data/autosave/session.sqlite')
@@ -321,7 +321,7 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                         reopened = await rpc('session.open', path=str(destination), expected_revision=current['document_revision'])
                         assert reopened['steps'][0]['outputs'] == [output]
                         actual = await rpc('artifacts.get', id=output)
-                        assert hashlib.sha256(base64.b64decode(actual['data'])).hexdigest() == output
+                        assert hashlib.sha256(base64.b64decode(actual['data'])).hexdigest() == actual['meta']['blob_id']
                         await rpc('session.new', expected_revision=reopened['document_revision'])
                         await asyncio.sleep(.2)
                         measurements[f'cycle_{cycle + 1}_rss_bytes'] = rss()

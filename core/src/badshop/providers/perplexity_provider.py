@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Callable
 
 import httpx
 
-from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.agent.provider import ContextPolicy, ProviderError, Reply, ToolCallRequest
 from badshop.providers.litellm_provider import LiteLLMProvider, safe_error
 
 MODEL_PREFIX = "perplexity_agent/"
@@ -87,13 +87,14 @@ def _reply(response: dict) -> Reply:
             calls.append(ToolCallRequest(call_id, name, args, signature))
     if not text and not calls:
         raise ProviderError("Perplexity returned an empty reply")
-    return Reply(text="".join(text), tool_calls=[] if refused else calls)
+    from badshop.providers.litellm_provider import measured_reply
+    return measured_reply(Reply(text="".join(text), tool_calls=[] if refused else calls), response)
 
 
 class PerplexityProvider(LiteLLMProvider):
     """Use LiteLLM's local capability catalog, with no SDK calls to the Chat endpoint."""
 
-    thought_signatures = True
+    context_policy = ContextPolicy(continuation_metadata=True)
 
     def check_capabilities(self, *, catalog_model: str | None = None) -> dict[str, bool]:
         if self.api_base:
@@ -142,5 +143,5 @@ class PerplexityProvider(LiteLLMProvider):
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(safe_error(exc)) from None
+            raise safe_error(exc) from None
         raise ProviderError("Perplexity's stream ended before a complete reply. No tools ran.")

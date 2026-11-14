@@ -121,7 +121,7 @@ def run(session, recipe, inputs, cancel):
             row.update(status="error", error=error.message)
             errors.append({"input": source, "row": row_index, "message": error.message})
             continue
-        for item in recipe.steps:
+        for item_index, item in enumerate(recipe.steps):
             if cancel.is_set():
                 for remaining in rows[row_index:]:
                     remaining["status"] = "cancelled"
@@ -146,6 +146,7 @@ def run(session, recipe, inputs, cancel):
                 row.update(status="error", error=error.message)
                 errors.append({"input": source, "row": row_index, "message": error.message})
                 break
+            step.batch_row, step.batch_item = row_index, item_index
             step = session.run(step.id, cancel=cancel)
             row["step_ids"].append(step.id)
             if step.status != "done" or not step.outputs:
@@ -184,10 +185,12 @@ def credits(session, artifact_id):
                 sources.append(row)
         if meta.original_id:
             pending.append(meta.original_id)
-        # Match output ids too: branch step ids can name different edits.
-        step = next((s for s in all_steps if s.id == meta.produced_by and aid in s.outputs), None)
-        if step:
-            pending.extend(registry.image_refs(registry.get(step.tool).params, step.params))
+        pending.extend(meta.inputs)
+        if meta.legacy_identity:
+            # Schema 1–5 records retain their historical ambiguity; new uses carry frozen input edges.
+            step = next((s for s in all_steps if s.id == meta.produced_by and aid in s.outputs), None)
+            if step:
+                pending.extend(registry.image_refs(registry.get(step.tool).params, step.params))
     return {
         "artifact_id": artifact_id,
         "sources": sources,

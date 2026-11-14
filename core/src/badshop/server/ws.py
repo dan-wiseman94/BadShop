@@ -132,7 +132,7 @@ async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerCon
         actor, grant = identity
         await ws.send(Welcome(actor=grant.actor if grant else actor, version=__version__, build_id=build_identity(),
                               core_instance_id=app.core_instance_id, event_seq=app._event_seq,
-                              capabilities=['document-context', 'ordered-events'] +
+                              capabilities=['document-context', 'ordered-events', 'binary-artifact-v1'] +
                                            (['cli-session-grant'] if grant and not grant.standalone else []),
                               context=app._document_context() if grant else None).model_dump_json())
     except ConnectionClosed:  # gone before the handshake finished

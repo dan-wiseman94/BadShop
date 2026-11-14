@@ -97,7 +97,7 @@ outcome so refresh can recover streaming/retry state. This run state is currentl
 in memory, not crash-durable project history. Saved image and timeline recovery
 use portable projects and the local SQLite recovery store.
 
-Local recovery storage version 1 uses `autosave/session.sqlite` and immutable
+Local recovery storage version 2 uses `autosave/session.sqlite` and immutable
 files in `autosave/blobs/`. The previous run is retained as `previous.sqlite`.
 These are application-owned recovery files, not portable projects: use Save to
 produce a `.badshop` archive. SQLite files outside the recovery directory are
@@ -136,18 +136,18 @@ an admitted execution attempt consumes one, including tool failure/cancellation.
 Parallel approvals cannot exceed the budget. Rejected edits settle in the session
 and produce the same recorded result for either provider path.
 
-Current code reads project schemas 1–5 and refuses newer schemas with an explanation.
+Current code reads project schemas 1–6 and refuses newer schemas with an explanation.
 New automatic turn directions carry an optional retention marker. Missing markers
 in older schema 1–4 projects mean permanent retention; names alone never authorize
 cleanup. Older format-4 apps can ignore the marker; if they omit it on resave,
 those directions become permanently retained when reopened in the current app.
-New saves use schema 5: branch and manual-undo heads reference immutable history
-records with shared list membership. Schema 1–4 imports preserve their timelines,
-pixels and provider-history sanitization. Before overwriting a schema 1–4 archive,
-BadShop writes and verifies a byte-identical sibling named `NAME.pre-v5.badshop`
+New saves use schema 6: branch and manual-undo heads reference immutable history
+records with shared list membership. Schema 1–5 imports preserve their timelines,
+pixels and provider-history sanitization. Before overwriting a schema 1–5 archive,
+BadShop writes and verifies a byte-identical sibling named `NAME.pre-v6.badshop`
 (with a numbered suffix if occupied). Backup failure prevents replacement; existing
 backups are never overwritten. Opening alone does not alter the source archive.
-Older releases cannot open schema 5 saves; use the pre-v5 backup for rollback.
+Older releases cannot open schema 6 saves; use the pre-v6 backup for rollback.
 See [manual corrections](manual-controls.md) for controls and their limits.
 Save a copy before experimenting with a different application version; backward readability
 by older apps is not promised. Saving is atomic and preserves the last good file on failure.
@@ -158,3 +158,24 @@ Keep original installers and a copy of important projects for rollback. Do not o
 only project with an older version. If an update fails, keep the current installer/session,
 record diagnostics, and use a verified manual installer. Package-manager installations update
 through their manager; self-update applies to supported NSIS, Mac app and AppImage builds.
+
+### Schema 6 identities and storage rollback
+
+Schema 6 records logical image uses independently of byte hashes and binds tool
+inputs to invocation/output-port identities. Schemas 1–5 keep their existing
+identities and a legacy marker; already-ambiguous identical-byte provenance cannot
+be reconstructed. Unknown tools in structurally valid documents permit read-only
+inspection, saving a copy and export; editing is refused with an explanation.
+
+Upgrading SQLite storage 1 to 2 writes a verified SQLite backup named
+`NAME.pre-v2.sqlite` (or a numbered unused sibling). Existing backups, including
+damaged evidence, are never overwritten. Failure prevents the schema upgrade.
+The older application can use the backup; it cannot write the upgraded database.
+Save a portable copy as well. There is no downgrade exporter.
+
+Binary media is capability-negotiated within protocol 1. The JSON/base64 adapter
+remains for existing protocol-1 MCP/CLI clients; remove it only with a protocol
+version that requires binary negotiation for every media consumer. Legacy archive
+readers remain while direct upgrades from supported 0.4.x/0.5.x installations are
+supported. These compatibility paths never retry a failed write using an older
+storage format.

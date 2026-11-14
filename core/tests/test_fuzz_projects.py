@@ -47,34 +47,52 @@ def test_zip_preflight_enforces_all_three_limits(sizes, comment, delta):
             assert len(archive.infolist()) == len(sizes)
 
 
+@pytest.fixture(scope="module")
+def saved_project():
+    # Freeze one real archive for shrinking: logical IDs and timestamps vary
+    # between imports, changing ZIP size and therefore draw constraints.
+    with TemporaryDirectory(prefix="badshop-fuzz-fixture-") as folder:
+        session = Session(SessionData(id="fixture", name="Fuzz project", created_at=0), ArtifactStore())
+        try:
+            image = io.BytesIO()
+            with Image.new("RGB", (2, 2), "red") as pixels:
+                pixels.save(image, "PNG")
+            artifact = session.import_image(image.getvalue(), "fixture")
+            session.add_message("user", [Part(type="image", artifact_id=artifact.id)])
+            saved = project.save(session, Path(folder) / "original.badshop").read_bytes()
+            return saved, session.data.model_copy(deep=True), artifact.id, session.artifacts.data(artifact.id)
+        finally:
+            session.artifacts.close()
+
+
 @settings(max_examples=100, derandomize=True)
 @given(data=st.data(), replacement=st.binary(max_size=8))
-def test_corrupted_project_fails_cleanly_or_preserves_the_saved_artifact(data, replacement):
+def test_corrupted_project_fails_cleanly_or_preserves_the_saved_artifact(saved_project, data, replacement):
     with TemporaryDirectory(prefix="badshop-fuzz-") as folder:
         root = Path(folder)
-        session = Session(SessionData(id="fixture", name="Fuzz project", created_at=0), ArtifactStore())
-        image = io.BytesIO()
-        with Image.new("RGB", (2, 2), "red") as pixels:
-            pixels.save(image, "PNG")
-        artifact = session.import_image(image.getvalue(), "fixture")
-        session.add_message("user", [Part(type="image", artifact_id=artifact.id)])
-        original = project.save(session, root / "original.badshop")
-        saved = original.read_bytes()
+        saved, expected_session, artifact_id, expected_image = saved_project
+        original = root / "original.badshop"
+        original.write_bytes(saved)
         start = data.draw(st.integers(0, len(saved) - 1), label="mutation offset")
         end = data.draw(st.integers(start, min(start + 8, len(saved))), label="mutation end")
         candidate = root / "candidate.badshop"
         candidate.write_bytes(saved[:start] + replacement + saved[end:])
-
-        expected_image = session.artifacts.data(artifact.id)
 
         try:
             reopened = project.open_project(candidate)
         except EngineError as error:
             assert error.message and error.hint
         else:
-            assert reopened.data == session.data
-            assert reopened.artifacts.data(artifact.id) == expected_image
+            try:
+                assert reopened.data == expected_session
+                assert reopened.artifacts.data(artifact_id) == expected_image
+            finally:
+                reopened.artifacts.close()
 
         assert set(root.iterdir()) == {original, candidate}
         assert original.read_bytes() == saved
-        assert project.open_project(original).artifacts.data(artifact.id) == expected_image
+        intact = project.open_project(original)
+        try:
+            assert intact.artifacts.data(artifact_id) == expected_image
+        finally:
+            intact.artifacts.close()

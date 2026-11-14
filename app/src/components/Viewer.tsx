@@ -1,17 +1,21 @@
+import { useLibraryPage } from '../libraryPage';
 import { Button } from "./Button";
 import { ManualTools } from "./ManualTools";
 import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
+import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import { Grid2X2, ScanFace, ChevronDown, MousePointer2, Undo2, Redo2 } from "lucide-react";
-import { action, imageUrl, useArtifact, useSession, useCoreQuery, run } from "../data";
+import { action, imageUrl, useArtifact, useSession, run } from "../data";
 import { LibraryImage } from "./LibraryImage";
 import { useOperation } from "../useOperation";
-import { useCanvasArtifact, useUI } from "../store";
+import { outputSelection, useCanvasArtifact, useUI } from "../store";
+import { useStream } from '../stream';
 import { useReducedMotion } from "../appearance";
 import { openLink } from "../native";
 import { CopyImage, ShareImage } from "./ShareImage";
-import type { Params } from "../types";
+import type { Artifact, Params } from "../types";
 import { recordedElements } from "../recordedElements";
+import { useDocumentProjection } from '../documentProjection';
 export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
   const { data } = useArtifact(id, true);
   return (
@@ -20,6 +24,45 @@ export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: ()
       <img src={imageUrl(data)} alt={label ?? data?.meta.label ?? "Image"} />
     </button>
   );
+}
+function MaterialGallery({ artifacts }: { artifacts: Artifact[] }) {
+  const scroll = useRef<HTMLDivElement>(null);
+  const [focused, setFocused] = useState(0);
+  const focusPending = useRef(false);
+  const windowed = artifacts.length > 100;
+  const virtual = useVirtualizer({ count: artifacts.length, horizontal: true,
+    getScrollElement: () => scroll.current, estimateSize: () => 55, overscan: 4,
+    getItemKey: index => artifacts[index].id, enabled: windowed,
+    rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), Math.min(focused, artifacts.length - 1)])]
+      .filter(index => index >= 0).sort((a, b) => a - b),
+  });
+  const rows = windowed ? virtual.getVirtualItems() : artifacts.map((artifact, index) => ({ key: artifact.id, index, start: 0 }));
+  useEffect(() => {
+    if (focusPending.current) {
+      scroll.current?.querySelector<HTMLButtonElement>(`[data-material-index="${focused}"] button`)?.focus({ preventScroll: true });
+      focusPending.current = false;
+    }
+  }, [focused, rows]);
+  return <div className="artifact-list" ref={scroll} aria-label="Project materials" onKeyDown={event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || !artifacts.length) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? artifacts.length - 1
+      : Math.max(0, Math.min(artifacts.length - 1, focused + (event.key === 'ArrowRight' ? 1 : -1)));
+    focusPending.current = true;
+    setFocused(next);
+    if (windowed) virtual.scrollToIndex(next, { align: 'auto' });
+  }}>
+    <div style={windowed ? { position: 'relative', width: virtual.getTotalSize(), height: 55, flexShrink: 0 }
+      : { display: 'flex', gap: 7 }}>
+      {rows.map(row => { const artifact = artifacts[row.index]; return <div key={artifact.id}
+        data-material-index={row.index} onFocus={() => setFocused(row.index)}
+        style={windowed ? { position: 'absolute', left: row.start, top: 0 } : undefined}>
+        <ArtifactThumb id={artifact.id} label={`${artifact.label} (${row.index + 1} of ${artifacts.length})`}
+          onClick={() => useUI.getState().set({ selectedArtifact: artifact.id, selectedStep: artifact.produced_by ?? null })} />
+      </div>; })}
+    </div>
+    {!artifacts.length && <span className="muted text-xs">No matching materials.</span>}
+  </div>;
 }
 function faceBoxes(data: Params | null | undefined): number[][] {
   if (!data) return [];
@@ -33,8 +76,9 @@ function faceBoxes(data: Params | null | undefined): number[][] {
 }
 export function Viewer({ onImport }: { onImport: () => void }) {
   const { data: session } = useSession();
-  const { data: library = [] } = useCoreQuery("library.list");
+  const { visibleArtifacts } = useDocumentProjection(session);
   const [materialSearch, setMaterialSearch] = useState("");
+  const { entries: library, controls: libraryPages } = useLibraryPage(materialSearch);
   const { busy: materialBusy, error: materialError, perform: materialAction } = useOperation();
   const selectedStep = useUI((s) => s.selectedStep);
   const { id: canvasId, inputId } = useCanvasArtifact(session);
@@ -57,7 +101,6 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const origin = useRef<number[] | null>(null);
   const [selection, setSelection] = useState<number[] | null>(null);
   const [cursor, setCursor] = useState<number[] | null>(null);
-  const all = Object.values(session?.artifacts ?? {});
   const id = pick?.artifactId ?? canvasId;
   const motion = useUI((s) => s.motion);
   const reduced = useReducedMotion(motion);
@@ -74,9 +117,9 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const selectElement = (stepId: string) => {
     const output = session?.steps.slice().reverse().find(step => step.outputs.includes(id ?? ""));
     useUI.getState().set({ selectedStep: stepId, selectedArtifact: output
-      ? { stepId: output.id, outputIndex: output.outputs.indexOf(id!) } : id });
+      ? outputSelection(output, id!) : id });
   };
-  const progress = session?.stream_text;
+  const progress = useStream(state => state.text);
   useEffect(() => {
     const node = stage.current;
     if (!node) return;
@@ -323,7 +366,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           {session.steps.filter((step) => session.bypass_tools?.includes(step.tool)).map((step) =>
             <div key={step.id} className="manual-turn-controls">
               <button onClick={() => useUI.getState().set({ selectedStep: step.id,
-                selectedArtifact: { stepId: step.id, outputIndex: 0 } })}>
+                selectedArtifact: outputSelection(step) })}>
                 {step.index}. {step.tool} {String(step.params.level ?? step.params.names ?? step.params.size ?? "")}
               </button>
               <label><input type="checkbox" checked={!step.bypassed} disabled={session.turn_running}
@@ -388,27 +431,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         </div>
         <label>Find material<input value={materialSearch} onChange={e => setMaterialSearch(e.target.value)} placeholder="Picture or character name" /></label>
         <button type="button" onClick={onImport}>Add material</button>
-        <div className="artifact-list">
-          {all
-            .filter((a) => !all.some((b) => b.original_id === a.id))
-            .filter(a => a.label.toLowerCase().includes(materialSearch.toLowerCase()))
-            .map((a) => (
-              <ArtifactThumb
-                key={a.id}
-                id={a.id}
-                label={a.label}
-                onClick={() =>
-                  useUI.getState().set({
-                    selectedArtifact: a.id,
-                    selectedStep: a.produced_by ?? null,
-                  })
-                }
-              />
-            ))}
-          {!all.length && (
-            <span className="muted text-xs">Imported images and every tool output appear here.</span>
-          )}
-        </div>
+        <MaterialGallery artifacts={visibleArtifacts.filter(a => a.label.toLowerCase().includes(materialSearch.toLowerCase()))} />
         {id && (
           <button type="submit" title="Export image">
             <ThemeIcon name="export" size={16} />
@@ -416,9 +439,10 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         )}
       </form>
       <details className="material-library"><summary>Saved characters &amp; materials</summary>
+        {libraryPages}
         <div className="artifact-list">
           {library.filter(entry => `${entry.name} ${entry.tags.join(" ")}`.toLowerCase().includes(materialSearch.toLowerCase())).map(entry =>
-            <button type="button" key={entry.id} disabled={materialBusy || session?.turn_running}
+            <button type="button" key={entry.id} aria-label={entry.name} disabled={materialBusy || session?.turn_running}
               onClick={() => void materialAction(async () => {
                 const generation = useUI.getState().documentGeneration;
                 const result = await action("library.import", { id: entry.id });

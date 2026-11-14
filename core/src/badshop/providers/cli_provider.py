@@ -170,7 +170,7 @@ def discover_clis() -> list[dict]:
 def proxy_command(url: str, token: str, cli: str) -> list[str]:
     prefix = [sys.executable] if getattr(sys, "frozen", False) else [
         sys.executable, "-m", "badshop.server"]
-    return [*prefix, "mcp", "--connect", url, "--token", token, "--actor", f"cli:{cli}"]
+    return [*prefix, "mcp", "--connect", url, f"--token={token}", "--actor", f"cli:{cli}"]
 
 
 def _parse_event(cli: str, event: dict) -> dict:

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { test, expect, root, python } from "./fixtures";
+import { test, expect, root, python, expectImageBytes } from "./fixtures";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import type { Session, Step } from "../src/types";
@@ -17,12 +17,16 @@ test("HEIC file import displays decoded pixels and preserves original bytes acro
   expect(original).toBeTruthy();
   const bytes = await readFile(source);
   expect((await emptyCore.call("artifacts.get", { id: original.id }) as { data: string }).data).toBe(bytes.toString("base64"));
-  const displayed = await canvas.getAttribute("src");
+  const displayed = await canvas.evaluate(async (image: HTMLImageElement) => {
+    const bytes = new Uint8Array(await (await fetch(image.src)).arrayBuffer());
+    let encoded = ''; for (const byte of bytes) encoded += String.fromCharCode(byte);
+    return btoa(encoded);
+  });
   const file = path.join(emptyCore.folder, "phone.badshop");
   await emptyCore.call("session.save_as", { path: file });
   await emptyCore.call("session.open", { path: file });
   await page.reload();
-  await expect(canvas).toHaveAttribute("src", displayed!);
+  await expectImageBytes(canvas, displayed);
   expect((await emptyCore.call("artifacts.get", { id: original.id }) as { data: string }).data).toBe(bytes.toString("base64"));
 });
 
@@ -77,16 +81,25 @@ test("material roles and a reusable library picture feed manual composition and 
   await page.getByLabel("Find material", { exact: true }).fill("Recurring");
   await page.getByRole("button", { name: /Recurring Lincoln/ }).click();
   const viewer = page.getByRole("region", { name: "Image viewer" });
+  await expect.poll(async () => {
+    const state = await emptyCore.call('session.get') as Session;
+    return Object.values(state.artifacts).some(item => item.id !== imported.working.id
+      && item.blob_id === state.artifacts[imported.working.id].blob_id);
+  }).toBe(true);
+  const withReuse = await emptyCore.call('session.get') as Session;
+  const reuse = Object.values(withReuse.artifacts).find(item => item.id !== imported.working.id && item.blob_id === withReuse.artifacts[imported.working.id].blob_id)!;
+  expect(reuse.id).not.toBe(imported.working.id);
+  expect(reuse.blob_id).toBe(withReuse.artifacts[imported.working.id].blob_id);
   await viewer.getByRole("button", { name: "Use as subject", exact: true }).click();
   await viewer.getByRole("button", { name: "Use as background", exact: true }).click();
-  await expect.poll(async () => (await emptyCore.call("session.get") as Session).creative?.source_roles.background).toBe(imported.working.id);
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).creative?.source_roles.background).toBe(reuse.id);
   await viewer.getByText("Manual tools", { exact: true }).click();
   await viewer.getByRole("button", { name: "Compose subject on background", exact: true }).click();
   await viewer.getByRole("button", { name: "Apply compose subject on background", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
   const session = await emptyCore.call("session.get") as Session;
-  expect(session.steps[0].params.base).toBe(imported.working.id);
-  expect(session.steps[0].params.piece).toBe(imported.working.id);
+  expect(session.steps[0].params.base).toBe(reuse.id);
+  expect(session.steps[0].params.piece).toBe(reuse.id);
   const file = path.join(emptyCore.folder, "materials.badshop");
   await emptyCore.call("session.save_as", { path: file });
   await emptyCore.call("session.open", { path: file });

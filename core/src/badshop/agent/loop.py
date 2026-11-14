@@ -3,14 +3,17 @@ feed the results back, and repeat until it answers without calls, the user stops
 runs out, or it keeps making invalid calls."""
 
 import asyncio
+import hashlib
 import json
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from badshop.agent.approval import ApprovalGate, needs_approval
-from badshop.agent.context import CHANGES_NOTE, build_messages, image_placeholder, model_result, tool_definitions
+from badshop.agent.context import (CHANGES_NOTE, build_messages, image_placeholder, model_result,
+                                   tool_definitions, validate_request_budget)
 from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.session.invocation_policy import ExecutionBudget, FINISH_TOOLS
 from badshop.engine.errors import EngineError
@@ -55,11 +58,11 @@ def _error_text(e: EngineError) -> str:
     return f"error: {e.message}" + (f"\nhint: {e.hint}" if e.hint else "")
 
 
-def _openai_call(call: ToolCallRequest) -> dict:
+def _conversation_call(call: ToolCallRequest) -> dict:
     args = call.arguments if isinstance(call.arguments, str) else json.dumps(call.arguments)
-    entry = {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": args}}
+    entry = {"id": call.id, "name": call.name, "arguments": args}
     if call.thought_signature:
-        entry["thought_signature"] = call.thought_signature
+        entry["provider_metadata"] = {'google.thought_signature': call.thought_signature}
     return entry
 
 
@@ -70,9 +73,10 @@ def _attachments(session: Session, refs: list[str]) -> list[ArtifactMeta]:
 
 
 def _record(session: Session, *entries: dict) -> None:
-    """Append to the provider-format transcript. It is session state like any other, so the autosave
+    """Append to the canonical conversation transcript. It is session state like any other, so the autosave
     hook hears of it: a restored session never has a call whose answer was only in memory."""
-    session.data.transcript.extend(entries)
+    from badshop.session.conversation import canonical
+    session.data.transcript.extend(canonical(entry) for entry in entries)
     session.on_change()
 
 
@@ -193,6 +197,7 @@ class _Turn:
         self.unanswered: dict[str, str | None] = {}  # its call ids without a result -> their step ids
         self.inflight: asyncio.Task | None = None  # the session call under way
         self.stopping: threading.Event | None = None  # the executing step's own stop signal: Stop sets it
+        self.error_details: dict = {}
         self.error: str | None = None  # the provider's error message
 
     async def call(self, fn: Callable, *args: Any) -> Any:
@@ -208,9 +213,10 @@ class _Turn:
         self.emit("message.done", {"message": m.model_dump(mode="json")})
         return m.id
 
-    async def answer(self, call_id: str, content: str) -> None:
+    async def answer(self, call_id: str, content: str, invocation_id: str | None = None) -> None:
         self.unanswered.pop(call_id, None)  # before recording: Stop must never answer a call twice
-        await self.call(_record, self.session, {"role": "tool", "tool_call_id": call_id, "content": content})
+        await self.call(_record, self.session, {"role": "tool", "tool_call_id": call_id, "content": content,
+                                               "invocation_id": invocation_id})
 
     async def answer_rest(self, content: str) -> None:
         for call_id in list(self.unanswered):
@@ -229,18 +235,36 @@ class _Turn:
             await self.message("user", ([Part(type="text", text=text)] if text else [])
                                + [Part(type="image", artifact_id=m.id) for m in images])
         tools = tool_definitions()
+        # Continuation envelopes are optional and tied to this exact adapter,
+        # configured model and branch. They never authorize document operations.
+        scope = json.dumps([type(self.provider).__module__, type(self.provider).__qualname__,
+                            self.provider.actor, self.provider.model,
+                            self.session.data.id, self.session.data.active_branch_id, 1])
+        self.continuation_scope = hashlib.sha256(scope.encode()).hexdigest()
         while True:
             if self.cfg.pause_requested:
                 return "paused"
             messages = await self.call(build_messages, self.session,
-                                       getattr(self.provider, "full_image_ids", False),
-                                       getattr(self.provider, "thought_signatures", False))
+                                       self.provider.context_policy.full_image_ids,
+                                       self.provider.context_policy.continuation_metadata, self.continuation_scope)
             try:
+                validate_request_budget(messages, tools)
                 if self.cfg.before_request is not None:
                     self.cfg.before_request()
+                started = time.monotonic()
                 reply = await self.provider.complete(messages, tools, self.delta)
+                self.completion = {'requested_model': self.provider.model,
+                    'actual_model': reply.actual_model, 'input_tokens': reply.input_tokens,
+                    'output_tokens': reply.output_tokens, 'duration_ms': (time.monotonic() - started) * 1000,
+                    'request_bytes': len(json.dumps({'messages': messages, 'tools': tools}, ensure_ascii=True).encode('ascii'))}
+                from badshop.session.conversation import bounded_history
+                history = self.session.data.transcript
+                self.completion['omitted_turns'] = (sum(entry.get('role') == 'user' for entry in history)
+                    - sum(entry.get('role') == 'user' for entry in bounded_history(history)))
             except ProviderError as e:
                 self.error = str(e)
+                if e.category != 'unknown' or not e.retryable:
+                    self.error_details = {'error_category': e.category, 'retryable': e.retryable}
                 return "provider_error"
             reason = await self.handle(reply)
             if reason:
@@ -248,8 +272,11 @@ class _Turn:
 
     async def handle(self, reply: Reply) -> str | None:
         entry: dict = {"role": "assistant", "content": reply.text}
+        if getattr(self, 'completion', None):
+            entry['completion'] = self.completion
         if reply.tool_calls:  # OpenAI's shape: content may be null when the reply only calls tools
-            entry.update(content=reply.text or None, tool_calls=[_openai_call(c) for c in reply.tool_calls])
+            entry.update(content=reply.text or None, calls=[_conversation_call(c) for c in reply.tool_calls])
+            entry['continuation_scope'] = getattr(self, 'continuation_scope', None)
         self.unanswered = {c.id: None for c in reply.tool_calls}
         await self.call(_record, self.session, entry)
         self.message_id = await self.message("assistant",
@@ -291,14 +318,14 @@ class _Turn:
             decision = await self.gate.request(step)
             if decision.decision == "reject":
                 content = await self.call(_reject, self.session, step.id, decision.note or "no reason given")
-                await self.answer(call.id, content)
+                await self.answer(call.id, content, step.invocation_id)
                 return
             params = decision.params if decision.decision == "edit" else None
             step.lock_approved = True
         self.stopping = threading.Event()  # one per step: it goes with this call and no other
         content = await self.call(_execute, self.session, step.id, params, self.stopping, self.cfg.budget)
         self.stopping = None
-        await self.answer(call.id, content)
+        await self.answer(call.id, content, step.invocation_id)
 
     async def stop(self, note: str) -> None:
         """Stop mid-turn: reject waiting approvals, stop the step being executed, let the session call under
@@ -342,5 +369,5 @@ async def run_turn(session: Session, provider: Provider, gate: ApprovalGate, tex
         finally:
             emit("turn.finished", {"reason": "error", "error": f"{type(e).__name__}: {e}"})
         raise
-    emit("turn.finished", {"reason": reason, **({"error": turn.error} if turn.error else {})})
+    emit("turn.finished", {"reason": reason, **({"error": turn.error} if turn.error else {}), **turn.error_details})
     return reason

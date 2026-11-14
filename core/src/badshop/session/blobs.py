@@ -4,17 +4,17 @@ import hashlib
 import re
 import weakref
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from badshop.atomic import sync_directory, write_new_bytes
 from badshop.engine.errors import EngineError
+from badshop.session import scratch
 
 HASH = re.compile(r'[0-9a-f]{64}')
 
 
 class BlobStore:
     def __init__(self, root: Path | None = None):
-        self._temporary = TemporaryDirectory(prefix='badshop-blobs-') if root is None else None
+        self._temporary = scratch.temporary('blobs') if root is None else None
         self.root = Path(self._temporary.name) if self._temporary else root
         created = not self.root.exists()
         self.root.mkdir(parents=True, exist_ok=True)

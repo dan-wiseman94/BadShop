@@ -78,10 +78,14 @@ def choose_file(pid: int, window: int, path: Path, *, saving: bool = False) -> N
 def viewer_hash(page: Page) -> str:
     image = page.locator('.canvas-image')
     expect(image).to_be_visible(timeout=20000)
-    expect(image).to_have_attribute('src', re.compile(r'^data:image/[^;]+;base64,.+'))
+    expect(image).to_have_attribute('src', re.compile(r'^(blob:|data:image/)'))
     page.wait_for_function("image => image.complete && image.naturalWidth > 0", arg=image.element_handle())
-    encoded = image.get_attribute('src').split(',', 1)[1]
-    return hashlib.sha256(base64.b64decode(encoded)).hexdigest()
+    source = image.get_attribute('src')
+    if source.startswith('data:'):  # Older installed clients use inline bytes; CSP need not permit fetching data URLs.
+        return hashlib.sha256(base64.b64decode(source.split(',', 1)[1])).hexdigest()
+    encoded = image.evaluate('''async image => Array.from(new Uint8Array(
+        await (await fetch(image.src)).arrayBuffer()))''')
+    return hashlib.sha256(bytes(encoded)).hexdigest()
 
 
 def debugger_url(profile: Path) -> str:
@@ -228,7 +232,7 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
             from accept_clipboard import paste_into_browser
             page.get_by_role('button', name='Copy image', exact=True).click()
             expect(page.get_by_text('Image copied. Paste it into your chat.', exact=True)).to_be_visible()
-            paste_into_browser(saved.artifacts.data(output_hash), clipboard_output)
+            paste_into_browser(saved.artifacts.data(saved.data.steps[0].outputs[0]), clipboard_output)
         capture_window(window, screenshot.with_name('native-reopened.png').resolve())
         page.context.tracing.stop(path=trace)
         close()
@@ -242,8 +246,9 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
         )
         saved = open_project(project, output_dir=root)
         step, = saved.data.steps
-        assert (step.tool, step.status, step.outputs) == ('deepfry', 'done', [output_hash])
-        assert hashlib.sha256(saved.artifacts.data(output_hash)).hexdigest() == output_hash
+        assert (step.tool, step.status, len(step.outputs)) == ('deepfry', 'done', 1)
+        assert saved.artifacts.meta[step.outputs[0]].blob_id == output_hash
+        assert hashlib.sha256(saved.artifacts.data(saved.data.steps[0].outputs[0])).hexdigest() == output_hash
         summary['stages'].append('saved project via native dialog and closed cleanly')
         summary['output_sha256'] = output_hash
         run(screenshot.with_name('native-relaunch.png'), reopen)

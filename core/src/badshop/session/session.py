@@ -5,6 +5,7 @@ approvals, edits and replay work the same for every caller. Engine rules still h
 and every failure a caller can act on is an EngineError."""
 
 import copy
+import hashlib
 import io
 import json
 import re
@@ -24,10 +25,10 @@ from badshop.engine.result import Output
 from badshop.engine.types import FileName
 from badshop.session import netpolicy
 from badshop.session.artifacts import ArtifactStore, describe, short
-from badshop.session.execution import (CRASH_HINT, STOPPED, Executor, InProcessExecutor, OutputRecord,
+from badshop.session.execution import (CRASH_HINT, STOPPED, MAX_INPUT_BYTES, Executor, InProcessExecutor, OutputRecord,
                                        ToolCall, ToolOutcome, cache_key, json_safe)
 from badshop.session.models import ArtifactMeta, Message, Part, SessionData, Source, Step, StepError
-from badshop.session.invocation_policy import ExecutionBudget
+from badshop.session.invocation_policy import ExecutionBudget, OPERATION_ID
 from badshop.tools import registry, runner
 
 Emit = Callable[[str, dict], None]
@@ -66,18 +67,6 @@ def _made(steps: list[Step]) -> set[str]:
     return {id for s in steps for id in s.outputs + s.previous_outputs}
 
 
-def _advance(remap: dict[str, str], old: list[str], new: list[str]) -> None:
-    """Replay's table after a step made `new` where it used to make `old`: a later reference to its old
-    output i now means its new output i. The newest producer before a reader wins, so an id this step
-    makes again (or no longer makes) stops pointing at whatever an earlier step made in its place."""
-    for i, o in enumerate(old):
-        n = new[i] if i < len(new) else o
-        if n != o:
-            remap[o] = n
-        else:
-            remap.pop(o, None)
-
-
 def label_for(record: OutputRecord, stem: str, tool: str) -> str:
     """An output's artifact label, from its name hint: `final:{stem}_deepfried` -> lincoln_deepfried,
     `fetch/lincoln_1.jpg` -> lincoln_1, `{stem}_work.png` -> lincoln_work. The generic `result.png`
@@ -90,6 +79,22 @@ def label_for(record: OutputRecord, stem: str, tool: str) -> str:
     if name == "result":
         name = f"{stem}_{tool}" if stem else tool
     return name.strip("_") or tool
+
+
+def _output_keys(outcome: ToolOutcome) -> list[str]:
+    """Acquired list members bind to source evidence and bytes, never search position."""
+    sources = outcome.data.get('sources') or []
+    keys = []
+    for index, record in enumerate(outcome.outputs):
+        source = sources[index] if index < len(sources) else None
+        if isinstance(source, dict):
+            evidence = json.dumps(source, sort_keys=True, ensure_ascii=True).encode('ascii')
+            digest = hashlib.sha256(evidence + b'\0')
+            digest.update(record.data)
+            keys.append('source:' + digest.hexdigest())
+        else:
+            keys.append(record.key)
+    return keys
 
 
 def result_text(step: Step, artifacts: ArtifactStore, outcome: ToolOutcome | None = None) -> str:
@@ -177,6 +182,18 @@ class Session:
     def _changed(self) -> None:
         self.on_change()
 
+    def _inputs(self, step: Step) -> dict[str, bytes]:
+        ids = list(dict.fromkeys(self.artifacts.resolve(aid) for aid in _image_refs(step)))
+        if sum(self.artifacts.size(aid) for aid in ids) > MAX_INPUT_BYTES:
+            raise EngineError('this operation exceeds the 256 MiB encoded input budget',
+                              hint='use fewer inputs or smaller working copies')
+        return {aid: self.artifacts.data(aid) for aid in ids}
+
+    def read_only_reason(self) -> str | None:
+        unknown = sorted({step.tool for step in self.data.steps if step.tool not in registry.REGISTRY})
+        return ('This project uses unavailable tools: ' + ', '.join(unknown)
+                + '. Inspect or export its images, save a copy, or open it with a compatible version.') if unknown else None
+
     def _resolved(self, params) -> dict:
         """Validated params as JSON, each image ref (an id or a unique prefix) replaced by the full id."""
         return registry.map_image_refs(type(params), params.model_dump(mode="json"), self.artifacts.resolve)
@@ -194,6 +211,25 @@ class Session:
             maker = makers.get(meta.produced_by) if meta.produced_by else None
             refs = _image_refs(maker) if maker is not None else []
         return _ROOT_SUFFIX.sub("", label)
+
+    def _bind_inputs(self, step: Step) -> None:
+        producers = {aid: (previous.invocation_id, port)
+                     for previous in self.data.steps[:step.index - 1]
+                     for port, aid in previous.output_ports.items()}
+        step.input_bindings = {aid: producers[aid] for aid in _image_refs(step) if aid in producers}
+
+    def _resolve_bindings(self, step: Step) -> None:
+        producers = {previous.invocation_id: previous for previous in self.data.steps[:step.index - 1]}
+        remap = {}
+        for aid, (invocation, port) in step.input_bindings.items():
+            producer = producers.get(invocation)
+            output = producer.output_ports.get(port) if producer else None
+            if output is None:
+                raise EngineError(f'input output {port!r} is no longer available',
+                                  hint='choose another image explicitly before replaying this step')
+            remap[aid] = output
+        step.params = _map_refs(step.tool, step.params, lambda aid: remap.get(aid, aid))
+        step.input_bindings = {remap[aid]: binding for aid, binding in step.input_bindings.items()}
 
     # user input
 
@@ -282,6 +318,8 @@ class Session:
     def propose(self, tool: str, raw: dict, actor: str, reason: str | None = None) -> Step:
         """Validate a call for `actor` and add it as a proposed step. Image refs must name artifacts of
         this session (never paths, whoever asks); they are stored as full ids."""
+        if reason_read_only := self.read_only_reason():
+            raise EngineError(reason_read_only)
         if tool == 'retro_layout':
             defaults = self.data.creative.model_dump(include={'style','density','exact_text','seed','fit'})
             raw = {**defaults, **raw}
@@ -297,7 +335,8 @@ class Session:
             self.data.manual_undo.clear()
             self.data.manual_redo.clear()
         step = Step(id=self._next_id("s"), index=len(self.data.steps) + 1, tool=tool, params=params,
-                    actor=actor, status="proposed", reason=reason)
+                    actor=actor, status="proposed", reason=reason, operation_id=OPERATION_ID.get())
+        self._bind_inputs(step)
         if not runner.is_trusted(actor) and registry.get(tool).mutates:
             ancestry = set(_image_refs(step))
             for previous in reversed(self.data.steps):
@@ -331,6 +370,7 @@ class Session:
             params = self.validate_step_params(step_id, raw)
             if params != step.params:
                 step.params, step.edited = params, True
+                self._bind_inputs(step)
         if budget is not None:
             budget.record_execution()
         self._execute(step, cancel)
@@ -374,8 +414,9 @@ class Session:
         step.status, step.started_at, step.finished_at = "running", time.time(), None
         step.outputs, step.result_text, step.data, step.error = [], "", None, None
         step.cache_key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
-        self._emit("step.started", step)  # no on_change here: an autosave never holds a running step
         try:
+            self._changed()
+            self._emit("step.started", step)  # recovery normalizes an interrupted running step on reopen
             if step.bypassed:
                 if step.tool not in BYPASS_TOOLS:
                     raise EngineError("this tool cannot be bypassed")
@@ -390,11 +431,13 @@ class Session:
             elif registry.get(step.tool).writes_files:
                 outcome = self._run_here(step, stem, cancel)
             else:
-                inputs = {id: self.artifacts.data(self.artifacts.resolve(id)) for id in _image_refs(step)}
+                inputs = self._inputs(step)
                 trusted = netpolicy.typed_urls(step.tool, step.params, step.actor)  # a user's own link
                 call = ToolCall(step.tool, step.params, inputs, stem, trusted_urls=trusted,
                                 guard_network=True, no_remote=getattr(self, 'no_remote', False))
                 outcome = self.executor.run(call, cancel=cancel)  # the caller's stop goes with its call
+            if outcome.ok and len(set(_output_keys(outcome))) != len(outcome.outputs):
+                raise EngineError('tool returned duplicate output names')
             with self.artifacts.atomic():
                 outputs = self._store_outputs(step, outcome, stem) if outcome.ok else []
         except EngineError as e:
@@ -405,6 +448,14 @@ class Session:
         step.data = {k: v for k, v in outcome.data.items() if k != "sources"} or None
         if outcome.ok:
             step.status, step.outputs = "done", outputs
+            ports = dict(zip(_output_keys(outcome), outputs, strict=True))
+            legacy = {f'legacy:{i}': key for i, key in enumerate(_output_keys(outcome))}
+            if any(key.startswith('legacy:') for key in step.output_ports):
+                for consumer in self.data.steps:
+                    consumer.input_bindings = {aid: (invocation, legacy.get(port, port))
+                        if invocation == step.invocation_id else (invocation, port)
+                        for aid, (invocation, port) in consumer.input_bindings.items()}
+            step.output_ports = ports
         else:
             step.status = "error"
             step.error = StepError(message=outcome.error_message or "the tool failed",
@@ -428,17 +479,21 @@ class Session:
     def _store_outputs(self, step: Step, outcome: ToolOutcome, stem: str) -> list[str]:
         """Outputs become artifacts. A picture from outside (its `sources` entry is a dict) enters as a
         <=1000 px working copy with its original kept beside it (spec 5.3); the rest are stored as they
-        are. Identical bytes are one artifact, which keeps the first step that made it."""
+        are. Each invocation and output name owns its provenance; bytes remain shared."""
         sources = outcome.data.get("sources") or []
         ids = []
+        keys = _output_keys(outcome)
         for i, record in enumerate(outcome.outputs):
             label = label_for(record, stem, step.tool)
             source = sources[i] if i < len(sources) else None
             if isinstance(source, dict):  # working copy and original both record this step
                 where = Source.model_validate(source)
-                meta, _original = self.artifacts.import_image(record.data, label, where, produced_by=step.id)
+                meta, _original = self.artifacts.import_image(record.data, label, where, produced_by=step.id,
+                                                             invocation_id=step.invocation_id, output_key=keys[i])
             else:
-                meta = self.artifacts.add(record.data, label, produced_by=step.id)
+                meta = self.artifacts.add(record.data, label, produced_by=step.id, new_use=True,
+                                          invocation_id=step.invocation_id, output_key=keys[i],
+                                          input_ids=tuple(_image_refs(step)))
             ids.append(meta.id)
         return ids
 
@@ -497,10 +552,10 @@ class Session:
                 return step.outputs[-1]
         return None
 
-    def summary(self) -> str:
+    def summary(self, *, limit: int | None = None) -> str:
         """One line per step: `3. cutout by agent:fake ✓ → a3f9c1d2 (trump_cutout)`."""
         lines = []
-        for step in self.data.steps:
+        for step in self.data.steps[-limit:] if limit else self.data.steps:
             line = f"{step.index}. {step.tool} by {step.actor} {_MARKS.get(step.status, step.status)}"
             if step.edited:
                 line += " (edited)"
@@ -607,7 +662,7 @@ class Session:
             raise EngineError("preview requires a local image tool")
         params = self._resolved(runner.validate(tool, raw, "user"))
         draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
-        inputs = {aid: self.artifacts.data(aid) for aid in _image_refs(draft)}
+        inputs = self._inputs(draft)
         outcome = self.executor.run(ToolCall(
             tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True,
         ))
@@ -627,6 +682,7 @@ class Session:
         changed = params != step.params
         if changed:
             step.params, step.edited = params, True
+            self._bind_inputs(step)
         stale = [step] + [s for s in self.data.steps[pos + 1:] if s.status != "rejected"]
         for s in stale:
             s.status = "stale"
@@ -646,6 +702,17 @@ class Session:
     def _reuse(self, step: Step, hit: Step, key: str) -> None:
         """Take a remembered run's results instead of running: no step.started, only step.finished."""
         step.outputs, step.result_text = list(hit.outputs), hit.result_text
+        step.output_ports = dict(hit.output_ports)
+        if step.invocation_id != hit.invocation_id:
+            step.output_ports = {port: self.artifacts.clone_use(aid, produced_by=step.id,
+                invocation_id=step.invocation_id, output_key=port).id for port, aid in hit.output_ports.items()}
+            step.outputs = list(step.output_ports.values())
+            lines = hit.result_text.split('\n')
+            for index, (old, new) in enumerate(zip(hit.outputs, step.outputs, strict=True)):
+                if index < len(lines):
+                    lines[index] = lines[index].replace(describe(self.artifacts.meta[old]),
+                                                        describe(self.artifacts.meta[new]), 1)
+            step.result_text = '\n'.join(lines)
         step.data = copy.deepcopy(hit.data)
         step.status, step.error, step.cache_key = "done", None, key
         step.started_at = step.finished_at = time.time()
@@ -654,7 +721,7 @@ class Session:
     def replay_from(self, step_id: str, *, use_cache: bool = True) -> list[Step]:
         """Re-execute a step and every later step that was not rejected, in order (spec 5.3).
 
-        A reference to an old output of a re-executed step becomes the new output in the same position.
+        Bound inputs follow the producing invocation's named output across re-execution.
         A step whose rewritten params give the cache_key of an earlier successful run, all of whose outputs
         are still in the store, takes that run's results without running (use_cache=False runs every
         step). Stops at the first failure: that step is `error`, the steps after it stay `stale`, and
@@ -673,19 +740,23 @@ class Session:
             s.status = "stale"
         if fresh:
             self.emit("step.stale", {"step_ids": [s.id for s in fresh]})
-        remap: dict[str, str] = {}
         processed: list[Step] = []
         failed: Step | None = None
         for step in todo:
-            if remap:
-                step.params = _map_refs(step.tool, step.params, lambda id: remap.get(id, id))
             old = list(step.outputs or step.previous_outputs)
-            key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
-            hit = cache.get(key)
-            if hit is not None and all(id in self.artifacts for id in hit.outputs):
-                self._reuse(step, hit, key)
-            else:
-                self._execute(step)  # never raises for the tool's failure; writes no change note
+            try:
+                self._resolve_bindings(step)
+                key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
+                hit = cache.get(key)
+                if hit is not None and all(id in self.artifacts for id in hit.outputs):
+                    self._reuse(step, hit, key)
+                else:
+                    self._execute(step)
+            except EngineError as error:
+                step.status, step.error = 'error', StepError(message=error.message, hint=error.hint)
+                step.finished_at = time.time()
+                step.result_text = result_text(step, self.artifacts)
+                self._emit('step.failed', step)
             processed.append(step)
             if step.status != "done":
                 step.previous_outputs, failed = old, step
@@ -693,18 +764,16 @@ class Session:
             step.previous_outputs = []
             if use_cache and not registry.get(step.tool).writes_files:
                 cache[key] = step.model_copy(deep=True)
-            _advance(remap, old, step.outputs)
         if failed is not None:
             # The next replay starts at the failed step with an empty table, so the steps after it take
             # what ran before it now. They keep their last run (outputs, cache_key: still a true cache
             # entry) and stay stale. The failed step and each of them still stand for what they made
             # last time, so a reference to that stays put.
-            _advance(remap, failed.previous_outputs, failed.previous_outputs)
             for rest in todo[len(processed):]:
-                if remap:
-                    rest.params = _map_refs(rest.tool, rest.params, lambda id: remap.get(id, id))
-                made = rest.outputs or rest.previous_outputs
-                _advance(remap, made, made)
+                try:
+                    self._resolve_bindings(rest)
+                except EngineError:
+                    pass  # Keep the unresolved binding; retry cannot silently use historical bytes.
             self.changes.append(f"the user replayed from step {todo[0].index}: step {failed.index} "
                                 f"({failed.tool}) failed: {failed.error.message}; later steps are stale")
         elif processed:
@@ -783,6 +852,8 @@ def referenced_ids(data: SessionData, meta: dict[str, ArtifactMeta]) -> set[str]
     # message or agent turn names them, so a save or autosave right after a drop keeps the picture.
     originals = {a.original_id for a in meta.values() if a.original_id}
     ids = {i for i, a in meta.items() if a.produced_by is None and i not in originals}
+    if any(step.tool not in registry.REGISTRY for step in data.steps):
+        ids.update(meta)  # opaque tool parameters cannot authorize reachability pruning
     ids.update(data.creative.source_roles.values())
     for s in data.steps:
         ids.update(_image_refs(s), s.outputs, s.previous_outputs)
@@ -801,6 +872,13 @@ def referenced_ids(data: SessionData, meta: dict[str, ArtifactMeta]) -> set[str]
     for branch in [*data.branches.values(), *data.manual_undo, *data.manual_redo]:
         ids.update(branch.artifact_ids)
         ids.update(branch.creative.source_roles.values())
-    originals = [meta[i].original_id for i in ids if i in meta]
-    ids.update(o for o in originals if o)
+    pending = list(ids)
+    while pending:
+        item = meta.get(pending.pop())
+        if item is None:
+            continue
+        for ref in (*item.inputs, *([item.original_id] if item.original_id else [])):
+            if ref not in ids:
+                ids.add(ref)
+                pending.append(ref)
     return ids

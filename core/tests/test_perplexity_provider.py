@@ -148,7 +148,7 @@ def test_perplexity_image_approval_and_tool_result(env, monkeypatch, model, deci
         call, = [call for message in build_messages(reopened) for call in message.get("tool_calls", [])]
         assert "thought_signature" not in call
         if decision == "edit":
-            assert hashlib.sha256(reopened.artifacts.data(output)).hexdigest() == output
+            assert hashlib.sha256(reopened.artifacts.data(output)).hexdigest() == reopened.artifacts.meta[output].blob_id
 
     run(body, Settings(approval_mode="ask_all"))
 

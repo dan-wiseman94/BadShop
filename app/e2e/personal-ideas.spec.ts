@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { test, expect } from "./fixtures";
+import { test, expect, expectImageBytes } from "./fixtures";
 import type { Session } from "../src/types";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -17,7 +17,7 @@ test("personal previews stay outside history and the chosen layout survives reop
   const preview = await card.locator("img").getAttribute("src");
   await card.click();
   await page.getByRole("button", { name: "Make this shitpost" }).click();
-  await expect(page.locator(".canvas-image")).toHaveAttribute("src", preview!);
+  await expectImageBytes(page.locator(".canvas-image"), preview!.split(",")[1]);
   const created = await emptyCore.call("session.get") as Session;
   expect(created.steps).toHaveLength(1);
   expect(created.steps[0].params.images).toEqual([Object.keys(before.artifacts).find(id => before.artifacts[id].width <= 1000 && !before.artifacts[id].produced_by)]);

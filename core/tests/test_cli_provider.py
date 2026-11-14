@@ -338,6 +338,10 @@ def test_repeated_cancellation_waits_for_process_cleanup(fake, monkeypatch):
 @pytest.mark.parametrize("mode", ["mcp", "budget"])
 def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, mode):
     monkeypatch.setenv("BADSHOP_FAKE_CLI_MODE", mode)
+    # URL-safe grant tokens may begin with '-'; they must remain argument values.
+    from badshop.server import grants
+    token_urlsafe = grants.secrets.token_urlsafe
+    monkeypatch.setattr(grants.secrets, "token_urlsafe", lambda n: "-" + token_urlsafe(n))
 
     async def body():
         app = CoreApp(Settings(approval_mode="ask_all", step_budget=1),
@@ -358,7 +362,7 @@ def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, mode):
             await app._chat_send("user", "make meme", [imported.id])
             async with asyncio.timeout(10):
                 while not app._cli_gate.pending():
-                    assert app._turn is not None, app.session.data.messages
+                    assert app._turn is not None, events
                     await asyncio.sleep(.01)
                 step_id = app._cli_gate.pending()[0]
                 assert app.session.step(step_id).actor == app._cli_turn_actor

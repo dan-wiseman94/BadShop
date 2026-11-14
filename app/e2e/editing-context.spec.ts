@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { test, expect, type Core } from "./fixtures";
+import { test, expect, expectImageBytes, type Core } from "./fixtures";
 import type { Page } from "@playwright/test";
 import type { Session, Step } from "../src/types";
 
@@ -31,7 +31,9 @@ for (const before of [false, true]) test(`running a manual tool on an older sele
   expect(actual.status).toBe("done");
   expect(actual.params.image).toBe(source);
   const expected = await core.call("tools.run", { tool: "deepfry", params: { ...actual.params, image: source } }) as Step;
-  expect(actual.outputs).toEqual(expected.outputs);
+  expect(actual.outputs).not.toEqual(expected.outputs);
+  const pixels = await core.call('artifacts.get', { id: actual.outputs[0] }) as { data: string };
+  expect((await core.call('artifacts.get', { id: expected.outputs[0] }) as { data: string }).data).toBe(pixels.data);
 });
 
 test("selecting a step output leaves Before and exports the selected bytes", async ({ page, core }) => {
@@ -39,7 +41,7 @@ test("selecting a step output leaves Before and exports the selected bytes", asy
   await page.getByRole("button", { name: "Before", exact: true }).click();
   await page.locator(".step-detail .provenance button").first().click();
   const artifact = await core.call("artifacts.get", { id: first.outputs[0] }) as { mime: string; data: string };
-  await expect(page.locator(".canvas-image")).toHaveAttribute("src", `data:${artifact.mime};base64,${artifact.data}`);
+  await expectImageBytes(page.locator(".canvas-image"), artifact.data);
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByRole("button", { name: "Save image file", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Exported to ");

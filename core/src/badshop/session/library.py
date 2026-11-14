@@ -8,6 +8,7 @@ import io
 import os
 import time
 import uuid
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -15,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from badshop.engine import assets
 from badshop.engine.common import fit
 from badshop.engine.errors import EngineError
+from badshop.session.blobs import BlobStore
 from badshop.engine.types import Point
 from badshop.session.artifacts import ArtifactStore
 from badshop.session.models import ArtifactMeta
@@ -66,11 +68,34 @@ class AssetLibrary:
         words = query.casefold().split()
         entries = []
         for path in self.root.glob("*.json"):
-            entry = self.get(path.stem)
+            try:
+                entry = self.get(path.stem)
+            except EngineError:
+                continue  # retained in place and reported by inspection; healthy entries stay usable
             haystack = " ".join([entry.name, *entry.tags, entry.metadata.notes]).casefold()
             if all(w in haystack for w in words) and wanted <= {t.casefold() for t in entry.tags}:
                 entries.append(entry)
         return [e.model_dump(mode="json") for e in sorted(entries, key=lambda e: (-e.updated_at, e.id))]
+
+    def issues(self) -> list[dict]:
+        issues = []
+        for path in self.root.glob('*.json'):
+            try:
+                entry = self.get(path.stem)
+                for meta in (entry.artifact, entry.original):
+                    if meta is not None:
+                        self._blob(meta)
+            except EngineError:
+                issues.append({'file': path.name, 'error': 'Entry or image bytes could not be verified; original files are retained.'})
+        return issues
+
+    def page(self, query: str, tags: list[str], offset: int, limit: int) -> dict:
+        entries = self.list(query, tags)
+        # Collection choices must include off-page entries, otherwise paging can
+        # silently clear the selected collection in the Cast workflow.
+        collections = sorted({tag[11:] for entry in self.list(tags=['cast'])
+                              for tag in entry['tags'] if tag.startswith('collection:')})
+        return {'entries': entries[offset:offset + limit], 'total': len(entries), 'collections': collections}
 
     def _write(self, entry: LibraryEntry) -> dict:
         payload = entry.model_dump_json(indent=2).encode()
@@ -109,9 +134,16 @@ class AssetLibrary:
         current, seen = meta, set()
         while current.produced_by and current.id not in seen:
             seen.add(current.id)
-            step = next((s for s in session.data.steps if s.id == current.produced_by), None)
+            step = next((s for s in session.data.steps if current.id in s.outputs and
+                         (s.invocation_id == current.invocation_id or current.legacy_identity)), None)
             if step is None:
-                break
+                if not current.inputs:
+                    break
+                # A later replay may have changed the display step's parameters.
+                # Historical uses retain their inputs, never that later crop.
+                current = session.artifacts.meta[current.inputs[0]]
+                original = session.artifacts.meta.get(current.original_id or '', current)
+                continue
             if step.tool == "cutout" and details.crop is None and step.params.get("box"):
                 details.crop = tuple(step.params["box"])
             spec = REGISTRY.get(step.tool)
@@ -167,9 +199,9 @@ class AssetLibrary:
                 if meta is None:
                     continue
                 data = images.get(meta.id)
-                if data is None or hashlib.sha256(data).hexdigest() != meta.id:
+                if data is None or hashlib.sha256(data).hexdigest() != meta.blob_id:
                     raise EngineError("asset image hash does not match")
-                actual = checked.add(data, meta.label)
+                actual = checked.add(data, meta.label, identity=meta.id)
                 if (actual.width, actual.height, actual.format) != (meta.width, meta.height, meta.format):
                     raise EngineError("asset image metadata does not match its pixels")
         now = time.time()
@@ -189,7 +221,7 @@ class AssetLibrary:
         try:
             self.root.mkdir(parents=True, exist_ok=True)
             for aid, meta in metas.items():
-                dest = self.root / f"{aid}{meta.ext}"
+                dest = self.root / f"{meta.blob_id}{meta.ext}"
                 if not dest.exists():
                     tmp = dest.with_suffix(f".{uuid.uuid4().hex}.tmp")
                     try:
@@ -197,29 +229,48 @@ class AssetLibrary:
                         os.replace(tmp, dest)
                     finally:
                         tmp.unlink(missing_ok=True)
+                else:
+                    BlobStore.verify(dest, meta.blob_id)
             for entry in entries:
                 installed.append(self._write(entry))
         except (OSError, EngineError):
             for entry in installed:
                 self._path(entry["id"]).unlink(missing_ok=True)
             raise EngineError("could not save assets; no new library entries were kept") from None
+        self.collect()
         return installed
 
     def remove(self, id: str) -> dict:
         self.get(id)
         self._path(id).unlink()
-        # Shared content is retained: removing an entry must never invalidate another entry.
+        self.collect()
         return {"removed": True}
+
+    def collect(self, *, grace_seconds: float = 86400) -> None:
+        """Retain shared originals and any evidence associated with unreadable records."""
+        live = set()
+        try:
+            for path in self.root.glob('*.json'):
+                entry = self.get(path.stem)
+                live.update(f'{meta.blob_id}{meta.ext}' for meta in (entry.artifact, entry.original) if meta)
+            now = time.time()
+            for path in self.root.iterdir():
+                if (re.fullmatch(r'[0-9a-f]{64}\.(png|jpg|jpeg|gif|webp|bmp|tiff|avif|heif)', path.name)
+                        and path.name not in live and not path.is_symlink() and path.is_file()
+                        and now - path.stat().st_mtime >= grace_seconds):
+                    path.unlink()
+        except (EngineError, OSError):
+            return  # unknown metadata or unavailable storage never permits further collection
 
     def _blob(self, meta: ArtifactMeta) -> bytes:
         try:
-            path = self.root / f"{meta.id}{meta.ext}"
+            path = self.root / f"{meta.blob_id}{meta.ext}"
             if path.stat().st_size > 200 * 2**20:
                 raise EngineError("library image is too large")
             blob = path.read_bytes()
         except OSError as e:
             raise EngineError(f"can't read library image: {e}") from None
-        if hashlib.sha256(blob).hexdigest() != meta.id:
+        if hashlib.sha256(blob).hexdigest() != meta.blob_id:
             raise EngineError("library image does not match its saved hash")
         return blob
 
@@ -227,32 +278,46 @@ class AssetLibrary:
         entry = self.get(id)
         # Decode all files before mutating the session, so a corrupt original leaves it untouched.
         checked = ArtifactStore(decoder=self.decoder)
-        for meta in (entry.original, entry.artifact):
-            if meta is not None:
-                checked.add(self._blob(meta), meta.label, source=meta.source, original_id=meta.original_id)
-        with session.artifacts.atomic():
-            for aid, meta in checked.meta.items():
-                session.artifacts.add(checked.data(aid), meta.label, source=meta.source,
-                                      original_id=meta.original_id)
-        working = session.artifacts.meta[entry.artifact.id]
-        if session.data.active_branch_id:
-            branch = session.data.branches[session.data.active_branch_id]
-            branch.artifact_ids = list(dict.fromkeys([*branch.artifact_ids, *checked.ids()]))
-        # Persist the metadata alongside the imported artifact, even if the project closes before
-        # the next turn. Keep it at user priority and escaped as data, never as model instructions.
-        detail = {"artifact_id": working.id, "name": entry.name, "tags": entry.tags,
-                  "metadata": entry.metadata.model_dump(mode="json")}
-        note = f"Library asset imported: {working.id[:8]} ({entry.name}). Tags: {', '.join(entry.tags)}"
-        session.record_source_note(note, detail)
-        original = session.artifacts.meta.get(working.original_id or "", working)
-        return {"working": working.model_dump(mode="json"), "original": original.model_dump(mode="json"),
-                "entry": entry.model_dump(mode="json")}
+        try:
+            for meta in (entry.original, entry.artifact):
+                if meta is not None:
+                    checked.add(self._blob(meta), meta.label, source=meta.source, original_id=meta.original_id,
+                                identity=meta.id)
+            restored = {}
+            with session.artifacts.atomic():
+                for aid, meta in checked.meta.items():
+                    restored[aid] = session.artifacts.add(checked.data(aid), meta.label, source=meta.source,
+                                          original_id=restored[meta.original_id].id if meta.original_id else None,
+                                          new_use=True)
+            working = restored[entry.artifact.id]
+            if session.data.active_branch_id:
+                branch = session.data.branches[session.data.active_branch_id]
+                branch.artifact_ids = list(dict.fromkeys([*branch.artifact_ids, *[meta.id for meta in restored.values()]]))
+            # Persist the metadata alongside the imported artifact, even if the project closes before
+            # the next turn. Keep it at user priority and escaped as data, never as model instructions.
+            detail = {"artifact_id": working.id, "name": entry.name, "tags": entry.tags,
+                      "metadata": entry.metadata.model_dump(mode="json")}
+            note = f"Library asset imported: {working.id[:8]} ({entry.name}). Tags: {', '.join(entry.tags)}"
+            session.record_source_note(note, detail)
+            original = session.artifacts.meta.get(working.original_id or "", working)
+            return {"working": working.model_dump(mode="json"), "original": original.model_dump(mode="json"),
+                    "entry": entry.model_dump(mode="json")}
+        finally:
+            checked.close()
 
     def thumbnail(self, id: str, max_px: int = 256) -> dict:
         entry = self.get(id)
         store = ArtifactStore(decoder=self.decoder)
-        meta = store.add(self._blob(entry.artifact), entry.name)
-        im, _ = fit(store.image(meta.id), max_px)
-        buf = io.BytesIO()
-        im.save(buf, "PNG")
-        return {"mime": "image/png", "data": base64.b64encode(buf.getvalue()).decode("ascii")}
+        try:
+            meta = store.add(self._blob(entry.artifact), entry.name)
+            with store.image(meta.id) as original:
+                im, _ = fit(original, max_px)
+                try:
+                    with io.BytesIO() as buf:
+                        im.save(buf, 'PNG')
+                        return {'mime': 'image/png', 'data': base64.b64encode(buf.getvalue()).decode('ascii')}
+                finally:
+                    if im is not original:
+                        im.close()
+        finally:
+            store.close()

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { test, expect } from "./fixtures";
+import { test, expect, expectImageBytes } from "./fixtures";
 import type { Session } from "../src/types";
 
 test("a new user makes, revises, copies and exports a credited shitpost without a provider or network", async ({ page, context, emptyCore }, info) => {
@@ -18,6 +18,7 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
       server.send(frame);
     });
     server.onMessage(frame => {
+      if (typeof frame !== "string") { client.send(frame); return; }
       const message = JSON.parse(String(frame));
       if (branchRequest !== undefined && message.id === branchRequest) {
         branchHeld = true;
@@ -25,7 +26,7 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
       } else client.send(frame);
     });
   });
-  page.on("request", request => { if (!/^https?:\/\/127\.0\.0\.1/.test(request.url()) && !request.url().startsWith("data:")) external.push(request.url()); });
+  page.on("request", request => { if (!/^https?:\/\/127\.0\.0\.1/.test(request.url()) && !request.url().startsWith("data:") && !request.url().startsWith("blob:")) external.push(request.url()); });
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   await page.getByRole("button", { name: "Start with a quick idea" }).click();
   await expect(page.getByRole("region", { name: "Quick ideas" })).toBeVisible();
@@ -55,7 +56,7 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   expect(revised.params.title).toBe(initial.params.title);
   expect(revised.params.captions).toEqual(["Brain cell unavailable. Please hold."]);
   const artifact = await emptyCore.call("artifacts.get", { id: revised.outputs[0] }) as { data: string; mime: string };
-  await expect(page.locator(".canvas-image")).toHaveAttribute("src", `data:${artifact.mime};base64,${artifact.data}`);
+  await expectImageBytes(page.locator(".canvas-image"), artifact.data);
   await page.getByRole("button", { name: "Copy image", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Image copied");
   const clipboard = await page.evaluate(async () => {
@@ -83,7 +84,8 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   await expect(page.getByRole("status")).toContainText("Exported to ");
   const filename = (await page.getByRole("status").innerText()).replace("Exported to ", "").trim();
   const bytes = await readFile(filename);
-  expect(createHash("sha256").update(bytes).digest("hex")).toBe(revised.outputs[0]);
+  const exportedState = await emptyCore.call("session.get") as Session;
+  expect(createHash("sha256").update(bytes).digest("hex")).toBe(exportedState.artifacts[revised.outputs[0]].blob_id);
   const credits = JSON.parse(await readFile(filename + ".credits.json", "utf8"));
   expect(credits.sources).toContainEqual(expect.objectContaining({ license: "CC0-1.0", title: "Geometric pigeon" }));
   await page.keyboard.press("Escape");

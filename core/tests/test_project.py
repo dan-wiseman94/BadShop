@@ -162,7 +162,7 @@ def meme(tmp_path: Path) -> Session:
 
 
 def art(s: Session, aid: str) -> str:
-    return f"artifacts/{aid}{s.artifacts.meta[aid].ext}"
+    return f"artifacts/{s.artifacts.meta[aid].blob_id}{s.artifacts.meta[aid].ext}"
 
 
 def snapshot(s: Session) -> tuple[dict, dict]:
@@ -227,7 +227,7 @@ def test_save_then_open_restores_the_session_exactly(tmp_path):
         payload = json.loads(zf.read("session.json"))
         recipe = json.loads(zf.read("recipe.json"))
     assert names == {"session.json", "recipe.json"} | {art(s, aid) for aid in keep}
-    assert payload["schema"] == 5 and "schema_" not in payload and set(payload["artifacts"]) == keep
+    assert payload["schema"] == 6 and "schema_" not in payload and set(payload["artifacts"]) == keep
     assert recipe == project.export_recipe(s)
 
     reopened = project.open_project(path, output_dir=tmp_path / "exports")
@@ -403,7 +403,7 @@ def edited(edit):
 def first_input(payload: dict) -> tuple[str, str]:
     """The first step's input (lincoln's working copy): its id and member name."""
     aid = payload["steps"][0]["params"]["image"]
-    return aid, f"artifacts/{aid}.png"
+    return aid, f"artifacts/{payload['artifacts'][aid]['blob_id']}.png"
 
 
 def not_a_zip(good: Path, dst: Path) -> Path:
@@ -477,7 +477,7 @@ def garbage_artifact(members: dict, payload: dict) -> None:
     blob = b"not an image at all"
     aid = hashlib.sha256(blob).hexdigest()
     members[f"artifacts/{aid}.png"] = blob
-    payload["artifacts"][aid] = dict(payload["artifacts"][first_input(payload)[0]], id=aid)
+    payload["artifacts"][aid] = dict(payload["artifacts"][first_input(payload)[0]], id=aid, blob_id=aid)
 
 
 BAD = {  # case -> (make the file from the good one, what the error says)
@@ -489,10 +489,9 @@ BAD = {  # case -> (make the file from the good one, what the error says)
     "lzma members": (recompressed(zipfile.ZIP_LZMA), "compressed in a way badshop never writes"),
     "no session.json": (edited(lambda m, p: m.update({"session.json": None})), "no session.json"),
     "session.json isn't json": (edited(lambda m, p: m.update({"session.json": b"{not json"})), "isn't JSON"),
-    "newer schema": (edited(lambda m, p: p.update(schema=6)), "newer badshop"),
+    "newer schema": (edited(lambda m, p: p.update(schema=7)), "newer badshop"),
     "no schema": (edited(lambda m, p: p.pop("schema")), "no schema number"),
     "not a session": (edited(lambda m, p: p.update(steps="lots")), "isn't a badshop session"),
-    "unknown tool": (edited(lambda m, p: p["steps"][0].update(tool="nope")), "doesn't have"),
     "bad step params": (edited(lambda m, p: p["steps"][0]["params"].update(image={"x": 1})), "bad parameters"),
     "member climbing out": (edited(lambda m, p: m.update({"../../x": b"owned"})), "isn't a safe badshop project"),
     "absolute member": (edited(lambda m, p: m.update({"/tmp/x": b"owned"})), "isn't a safe badshop project"),

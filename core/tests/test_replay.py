@@ -172,7 +172,9 @@ def test_an_import_that_a_step_makes_again_is_still_the_users(rig):
     follow what step 1 makes (the SKILL.md flow: import, prep, then work on prep's copy)."""
     s = rig.s
     s1 = s.run_tool("prep", {"image": rig.work.id}, "user")
-    assert s1.outputs[0] == rig.work.id and s.artifacts.meta[rig.work.id].produced_by is None
+    assert s1.outputs[0] != rig.work.id
+    assert s.artifacts.data(s1.outputs[0]) == s.artifacts.data(rig.work.id)
+    assert s.artifacts.meta[rig.work.id].produced_by is None
     s2 = s.run_tool("filter", {"image": s1.outputs[0], "names": ["invert"]}, "agent:fake")
     stale = s.edit(s1.id, {"image": rig.work.id, "max": 120})
     assert [x.id for x in stale] == [s1.id, s2.id]
@@ -326,20 +328,21 @@ def test_a_stopped_replay_leaves_a_reader_on_the_newest_step_that_made_its_pictu
     a = s1.outputs[0]
     s2 = s.run_tool("cutout", {"image": a, "box": [150, 100, 200, 150], "no_ai": True}, "user")
     s3 = s.run_tool("cutout", {"image": w, "box": [0, 0, 200, 160], "no_ai": True}, "user")
-    s4 = s.run_tool("cutout", {"image": a, "box": [0, 0, 50, 50], "no_ai": True}, "user")
+    b = s3.outputs[0]
+    s4 = s.run_tool("cutout", {"image": b, "box": [0, 0, 50, 50], "no_ai": True}, "user")
     c = s4.outputs[0]
-    assert s3.outputs == [a]
+    assert b != a and s.artifacts.data(b) == s.artifacts.data(a)
     s.edit(s1.id, {"image": w, "box": [0, 0, 100, 80], "no_ai": True})
     s.replay_from(s1.id)
     assert [x.status for x in s.data.steps] == ["done", "error", "stale", "stale"]
     assert s2.params["image"] == s1.outputs[0] != a  # s2 read s1's new picture, and its box is off it
-    assert s4.params["image"] == a  # still s3's picture
+    assert s4.params["image"] == b  # still s3's picture
     s.edit(s2.id, {"image": s1.outputs[0], "box": [10, 10, 50, 50], "no_ai": True})
     rig.ex.calls.clear()
     s.replay_from(s2.id)
     assert rig.ex.calls == ["cutout"]  # s3 and s4 asked what they asked before
     assert [x.status for x in s.data.steps] == ["done"] * 4
-    assert s4.params["image"] == s3.outputs[0] == a and s4.outputs == [c]
+    assert s4.params["image"] == s3.outputs[0] == b and s4.outputs == [c]
 
 
 def test_a_failed_step_still_stands_for_what_it_made(rig):
@@ -349,7 +352,9 @@ def test_a_failed_step_still_stands_for_what_it_made(rig):
     s1 = s.run_tool("filter", {"image": w, "names": ["invert"]}, "user")
     a = s1.outputs[0]
     s2 = s.run_tool("prep", {"image": a}, "user")
-    assert s2.outputs[0] == a
+    assert s2.outputs[0] != a
+    assert s.artifacts.data(s2.outputs[0]) == s.artifacts.data(a)
+    a = s2.outputs[0]
     s3 = s.run_tool("filter", {"image": a, "names": ["sepia"]}, "user")
     rig.ex.broken.add("prep")
     s.edit(s1.id, {"image": w, "names": ["grayscale"]})
@@ -392,15 +397,17 @@ def test_replay_skips_rejected_steps_and_refuses_waiting_ones(rig):
     assert s1.status == "done" and s6.status == "proposed"
 
 
-def test_byte_identical_outputs_keep_their_first_producer(rig):
+def test_byte_identical_outputs_keep_independent_producers(rig):
     """Review Focus 2: two steps make the same artifact. It keeps its first produced_by, a reader follows
     the newest step before it that made the artifact, and replaying or deleting either step never
     removes an artifact another step or a message still references."""
     s = rig.s
     s1 = s.run_tool("filter", {"image": rig.work.id, "names": ["invert"]}, "user")
     s2 = s.run_tool("filter", {"image": rig.work.id, "names": ["invert"]}, "agent:fake")
-    a = s1.outputs[0]
-    assert s2.outputs == [a] and s.artifacts.meta[a].produced_by == s1.id
+    a = s2.outputs[0]
+    assert a != s1.outputs[0]
+    assert s.artifacts.data(a) == s.artifacts.data(s1.outputs[0])
+    assert s.artifacts.meta[a].produced_by == s2.id
     s3 = s.run_tool("cutout", {"image": a, "box": [0, 0, 120, 90], "no_ai": True}, "agent:fake")
     c = s3.outputs[0]
     s.add_message("assistant", [Part(type="text", text="look"), Part(type="image", artifact_id=a)],
@@ -414,7 +421,7 @@ def test_byte_identical_outputs_keep_their_first_producer(rig):
     assert rig.ex.calls == ["filter"]  # s2 and s3 asked what they asked before
     assert s2.outputs == [a] and s3.params["image"] == a and s3.outputs == [c]
     assert g != a and s.artifacts.meta[g].produced_by == s1.id
-    assert a in s.artifacts and s.artifacts.meta[a].produced_by == s1.id  # still its first producer
+    assert a in s.artifacts and s.artifacts.meta[a].produced_by == s2.id  # still its first producer
 
     # s2 changes too: now s3 follows s2's new picture, and a stays for the message that shows it
     s.edit(s2.id, {"image": rig.work.id, "names": ["sepia"]})
@@ -434,7 +441,7 @@ def test_byte_identical_outputs_keep_their_first_producer(rig):
     # Deleting rewrites no record: the message still lists s2 and s3 and p is still credited to s2,
     # which is what keeps both ids from coming back.
     assert s.data.messages[-1].step_ids == [s2.id, s3.id]
-    assert s.artifacts.meta[p].produced_by == s2.id and s.artifacts.meta[a].produced_by == s1.id
+    assert s.artifacts.meta[p].produced_by == s2.id and s.artifacts.meta[a].produced_by == s2.id
     assert s.propose("view", {"image": g}, "agent:fake").id == "s4"
 
 
@@ -447,9 +454,11 @@ def test_a_step_can_take_another_steps_result(rig):
     rig.ex.calls.clear()
     s.replay_from(s1.id)
     assert rig.ex.calls == []  # s1 now asks exactly what s2 asked, so s2's result is reused
-    assert s1.outputs == [g] and s2.outputs == [g] and s.artifacts.meta[g].produced_by == s2.id
+    assert s1.outputs != [g] and s2.outputs == [g]
+    assert s.artifacts.data(s1.outputs[0]) == s.artifacts.data(g)
+    assert s.artifacts.meta[s1.outputs[0]].produced_by == s1.id
     s.delete_last(s2.id)
-    assert s1.outputs == [g] and s.artifacts.meta[g].produced_by == s2.id  # the first producer, deleted
+    assert s1.outputs != [g] and s.artifacts.meta[g].produced_by == s2.id  # the first producer, deleted
     assert a in s.artifacts and a not in s.referenced_ids()
     assert s.propose("view", {"image": g}, "user").id == "s3"  # g still names s2
 

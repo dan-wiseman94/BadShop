@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 import { applyCoreEvent, queries, reconcileSessionSnapshot } from "../src/data";
 import type { Message, Session } from "../src/types";
+import { useUI } from '../src/store';
+import { useStream } from '../src/stream';
 const reply = (id: string, text: string): Message => ({
   id,
   role: "assistant",
@@ -25,6 +27,22 @@ const session = (messages: Message[], stream_text?: string): Session => ({
 });
 const context = { core_instance_id: "core", document_id: "session", document_incarnation: "opened-2",
   branch_id: "branch", revision: 10, event_seq: 20 };
+
+it('streams without replacing document entities and rejects repeated presentation events', () => {
+  const current = { ...session([reply('m1', 'earlier')]), context };
+  queries.setQueryData(['session.get'], current);
+  const cached = queries.getQueryData(['session.get']);
+  useStream.setState({ text: '', context });
+  const event = { method: 'message.delta', params: { text: 'new text' }, context: { ...context, event_seq: 21 } };
+  applyCoreEvent(event);
+  applyCoreEvent(event);
+  expect(useStream.getState().text).toBe('new text');
+  expect(queries.getQueryData(['session.get'])).toBe(cached);
+  applyCoreEvent({ method: 'message.done', params: { message: reply('m2', 'new text') }, context: { ...context, event_seq: 22 } });
+  expect(useStream.getState().text).toBe('');
+  expect(queries.getQueryData<Session>(['session.get'])?.messages).toHaveLength(2);
+  queries.clear(); useStream.setState({ text: '', context: undefined });
+});
 
 it("rejects delayed events after reopening the same saved document", () => {
   const current = { ...session([], "current reply"), context };
@@ -97,4 +115,19 @@ it("does not carry transient text into another session", () => {
       session([], "old text"),
     ).stream_text,
   ).toBe("");
+});
+
+
+it('offers continuation only for retryable provider outcomes', () => {
+  for (const retryable of [false, true]) {
+    useStream.setState({ text: '', context });
+    queries.setQueryData(['session.get'], { ...session([]), context });
+    applyCoreEvent({ method: 'turn.finished', params: { reason: 'provider_error', error: 'Safe advice',
+      error_category: retryable ? 'timeout' : 'authentication', retryable },
+      context: { ...context, event_seq: 21 } });
+    expect(useUI.getState().error).toBe('Safe advice');
+    expect(useUI.getState().errorAction).toBe(retryable ? 'retry-turn' : null);
+    queries.clear();
+  }
+  useUI.getState().set({ error: null, errorAction: null });
 });

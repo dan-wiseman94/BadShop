@@ -108,7 +108,7 @@ def test_new_pack_artwork_is_repeatable_and_keeps_credits_when_shared(tmp_path, 
     library = AssetLibrary(tmp_path / "source")
     first = packs.install_builtin(library, pack_id)
     second = packs.install_builtin(library, pack_id)
-    assert [e["artifact"]["id"] for e in first] == [e["artifact"]["id"] for e in second]
+    assert [e["artifact"]["blob_id"] for e in first] == [e["artifact"]["blob_id"] for e in second]
     path = tmp_path / f"{pack_id}.badpack"
     packs.export_pack(library, [e["id"] for e in first], str(path), pack_id)
     restored = packs.import_pack(AssetLibrary(tmp_path / "target"), str(path))["entries"]
@@ -129,7 +129,7 @@ def test_pack_roundtrip_preserves_pixels_original_credits_and_anchors(tmp_path):
     assert restored["artifact"] == entry["artifact"]
     assert second._blob(second.get(restored["id"]).artifact) == library._blob(library.get(entry["id"]).artifact)
     session = Session.new()
-    assert second.restore(session, restored["id"])["working"]["id"] == entry["artifact"]["id"]
+    assert second.restore(session, restored["id"])["working"]["blob_id"] == entry["artifact"]["blob_id"]
     with pytest.raises(EngineError):
         packs.export_pack(library, [entry["id"]], str(path))
 

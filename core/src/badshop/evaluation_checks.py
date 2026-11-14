@@ -21,7 +21,7 @@ class Check:
     detail: str
 
 
-def repeat_counts(steps: list[Step]) -> dict[str, int]:
+def repeat_counts(steps: list[Step], artifacts) -> dict[str, int]:
     """Count extra occurrences, using stored validated params and content-hash image refs."""
     calls, outputs, placements = Counter(), Counter(), Counter()
     for step in steps:
@@ -30,7 +30,7 @@ def repeat_counts(steps: list[Step]) -> dict[str, int]:
         calls[step.tool, json.dumps(step.params, sort_keys=True)] += 1
         spec = REGISTRY.get(step.tool)
         if step.outputs and spec and spec.mutates:
-            outputs[tuple(step.outputs)] += 1
+            outputs[tuple(artifacts[aid].blob_id for aid in step.outputs)] += 1
         if step.tool == "paste":
             placements[step.params.get("base"), step.params.get("piece")] += 1
     return {key: sum(count - 1 for count in counts.values() if count > 1)
@@ -187,4 +187,4 @@ def score_project(session: Session, case: dict, output: str, entry: dict) -> tup
             checks.append(Check("Possible stacked correction", "review",
                                 f"{step.id} pastes the same piece onto an earlier result using that piece."))
         previous_paste_outputs.update({artifact: piece for artifact in step.outputs if artifact != base})
-    return checks, repeat_counts(scoped)
+    return checks, repeat_counts(scoped, session.artifacts.meta)

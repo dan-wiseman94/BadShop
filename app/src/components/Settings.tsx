@@ -23,6 +23,7 @@ import { themes, savePreference, type Density, type Motion } from "../appearance
 import { pickFolder } from "../native";
 import { ErrorNotice } from "./ErrorNotice";
 import { SourceSettings } from "./SourceSettings";
+import { StorageSettings } from './StorageSettings';
 import { UpdateSettings, type useUpdates } from "../updates";
 import { BIREFNET_MEMORY_NOTE, ON_DEVICE } from "../constants";
 import type {
@@ -570,9 +571,10 @@ function ProviderChecks({ profile }: { profile: Profile }) {
   </div>;
 }
 
-export function Settings({ updates, initialTab }: {
+export function Settings({ updates, initialTab, onRestore }: {
   updates: ReturnType<typeof useUpdates>;
   initialTab?: "providers" | "updates";
+  onRestore?: () => void;
 }) {
   const [tab, setTab] = useState<string>(initialTab ?? (updates.info?.version ? "updates" : "providers"));
   const [edit, setEdit] = useState<Profile | null | undefined>(undefined);
@@ -619,6 +621,7 @@ export function Settings({ updates, initialTab }: {
               ["preferences", "Preferences"],
               ["assets", "Assets"],
               ["updates", "Updates"],
+              ['storage', 'Storage'],
             ].map(([id, label]) => (
               <Button
                 key={id}
@@ -631,6 +634,7 @@ export function Settings({ updates, initialTab }: {
           </nav>
           <div className="settings-content">
             {tab === "updates" && <UpdateSettings updates={updates} />}
+            {tab === 'storage' && <StorageSettings onRestore={onRestore} />}
             {tab === "providers" && (
               <>
                 {edit !== undefined ? (

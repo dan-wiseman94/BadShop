@@ -10,14 +10,17 @@ import base64
 import binascii
 import io
 import hmac
+import hashlib
 import json
 import logging
 import os
 import threading
 import time
 import uuid
+from contextlib import nullcontext
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -55,6 +58,7 @@ from badshop.session.worker import WorkerExecutor
 from badshop.tools import REGISTRY, registry, runner
 
 log = logging.getLogger("badshop.server")
+_COMMIT_EVENTS: ContextVar[list | None] = ContextVar('commit_events', default=None)
 
 Send = Callable[[str], Awaitable[None]]
 SessionName = Annotated[str, Field(min_length=1, max_length=200)]
@@ -140,16 +144,30 @@ def _artifact_payload(session: Session, ref: str, max_px: int | None) -> dict:
     store = session.artifacts
     aid = store.resolve(ref)
     meta = store.meta[aid]
+    from badshop.server.media_wire import BINARY_ARTIFACTS, MAX_BYTES
     if max_px is None:
+        if store.size(aid) > MAX_BYTES:
+            raise EngineError('the original exceeds the image view budget', hint='request a thumbnail or export the original')
         data, mime = store.data(aid), meta.mime
     else:
-        im = store.image(aid)
-        small, _ = fit(im.convert("RGBA") if has_alpha(im) else to_rgb(im), max_px)
-        buf = io.BytesIO()
-        small.save(buf, "PNG")
-        data, mime = buf.getvalue(), "image/png"
+        def render():
+            with store.image(aid) as im:
+                converted = im.convert("RGBA") if has_alpha(im) else to_rgb(im)
+                try:
+                    small, _ = fit(converted, max_px)
+                    try:
+                        with io.BytesIO() as buf:
+                            small.save(buf, "PNG")
+                            return buf.getvalue()
+                    finally:
+                        if small is not converted:
+                            small.close()
+                finally:
+                    converted.close()
+        data = store.representation(aid, ('thumbnail-v1', 0, max_px, 'alpha-preserved', 'PNG'), render)
+        mime = 'image/png'
     return {"meta": meta.model_dump(mode="json"), "mime": mime,
-            "data": base64.b64encode(data).decode("ascii")}
+            "data": data if BINARY_ARTIFACTS.get() else base64.b64encode(data).decode("ascii")}
 
 
 def _tool_entry(spec: registry.ToolSpec, trusted: bool) -> dict:
@@ -179,6 +197,8 @@ class CoreApp:
         # editing tool cannot prevent previews or imports from responding.
         self._decoder = self._executor_factory(timeout_s=30.0, max_rss_mb=1024)
         self._lock = asyncio.Lock()  # one session call (and so one tool) at a time
+        self._media_slots = asyncio.Semaphore(2)
+        self._media_pending = 0
         self._settings_lock = asyncio.Lock()  # serialize policy transition and persisted acknowledgement
         self._network_transition = False
         self._update_leases: dict[str, asyncio.Event] = {}
@@ -223,7 +243,8 @@ class CoreApp:
         self._downloads: dict[str, _Download] = {}
         self._prev_cancel = assets.CANCEL
         assets.CANCEL = self._download_cancelled
-        self.dispatcher = Dispatcher(contracts=METHODS, check_context=self._check_request_context)
+        self.dispatcher = Dispatcher(contracts=METHODS, check_context=self._check_request_context,
+                                     execute_operation=self._execute_operation)
         self._register()
         self.library = AssetLibrary(decoder=getattr(self._decoder, "decode", None))
         self.novelty = NoveltyMemory()
@@ -309,14 +330,16 @@ class CoreApp:
             log.warning("can't keep the last autosave to offer restoring it: %s", getattr(e, "message", e))
             return None
 
-    def _autosave(self) -> None:
-        """Runs in a worker thread under the lock. A failed autosave is reported, never raised."""
+    def _autosave(self, *, strict=False) -> None:
+        """Commit under the document lock; mutations cannot acknowledge failed durability."""
         if not self._dirty:
             return
         try:
             project.autosave(self.session)
         except (EngineError, OSError) as e:
             self._log("warning", f"autosave failed: {getattr(e, 'message', e)}")
+            if strict:
+                raise
         else:
             self._dirty = False  # a failed recovery write must be retried, including on close
         if hasattr(self, "novelty") and self.settings.remember_history and self.session.data.creative.remember_history:
@@ -324,6 +347,113 @@ class CoreApp:
                 self.novelty.remember(self.session)
             except (EngineError, OSError):
                 log.warning("creative history could not be updated")
+
+    async def _operation_get(self, actor: str, operation_id: Annotated[str, Field(pattern=r'^[0-9a-f]{32}$')]) -> dict:
+        from badshop.session import recovery
+        def read():
+            paths = [project.autosave_path()]
+            if self._restorable and self._restorable.suffix == '.sqlite':
+                paths.append(self._restorable)
+            for path in paths:
+                receipt = recovery.operation(path, operation_id)
+                if receipt:
+                    result = {key: receipt[key] for key in ('id', 'method', 'document_id', 'status', 'created_at', 'result')}
+                    document = self.session if path == project.autosave_path() else recovery.load(path)
+                    try:
+                        steps = [*document.data.steps, *(step for branch in document.data.branches.values()
+                                  for step in document.data.branch_state(branch).steps)]
+                        result['steps'] = list({step.invocation_id: {
+                            'invocation_id': step.invocation_id, 'step_id': step.id, 'status': step.status,
+                            'batch_row': step.batch_row, 'batch_item': step.batch_item,
+                        } for step in steps if step.operation_id == operation_id}.values())
+                    finally:
+                        if document is not self.session:
+                            document.artifacts.close()
+                    return result
+            return {'id': operation_id, 'status': 'not_found'}
+        async with self._lock:
+            return await asyncio.to_thread(read)
+
+    async def _storage_inspect(self, actor: str) -> dict:
+        from badshop.session import recovery
+        async with self._lock:
+            def inspect():
+                return {'recovery': recovery.inspect(project.autosave_path().parent), 'library': self.library.issues()}
+            return await asyncio.to_thread(inspect)
+
+    async def _execute_operation(self, method, params, actor, invoke):
+        from badshop.session import recovery
+        identity = rpc.OPERATION_ID.get() or uuid.uuid4().hex
+        owner = rpc.REQUEST_OWNERSHIP.get()
+        document = owner.context.document_id if owner else self.session.data.id
+        branch = owner.context.branch_id if owner else self.session.data.active_branch_id
+        fingerprint = hashlib.sha256(recovery._encoded([method, params, actor, document, branch])).hexdigest()
+        receipt = {'id': identity, 'fingerprint': fingerprint, 'method': method,
+                   'document_id': document, 'status': 'pending', 'created_at': time.time(), 'result': None}
+        # Intent publication is serialized with all document writes. Never replay a
+        # pending receipt: a worker or external file write may already have run.
+        def begin():
+            paths = [project.autosave_path()]
+            if self._restorable and self._restorable.suffix == '.sqlite':
+                paths.append(self._restorable)
+            for path in paths:
+                try:
+                    found = recovery.operation(path, identity)
+                except EngineError:
+                    # A damaged previous launch must not disable a newly owned
+                    # document. Old/legacy requests cannot prove that boundary
+                    # and remain fail-closed; the active receipt store never skips.
+                    if path == project.autosave_path() or owner is None:
+                        raise
+                    self._check_request_context(owner)
+                    continue
+                if found is not None:
+                    return found
+            if owner:
+                self._check_request_context(owner)
+            if reason := self.session.read_only_reason():
+                if method not in ('session.new', 'session.open', 'session.restore', 'session.save', 'session.save_as',
+                                  'export', 'chat.stop', 'chat.pause', 'recipes.stop'):
+                    raise EngineError(reason)
+            if method in ('session.new', 'session.open', 'session.restore'):
+                self._guard_replacement(params.get('expected_revision'), params.get('discard_unsaved', False))
+            return recovery.record_intent(project.autosave_path(), receipt)
+        # Only the first intent needs an initial document head. Subsequent intents
+        # use their own short transaction, so Stop never queues behind the worker.
+        if not project.autosave_path().exists():
+            async with self._lock:
+                if not project.autosave_path().exists():
+                    await _to_the_end(asyncio.to_thread(recovery.save, self.session, project.autosave_path()))
+        async with (nullcontext() if method in ('chat.stop', 'chat.pause', 'recipes.stop') else self._lock):
+            pending = asyncio.ensure_future(asyncio.to_thread(begin))
+            await _to_the_end(pending)
+            found = pending.result()
+        if found:
+            if found['fingerprint'] != fingerprint:
+                raise EngineError('operation identity was reused for another command')
+            if found['status'] == 'committed' and found['result'] is not None:
+                return found['result']
+            raise RpcError(-32003, 'This operation already has a durable receipt.',
+                           {'operation_id': identity, 'outcome': found['status'],
+                            'hint': 'Inspect the current session and operation status before taking another action.'})
+        try:
+            token = rpc.OPERATION_ID.set(identity)
+            try:
+                result = await invoke()
+            finally:
+                rpc.OPERATION_ID.reset(token)
+        except BaseException:
+            # Pending is deliberately retained across cancellation and process death.
+            raise
+        receipt['status'] = 'committed'
+        encoded = recovery._encoded(result)
+        receipt['result'] = result if len(encoded) <= 2**20 else None
+        async with self._lock:
+            def finish():
+                recovery.save(self.session, project.autosave_path(), operation=receipt)
+                self._dirty = False
+            await _to_the_end(asyncio.to_thread(finish))
+        return result
 
     async def _blocking(self, fn: Callable[..., Any], *args: Any, **kw: Any) -> Any:
         """Run a session call in a thread, one at a time, then autosave if anything changed. This is
@@ -337,12 +467,22 @@ class CoreApp:
             if owner:
                 self._check_request_context(owner)
                 owner.started = True
+            events = []
+            token = _COMMIT_EVENTS.set(events)
             try:
-                return fn(*args, **kw)
+                try:
+                    return fn(*args, **kw)
+                finally:
+                    if owner:
+                        owner.context = DocumentContext.model_validate(self._document_context())
+                    self._autosave(strict=True)
+                    _COMMIT_EVENTS.reset(token)
+                    token = None
+                    for method, params in events:
+                        self._emit(method, params)
             finally:
-                if owner:
-                    owner.context = DocumentContext.model_validate(self._document_context())
-                self._autosave()
+                if token is not None:
+                    _COMMIT_EVENTS.reset(token)
 
         async with self._lock:
             fut = asyncio.ensure_future(asyncio.to_thread(work))
@@ -418,6 +558,23 @@ class CoreApp:
 
     def _emit(self, method: str, params: dict) -> None:
         """Queue an event for every subscriber. Callable from any thread (session calls run in threads)."""
+        events = _COMMIT_EVENTS.get()
+        if events is not None and method not in GLOBAL_EVENTS and method != 'message.delta':
+            # Payloads may contain mutable step dictionaries; freeze at publication time.
+            events.append((method, json.loads(json.dumps(params))))
+            if method == 'step.started':
+                # Publish admission before a long worker call, without announcing
+                # an uncommitted running step or delaying visible progress to its end.
+                self._autosave(strict=True)
+                pending = list(events)
+                events.clear()
+                token = _COMMIT_EVENTS.set(None)
+                try:
+                    for event, payload in pending:
+                        self._emit(event, payload)
+                finally:
+                    _COMMIT_EVENTS.reset(token)
+            return
         with self._event_lock:
             self._event_seq += 1
             envelope = {"core_instance_id": self.core_instance_id, "event_seq": self._event_seq}
@@ -498,8 +655,13 @@ class CoreApp:
         """The session as saved (SessionData by alias) plus what the app knows about it."""
         visible = self.session.visible_artifact_ids()
         from badshop.session.session import BYPASS_TOOLS
+        from badshop.session.conversation import CompletionInfo
+        usage = next((entry['completion'] for entry in reversed(self.session.data.transcript)
+                      if entry.get('completion')), None)
         return {**self.session.data.model_dump(mode="json", by_alias=True, exclude={"manual_undo", "manual_redo", "history_nodes", "branches"}),
                 "context": self._document_context(),
+                "read_only_reason": self.session.read_only_reason(),
+                "provider_usage": CompletionInfo.model_validate(usage).model_dump(mode='json') if usage else None,
                 "run_id": self._run.id if self._run else None,
                 "last_turn_outcome": self._run.outcome if self._run else None,
                 "scripted_provider": bool(self.settings.fake_provider_script or os.environ.get("BADSHOP_FAKE_PROVIDER")),
@@ -578,10 +740,11 @@ class CoreApp:
             if profile.kind != 'local' or host not in ('localhost', '127.0.0.1', '::1'):
                 raise EngineError('Local only requires a local provider at a loopback address')
 
-    def _make_provider(self, profile: profiles.Profile) -> LiteLLMProvider | CLIProvider | local_vision.LocalVisionProvider:
+    def _make_provider(self, profile: profiles.Profile):
         self._check_provider_network(profile)
         if profile.id == local_vision.PROFILE_ID:
-            return self._local_vision
+            from badshop.agent.local_strategy import LocalEditStrategy
+            return LocalEditStrategy(self._local_vision, self.session)
         if profile.kind == "cli":
             if self._connection is None:
                 raise EngineError("the local core connection is not ready")
@@ -621,6 +784,7 @@ class CoreApp:
                          attachments: list[str], retry: bool = False) -> None:
         session, cfg = run.session, run.config
         finished = False  # run_turn announced the end itself
+        terminal = None
         pending_text = io.StringIO()
         flush_handle: asyncio.TimerHandle | None = None
 
@@ -638,7 +802,7 @@ class CoreApp:
                     self._emit("message.delta", {"text": chunk, 'run_id': run.id})
 
         def emit(method: str, params: dict) -> None:
-            nonlocal finished, flush_handle
+            nonlocal finished, flush_handle, terminal
             if self._run is not run or self.session is not session:
                 return
             if method == 'turn.finished' and not run.finish(params):
@@ -660,10 +824,9 @@ class CoreApp:
                 run.stream_text = ''
             finished = finished or method == "turn.finished"
             if method == "turn.finished":
-                self._retry_session = session if params.get("reason") == "provider_error" else None
-                self._emit("provider.status", {"profile_id": session.data.provider_profile_id,
-                                               "status": "error" if self._retry_session else "ready",
-                                               "error": params.get("error")})
+                terminal = dict(params)
+                self._retry_session = session if params.get("reason") == "provider_error" and params.get("retryable") is not False else None
+                return  # publish only after the final document revision commits
             self._emit(method, {**params, 'run_id': run.id})
             if method == "turn.started":
                 self._emit("provider.status", {"profile_id": session.data.provider_profile_id, "status": "busy"})
@@ -685,8 +848,17 @@ class CoreApp:
             if not finished:
                 emit("turn.finished", {"reason": "error", "error": f"{type(e).__name__}: {e}"})
         finally:
-            run.task = None
-        await self._blocking(session.on_change)  # the old turn must never dirty a replacement session
+            try:
+                await self._blocking(session.on_change)  # retain task ownership through the final commit
+            except (EngineError, OSError) as error:
+                terminal = {'reason': 'error', 'error': f'The final state could not be saved: {getattr(error, "message", str(error))}'}
+                run.outcome = {**terminal, 'run_id': run.id}
+            finally:
+                run.task = None
+            if terminal is not None and self._run is run and self.session is session:
+                self._emit('provider.status', {'profile_id': session.data.provider_profile_id,
+                    'status': 'error' if terminal.get('error') else 'ready', 'error': terminal.get('error')})
+                self._emit('turn.finished', {**terminal, 'run_id': run.id})
 
     async def _stop_turn(self, note: str) -> bool:
         """Cancel the running turn and wait for it to end. run_turn rejects the steps it left waiting
@@ -781,10 +953,13 @@ class CoreApp:
 
     def _register(self) -> None:
         for name, handler, actors in (
+            ("operations.get", self._operation_get, "user"),
+            ("storage.inspect", self._storage_inspect, "user"),
             ("sources.status", self._sources_status, "user"),
             ("novelty.recent", self._novelty_recent, "user"),
             ("novelty.clear", self._novelty_clear, "user"),
             ("library.list", self._library_list, "user"),
+            ("library.page", self._library_page, "user"),
             ("library.save", self._library_save, "user"),
             ("library.update", self._library_update, "user"),
             ("library.import", self._library_import, "user"),
@@ -843,6 +1018,14 @@ class CoreApp:
         ):
             self.dispatcher.method(name, actors=actors)(handler)
 
+    def _guard_replacement(self, expected_revision, discard_unsaved):
+        self._check_idle()
+        if expected_revision is not None:
+            self._check_revision(expected_revision, 'replaced')
+            if self._document_revision != self._saved_revision and not discard_unsaved:
+                raise EngineError('the session has unsaved changes',
+                                  hint='Save the project or explicitly discard its changes')
+
     async def _switch(self, replace: Callable[[], None], note: str,
                       expected_revision: int | None = None, discard_unsaved: bool = False) -> dict:
         """session.new, session.open and session.restore: `replace` swaps the session in, under the lock.
@@ -859,11 +1042,7 @@ class CoreApp:
             self._check_idle()
             # Legacy clients omit the token. Desktop clients opt into both checks; they run after
             # any queued mutation, before loading files, swapping sessions, or cancelling approvals.
-            if expected_revision is not None:
-                self._check_revision(expected_revision, "replaced")
-                if self._document_revision != self._saved_revision and not discard_unsaved:
-                    raise EngineError("the session has unsaved changes",
-                                      hint="Save the project or explicitly discard its changes")
+            self._guard_replacement(expected_revision, discard_unsaved)
             before = self.session
             try:
                 replace()
@@ -1008,6 +1187,11 @@ class CoreApp:
 
     async def _library_list(self, actor: str, query: str = "", tags: list[str] | None = None) -> list[dict]:
         return await self._blocking(self.library.list, query, tags)
+
+    async def _library_page(self, actor: str, query: Annotated[str, Field(max_length=1000)] = "",
+                            tags: list[str] | None = None, offset: Annotated[int, Field(ge=0)] = 0,
+                            limit: Annotated[int, Field(ge=1, le=100)] = 50) -> dict:
+        return await self._blocking(self.library.page, query, tags or [], offset, limit)
 
     async def _library_save(self, actor: str, artifact_id: str, name: SessionName,
                             tags: list[str] | None = None, metadata: AssetDetails | None = None) -> dict:
@@ -1406,7 +1590,20 @@ class CoreApp:
 
     async def _artifacts_get(self, actor: str, id: str, max_px: MaxPx | None = None) -> dict:
         # Artifacts are immutable, so reading one needs no lock: the viewer stays live while a tool runs.
-        return await asyncio.to_thread(_artifact_payload, self.session, id, max_px)
+        return await self._media_read(_artifact_payload, self.session, id, max_px)
+
+    async def _media_read(self, function, *args):
+        """Bound queued decoder buffers independently of document/control operations."""
+        if self._media_pending >= 32:
+            raise EngineError('the image view queue is full', hint='wait for current previews to finish')
+        self._media_pending += 1
+        try:
+            async with self._media_slots:
+                pending = asyncio.ensure_future(asyncio.to_thread(function, *args))
+                await _to_the_end(pending)
+                return pending.result()
+        finally:
+            self._media_pending -= 1
 
     async def _artifacts_import(self, actor: str, path: str | None = None, data: str | None = None,
                                 name: str | None = None, source: Source | None = None) -> dict:

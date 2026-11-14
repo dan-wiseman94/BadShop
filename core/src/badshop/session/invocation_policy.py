@@ -1,6 +1,10 @@
 """Invocation admission policy, independent of the initiating provider or UI."""
 
 from dataclasses import dataclass
+from contextvars import ContextVar
+
+
+OPERATION_ID: ContextVar[str | None] = ContextVar('operation_id', default=None)
 
 
 FINISH_TOOLS = frozenset({'deepfry', 'save', 'animate', 'animate_sticker', 'export', 'export_profile'})

@@ -15,7 +15,13 @@ from smoke_desktop import check_native_log, renderer_is_ready, wait_project_pixe
 
 
 class RendererReadyTests(unittest.TestCase):
-    def test_project_probe_checks_pixels_and_content_hash(self):
+    def test_project_probe_checks_legacy_pixels_and_content_hash(self):
+        self.check_project_pixels(False)
+
+    def test_project_probe_checks_logical_identity_pixels_and_content_hash(self):
+        self.check_project_pixels(True)
+
+    def check_project_pixels(self, logical_identity):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'native.badshop'
             image = io.BytesIO()
@@ -23,7 +29,8 @@ class RendererReadyTests(unittest.TestCase):
             data = image.getvalue()
             digest = hashlib.sha256(data).hexdigest()
             state = {'id': 'owned-session', 'artifacts': {
-                digest: {'format': 'PNG', 'width': 40, 'height': 30},
+                ('a' * 64 if logical_identity else digest): {'format': 'PNG', 'width': 40, 'height': 30,
+                    **({'blob_id': digest} if logical_identity else {})},
             }}
             with zipfile.ZipFile(path, 'w') as archive:
                 archive.writestr('session.json', json.dumps(state))

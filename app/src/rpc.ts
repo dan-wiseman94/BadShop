@@ -2,17 +2,21 @@ import type { Connection, CoreEvent, MethodMap } from "./types";
 import { GLOBAL_EVENTS, PROTOCOL_VERSION, WIRE_SCHEMAS } from "./wire.generated";
 import type { DocumentContext } from "./wire.generated";
 import { counter, documentContext, object, parseFrame, validPayload } from "./protocol";
+import { binaryFrame, type BinaryArtifact } from './mediaWire';
 export class RpcError extends Error {
   constructor(
     message: string,
     public hint?: string,
     public code?: number,
+    public operationId?: string,
   ) {
     super(message);
     this.name = "RpcError";
   }
 }
 type Pending = {
+  binary?: boolean;
+  operationId?: string;
   method: keyof MethodMap;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -21,6 +25,7 @@ type Pending = {
 export class RpcClient {
   private ws?: WebSocket;
   private authenticated = false;
+  private binaryArtifacts = false;
   private pending = new Map<number, Pending>();
   private next = 0;
   private generation = 0;
@@ -52,6 +57,7 @@ export class RpcClient {
     this.status("connecting");
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://127.0.0.1:${connection.port}`);
+      ws.binaryType = 'arraybuffer';
       this.ws = ws;
       let welcomed = false;
       const current = () => generation === this.generation && this.ws === ws;
@@ -93,9 +99,13 @@ export class RpcClient {
       };
       ws.onmessage = (event) => {
         if (!current()) return;
-        let msg;
+        let msg: Record<string, unknown>;
+        let media: ReturnType<typeof binaryFrame> | undefined;
         try {
-          msg = parseFrame(event.data);
+          if (event.data instanceof ArrayBuffer) {
+            media = binaryFrame(event.data);
+            msg = media.envelope;
+          } else msg = parseFrame(event.data);
         } catch {
           end(new RpcError("Invalid core response.", "Restart the core; check the session before repeating an action."));
           return;
@@ -107,6 +117,7 @@ export class RpcClient {
             return;
           }
           this.coreInstanceId = msg.core_instance_id;
+          this.binaryArtifacts = Array.isArray(msg.capabilities) && msg.capabilities.includes('binary-artifact-v1');
           this.eventSequence = msg.event_seq;
           welcomed = true;
           this.authenticated = true;
@@ -133,6 +144,7 @@ export class RpcClient {
                 msg.error.message,
                 object(msg.error.data) && typeof msg.error.data.hint === "string" ? msg.error.data.hint : undefined,
                 msg.error.code,
+                pending.operationId,
               ),
             );
           else if (!msg.error && "result" in msg) {
@@ -141,7 +153,12 @@ export class RpcClient {
             else if (object(msg.result) && "context" in msg.result &&
                 (!documentContext(msg.result.context) || msg.result.context.core_instance_id !== this.coreInstanceId))
               pending.reject(new RpcError("The response belongs to an invalid core or document."));
-            else pending.resolve(msg.result);
+            else if (media && (!pending.binary || !['artifacts.get', 'artifacts.frame'].includes(pending.method)))
+              pending.reject(new RpcError('Unexpected binary response.'));
+            else if (media && object(msg.result)) {
+              const { data: _encoded, ...metadata } = msg.result;
+              pending.resolve({ ...metadata, blob: media.blob, byteLength: media.byteLength });
+            } else pending.resolve(msg.result);
           } else pending.reject(new RpcError("Malformed core result.", "Check the session before repeating this action."));
         } else if (typeof msg.method === "string") {
           if (!object(msg.params) || msg.core_instance_id !== this.coreInstanceId || !counter(msg.event_seq) ||
@@ -170,8 +187,10 @@ export class RpcClient {
       ws.onerror = () => {
         end(new RpcError("Could not connect to the core."));
       };
-      ws.onclose = () => {
-        end(new RpcError("Core connection closed before authentication."));
+      ws.onclose = (event) => {
+        end(new RpcError(welcomed
+          ? `Core connection closed (${event?.code ?? 1006}${event?.reason ? `: ${event.reason.slice(0, 160)}` : ""}).`
+          : "Core connection closed before authentication."));
       };
     });
   }
@@ -180,6 +199,7 @@ export class RpcClient {
     params?: MethodMap[K][0],
     signal?: AbortSignal,
     context?: DocumentContext,
+    binary = false,
   ): Promise<MethodMap[K][1]> {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
@@ -196,6 +216,8 @@ export class RpcClient {
         return;
       }
       const id = ++this.next;
+      const operationId = WIRE_SCHEMAS.methods[method].mutates && WIRE_SCHEMAS.methods[method].scope === "document"
+        ? crypto.randomUUID().replaceAll("-", "") : undefined;
       const abort = () => {
         this.pending.delete(id);
         reject(new DOMException("Request cancelled", "AbortError"));
@@ -203,6 +225,8 @@ export class RpcClient {
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
         method,
+        binary,
+        operationId,
         resolve: resolve as (value: unknown) => void,
         reject,
         cleanup: () => signal?.removeEventListener("abort", abort),
@@ -210,6 +234,8 @@ export class RpcClient {
       try {
         this.ws.send(
           JSON.stringify({ jsonrpc: "2.0", id, method, params: params ?? {},
+            ...(binary && this.binaryArtifacts ? { response_encoding: 'binary-artifact-v1' } : {}),
+            ...(operationId ? { operation_id: operationId } : {}),
             ...(context && WIRE_SCHEMAS.methods[method].scope === "document" ? { context } : {}) }),
         );
       } catch (error) {
@@ -219,6 +245,13 @@ export class RpcClient {
       }
     });
   }
+  async media(method: 'artifacts.get' | 'artifacts.frame', params: MethodMap['artifacts.frame'][0], signal?: AbortSignal): Promise<BinaryArtifact> {
+    const result = await this.request(method, params, signal, undefined, true);
+    if ('blob' in result) return result as unknown as BinaryArtifact;
+    // Protocol-1 cores without the capability remain readable during an app/core upgrade.
+    const bytes = Uint8Array.from(atob(result.data), char => char.charCodeAt(0));
+    return { meta: result.meta, mime: result.mime, blob: new Blob([bytes], { type: result.mime }), byteLength: bytes.length };
+  }
   private rejectPending() {
     for (const p of this.pending.values()) {
       p.cleanup();
@@ -226,6 +259,8 @@ export class RpcClient {
         new RpcError(
           "The core disconnected while this action was running.",
           "Check the session before running the action again.",
+          undefined,
+          p.operationId,
         ),
       );
     }

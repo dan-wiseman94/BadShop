@@ -5,11 +5,16 @@ import threading
 import pytest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from badshop.agent.provider import Provider
 from badshop.server.settings import Settings, load_settings
 from test_server_app import Client, Failed, env as env, run
 
 
 def test_local_only_stops_active_api_before_acknowledgement(env):
+    # This measures cancellation of an active request, not concurrent workers'
+    # cold SDK import time. Keep the five-second request/cancellation bounds.
+    from badshop.providers.litellm_provider import _load_sdk
+    _load_sdk()
     seen, release = threading.Event(), threading.Event()
     requests = []
 
@@ -115,7 +120,7 @@ def test_local_only_cancels_test_connection_before_ack(env, monkeypatch, phase):
     entered, release = threading.Event(), threading.Event()
     calls, cancelled = [], []
     async def body(app):
-        class Probe:
+        class Probe(Provider):
             def check_capabilities(self):
                 if phase == "capabilities":
                     entered.set()

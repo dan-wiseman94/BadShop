@@ -105,6 +105,7 @@ def test_normalized_import_does_not_acquire_a_later_producer(tmp_path):
     pasted = session.run_tool("paste", {"base": text.outputs[0], "piece": canvas.outputs[0], "at": [0, 0], "width": 10}, "user")
     assert pasted.status == "done"
     reopened = project.open_project(remix.export(session, pasted.outputs[0]), output_dir=tmp_path)
-    assert reopened.data.steps[0].params["image"] == reopened.data.steps[1].outputs[0]
+    assert reopened.data.steps[0].params["image"] != reopened.data.steps[1].outputs[0]
+    assert reopened.artifacts.data(reopened.data.steps[0].params["image"]) == reopened.artifacts.data(reopened.data.steps[1].outputs[0])
     reopened.edit("s1", {**reopened.data.steps[0].params, "text": "Changed"})
     assert all(step.status == "done" for step in reopened.replay_from("s1"))

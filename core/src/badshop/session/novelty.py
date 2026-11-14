@@ -38,7 +38,7 @@ def choices(session):
             for ref in (value if many and isinstance(value, list) else [value]):
                 meta = session.artifacts.meta.get(ref) if isinstance(ref, str) and ref in visible else None
                 if meta:
-                    row = {"kind": "image", "value": meta.id, "label": meta.label[:200]}
+                    row = {"kind": "image", "value": meta.blob_id, "label": meta.label[:200]}
                     if meta.source and meta.source.url and meta.source.url.startswith(("http://", "https://")):
                         # URLs with queries may carry download credentials. Keep those out of durable memory.
                         if "?" not in meta.source.url and "@" not in meta.source.url:

@@ -191,8 +191,9 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
                     for digest, meta in session['artifacts'].items():
                         if meta['format'] != 'PNG' or (meta['width'], meta['height']) != expected_size:
                             continue
-                        data = archive.read(f'artifacts/{digest}.png')
-                        assert hashlib.sha256(data).hexdigest() == digest, 'Project artifact hash changed'
+                        blob_id = meta.get('blob_id', digest)  # schema 1–5 used the byte hash as identity
+                        data = archive.read(f'artifacts/{blob_id}.png')
+                        assert hashlib.sha256(data).hexdigest() == blob_id, 'Project artifact hash changed'
                         with Image.open(io.BytesIO(data)) as restored:
                             if restored.size == expected_size and restored.convert('RGBA').tobytes() == expected_pixels:
                                 return session

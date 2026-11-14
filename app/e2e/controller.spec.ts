@@ -274,6 +274,7 @@ test("rejects an agent proposal with a note and exposes provider failures for re
       for (const frame of withheld.splice(0)) client.send(frame);
     };
     server.onMessage((frame) => {
+      if (typeof frame !== "string") { client.send(frame); return; }
       const message = JSON.parse(String(frame));
       if (delayRetryText && message.method === "message.delta") {
         lateText.push(frame);

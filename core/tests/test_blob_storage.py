@@ -31,7 +31,8 @@ def test_failed_batch_removes_published_files():
         store.add(encode(Image.new('RGB', (12, 8), 'red')), 'temporary')
         raise RuntimeError('failure after publication')
     assert not store.ids()
-    assert list(store._blobs.root.iterdir()) == []
+    from badshop.session.scratch import MARKER
+    assert {path.name for path in store._blobs.root.iterdir()} == {MARKER}
 
 
 def test_corrupt_blob_fails_before_decode():
