@@ -17,7 +17,7 @@ import psutil
 from accept_native_visual import NativeLabels
 from accept_update_server import UpdateServer
 from native_windows import normal_close, visible_window
-from smoke_desktop import linux_file_dialog, native_keys, smoke, wait_project_pixels
+from smoke_desktop import linux_file_dialog, native_keys, smoke, wait_saved_project
 
 
 def digest(path):
@@ -41,9 +41,6 @@ def open_existing(pid, window, project, output, *, reject_future=False):
     else:
         with zipfile.ZipFile(project) as source:
             identity = json.loads(source.read('session.json'))['id']
-            images = [n for n in source.namelist() if n.startswith('artifacts/') and n.endswith('.png')]
-            assert len(images) == 1
-            pixels = source.read(images[0])
         deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
             state = json.loads(ready.read_text())
@@ -52,7 +49,7 @@ def open_existing(pid, window, project, output, *, reject_future=False):
             time.sleep(.2)
         else:
             raise AssertionError('AppImage did not reopen expected project')
-        wait_project_pixels(ready.parent / 'core-data/autosave/session.badshop', identity, pixels)
+        wait_saved_project(ready.parent / 'core-data/autosave/session.badshop', project)
 
 
 def upgrade(candidate, root, output, label, installed_app=None):

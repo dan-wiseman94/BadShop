@@ -8,7 +8,7 @@ from pathlib import Path
 
 import psutil
 
-from smoke_desktop import wait_project_pixels
+from smoke_desktop import wait_project_pixels, wait_saved_project
 from native_windows import screenshot
 
 
@@ -126,9 +126,6 @@ def open_existing(pid, window, project, output, *, reject_future=False):
     else:
         with zipfile.ZipFile(project) as source:
             identity = json.loads(source.read('session.json'))['id']
-            images = [n for n in source.namelist() if n.startswith('artifacts/') and n.endswith('.png')]
-            assert len(images) == 1
-            pixels = source.read(images[0])
         deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
             state = json.loads(ready.read_text())
@@ -138,4 +135,4 @@ def open_existing(pid, window, project, output, *, reject_future=False):
         else:
             screenshot(window, output / 'reopen-failed.png')
             raise AssertionError('Mac did not reopen expected saved project')
-        wait_project_pixels(ready.parent / 'core-data/autosave/session.badshop', identity, pixels)
+        wait_saved_project(ready.parent / 'core-data/autosave/session.badshop', project)

@@ -1,15 +1,15 @@
-# Release 0.5.2 license review
+# Release 0.5.3 license review
 
 This review was performed by Codex at the maintainer's explicit request. It does
 not describe an independent lawyer's opinion. Final acceptance must reference the
-installed-package inspection for the exact 0.5.2 candidate.
+installed-package inspection for the exact 0.5.3 candidate.
 
 ## Objective-C bindings
 
 The 0.5.1 installed-package inspection failed on `block2`: its supplemental
 `LICENSE.md` described MIT and linked the standard terms, but contained no full
 permission notice. The same supplemental explanation was used for all twenty
-flagged Objective-C binding packages. The 0.5.2 packaging fix retains that
+flagged Objective-C binding packages. The 0.5.3 packaging fix retains that
 explanation and adds two unmodified, authoritative upstream notices:
 
 - [Current MIT text, Mads Marquart](https://github.com/madsmtm/objc2/blob/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt).

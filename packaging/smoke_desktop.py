@@ -170,6 +170,26 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
                          f'files: {[str(p.relative_to(path.parent)) for p in path.parent.rglob("*.badshop*")]}')
 
 
+def wait_saved_project(path: Path, saved: Path) -> None:
+    """Require the reopened identity and every original/working artifact byte."""
+    with zipfile.ZipFile(saved) as source:
+        original = json.loads(source.read('session.json'))
+        expected = {name: source.read(name) for name in source.namelist() if name.startswith('artifacts/')}
+    assert expected, 'Acceptance project has no artifacts'
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        try:
+            with zipfile.ZipFile(path) as target:
+                document = json.loads(target.read('session.json'))
+                if document['id'] == original['id'] and set(document['artifacts']) == set(original['artifacts']):
+                    if all(target.read(name) == data for name, data in expected.items()):
+                        return
+        except (OSError, zipfile.BadZipFile, KeyError):
+            pass  # Wait only for this run's atomic autosave to arrive.
+        time.sleep(.1)
+    raise AssertionError('Reopened project did not retain its identity and all artifact bytes')
+
+
 def linux_file_dialog(pid: int, window: int, path: Path, *, saving: bool = False) -> None:
     """Drive the owned GTK picker on the harness's private display."""
     deadline = time.monotonic() + 15
@@ -298,14 +318,11 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                         wait_renderer(proc, ready_path, ports, nonce, welcome=False)
                     with zipfile.ZipFile(project_to_open) as source:
                         identity = json.loads(source.read('session.json'))['id']
-                        images = [n for n in source.namelist() if n.startswith('artifacts/') and n.endswith('.png')]
-                        assert len(images) == 1, 'Acceptance fixture must have one image'
-                        pixels = source.read(images[0])
                     native_keys(window, 'ctrl+o')
                     linux_file_dialog(window_pid, window, project_to_open)
                     wait_renderer(proc, ready_path, ports, nonce, session_id=identity, unsaved=False)
-                    wait_project_pixels(root / 'core-data/autosave/session.badshop', identity, pixels)
-                    metrics['project_reopened'] = {'session_id': identity, 'artifact_sha256': hashlib.sha256(pixels).hexdigest()}
+                    wait_saved_project(root / 'core-data/autosave/session.badshop', project_to_open)
+                    metrics['project_reopened'] = {'session_id': identity, 'all_artifact_bytes_verified': True}
                 exercise_close = restart_core and sys.platform == 'linux'
                 session_id = None
                 if exercise_close:
