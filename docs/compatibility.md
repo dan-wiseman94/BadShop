@@ -75,7 +75,59 @@ Codex and Gemini CLI need Node.js.
 
 ## Project compatibility and recovery
 
+The desktop and core negotiate local wire protocol 1 separately from the project
+schema and application version. A mismatched explicit protocol is refused before
+commands run. The welcome also identifies the exact core build and process.
+Older 0.4.x MCP/updater clients that omit the protocol number remain accepted
+during their migration; remove this exception when those clients negotiate the
+protocol explicitly. Omitted command context is likewise a transitional 0.4.x
+client path, not a guarantee that stale commands are safe.
+
+Desktop actions carry the observed document incarnation, branch and revision.
+The core checks ownership again after a queued action acquires the document lock.
+Stop and Pause require the same document incarnation but may follow a newer run
+revision; recipe Stop and approval responses tolerate revision advancement while requiring
+the same branch. Older or mismatched events cannot update a newer snapshot.
+Sequence gaps trigger refresh, never automatic mutation retries. A lost response
+or a malformed server result has an unknown outcome: inspect the current document
+before repeating it. Durable operation receipts are not implemented yet.
+
+Snapshots include the active run ID, its emitted partial text and last terminal
+outcome so refresh can recover streaming/retry state. This run state is currently
+in memory, not crash-durable project history. Saved image and timeline recovery
+continue to use the existing project/autosave path.
+
+Managed CLI processes receive random revocable adapter credentials, separate from
+the renderer token. Document calls require an active run and matching direction;
+tool discovery can run while idle. Stop ends authorization for queued work, and
+an older socket cannot borrow a later run. Document, direction and profile
+replacement revoke the credential and retire the process's private configuration.
+The cached process can reconnect with the same credential for its next run until
+one of those replacement boundaries retires it.
+
+Standalone MCP retains explicit HMAC-derived credentials for independently
+launched integrations. The current proxy negotiates protocol 1 and binds itself
+to its first document incarnation/direction across per-call sockets. Reconnect
+the proxy explicitly after replacing either. Older 0.4.x proxies without hello
+context remain connection-scoped only; remove that exception when the supported
+independent clients all negotiate and retain document context. Such credentials
+are explicit standalone authorization, not managed-run credentials.
+
+Both the current MCP proxy and native updater explicitly negotiate protocol 1.
+The updater refuses a missing or incompatible protocol before starting its HTTP
+operation. Its narrow welcome contract has a shared Python/Rust fixture.
+
+API and managed CLI execution consume the same session-owned step budget.
+Proposals, user rejection and invalid approval edits consume no execution slot;
+an admitted execution attempt consumes one, including tool failure/cancellation.
+Parallel approvals cannot exceed the budget. Rejected edits settle in the session
+and produce the same recorded result for either provider path.
+
 Current code reads project schemas 1–4 and refuses newer schemas with an explanation.
+New automatic turn directions carry an optional retention marker. Missing markers
+in older schema 1–4 projects mean permanent retention; names alone never authorize
+cleanup. Older format-4 apps can ignore the marker; if they omit it on resave,
+those directions become permanently retained when reopened in the current app.
 New saves use schema 4 for manual pins, effect bypass and turn checkpoints. Releases
 that only support schemas 1–3 cannot open these new saves; keep a backup before upgrading.
 See [manual corrections](manual-controls.md) for controls and their limits.

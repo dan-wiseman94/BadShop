@@ -30,7 +30,7 @@ from badshop.engine import assets
 from badshop.engine.errors import EngineError
 from badshop.session.artifacts import ArtifactStore, short
 from badshop.session.models import SCHEMA, ArtifactMeta, SessionData, StepError
-from badshop.session.session import Session, result_text
+from badshop.session.session import Session, referenced_ids, result_text
 from badshop.tools import runner
 from badshop.tools.registry import REGISTRY, map_image_refs
 
@@ -451,7 +451,7 @@ def open_project(path: Path, **session_kw) -> Session:
         branch_data = SessionData(id=data.id, name=branch.name, created_at=branch.created_at,
                                   steps=branch.steps, messages=branch.messages, transcript=branch.transcript)
         _finish_interrupted(branch_data, artifacts)
-        missing |= Session(branch_data, artifacts).referenced_ids() - set(artifacts.ids())
+        missing |= referenced_ids(branch_data, artifacts.meta) - set(artifacts.ids())
     if missing:
         raise _damaged(path, f"artifact {short(min(missing))} is missing")
     return session

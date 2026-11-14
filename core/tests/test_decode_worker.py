@@ -10,7 +10,7 @@ import psutil
 import pytest
 
 from badshop.engine.errors import EngineError
-from badshop.session import artifacts
+from badshop.session import artifacts, branches
 from badshop.session.artifacts import ArtifactStore
 from badshop.session.project import open_project, save
 from badshop.session.session import Session
@@ -40,10 +40,14 @@ def test_worker_import_animation_project_and_collection_keep_pixels_without_pare
         with session.artifacts.image(original.id, 1) as image:
             assert image.convert("RGB").getpixel((0, 0)) == (0, 0, 255)
         path = tmp_path / "dance.badshop"
+        branches.create(session, "Alternate")
         save(session, path)
         restored = open_project(path, decoder=worker.decode)
         assert restored.artifacts.data(original.id) == gif
         assert restored.artifacts.data(work.id) == expected.data(work.id)
+        with restored.artifacts.image(original.id, 1) as image:
+            assert image.convert("RGB").getpixel((0, 0)) == (0, 0, 255)
+        assert restored.import_image(png, "after-reopen.png").width == 20
         folder = tmp_path / "pictures"
         folder.mkdir()
         (folder / "red.png").write_bytes(png)

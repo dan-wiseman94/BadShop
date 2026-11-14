@@ -96,15 +96,19 @@ def rig(tmp_path):
     return Rig(tmp_path)
 
 
-def test_reopened_project_replays_after_runtime_changes(rig, tmp_path, monkeypatch):
+@pytest.mark.parametrize("changed", ["runtime", "build"])
+def test_reopened_project_replays_after_runtime_changes(rig, tmp_path, monkeypatch, changed):
     from badshop.session import execution, project
     steps = rig.chain()
     path = project.save(rig.s, tmp_path / "runtime.badshop")
     reopened = project.open_project(path, executor=rig.ex)
     reopened.replay_from(steps[0].id)
     assert not rig.ex.calls  # same runtime reuses the actual saved executions
-    fingerprint = execution.runtime_fingerprint()
-    monkeypatch.setattr(execution, "runtime_fingerprint", lambda: {**fingerprint, "codecs": {"zlib": "new"}})
+    if changed == "runtime":
+        fingerprint = execution.runtime_fingerprint()
+        monkeypatch.setattr(execution, "runtime_fingerprint", lambda: {**fingerprint, "codecs": {"zlib": "new"}})
+    else:
+        monkeypatch.setattr(execution, "build_identity", lambda: "new-source-at-same-version")
     reopened.replay_from(steps[0].id)
     assert rig.ex.calls == [step.tool for step in steps]
     assert [step.outputs for step in reopened.data.steps] == [step.outputs for step in steps]

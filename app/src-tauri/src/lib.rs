@@ -79,10 +79,7 @@ fn diagnostics(app: tauri::AppHandle) -> Result<String, String> {
         .app_log_dir()
         .map_err(|e| e.to_string())?
         .join("shell.log");
-    let text = std::fs::read_to_string(&log).unwrap_or_default();
-    let mut lines = text.lines().rev().take(200).collect::<Vec<_>>();
-    lines.reverse();
-    let body = lines.join("\n");
+    let body = supervisor::log_tail(&log).unwrap_or_default();
     let secrets = regex::Regex::new(
         r#"(?i)(bearer\s+|(?:api[_-]?key|token|password|secret)[\s\"':=]+)[^\s\",;}]+"#,
     )

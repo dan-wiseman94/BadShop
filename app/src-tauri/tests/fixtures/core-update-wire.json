@@ -1,0 +1,11 @@
+{
+  "type": "welcome",
+  "actor": "updater",
+  "version": "fixture",
+  "protocol": 1,
+  "build_id": "fixture-build",
+  "core_instance_id": "fixture-process",
+  "event_seq": 0,
+  "capabilities": ["document-context", "ordered-events"],
+  "context": null
+}

@@ -102,9 +102,9 @@ export default function App() {
   const { data: settings } = useCoreQuery("settings.get");
   const updates = useUpdates(() => documents.request({ kind: "close" }), settings?.no_remote ?? true);
   const updateModalOpen = updates.phase === "downloading" || updates.phase === "installing";
-  const [welcome, setWelcome] = useState(!localStorage.getItem("badshop.welcome"));
+  const [welcome, setWelcome] = useState(() => !readPreference("welcome", ""));
   // Existing users keep their workbench; first-time users begin with quick ideas.
-  const [workspace, setWorkspace] = useState(() => readPreference("workspace", localStorage.getItem("badshop.welcome") ? "advanced" : "quick"));
+  const [workspace, setWorkspace] = useState(() => readPreference("workspace", readPreference("welcome", "") ? "advanced" : "quick"));
   const [history, setHistory] = useState(false);
   const chooseWorkspace = (value: string) => { setWorkspace(value); savePreference("workspace", value); };
   const [menu, setMenu] = useState(false);
@@ -346,7 +346,7 @@ export default function App() {
   ]);
   const closeWelcome = (workspace: "quick" | "advanced") => {
     chooseWorkspace(workspace);
-    localStorage.setItem("badshop.welcome", "1");
+    savePreference("welcome", "1");
     setWelcome(false);
   };
   const disconnected = ui.status === "failed" || ui.status === "disconnected";

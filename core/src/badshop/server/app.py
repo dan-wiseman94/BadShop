@@ -9,6 +9,7 @@ import asyncio
 import base64
 import binascii
 import io
+import hmac
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from pydantic import Field, ValidationError
 from badshop import files
 from badshop.agent import approval
 from badshop.agent.approval import ApprovalGate
+from badshop.session.invocation_policy import FINISH_TOOLS
 from badshop.agent.fake import ScriptedProvider
 from badshop.agent.provider import Provider, ProviderError
 from badshop.providers import local_vision, profiles
@@ -38,6 +40,10 @@ from badshop.engine.common import fit, has_alpha, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.server import local_runtime, rpc
 from badshop.server.rpc import INVALID_PARAMS, Dispatcher, RpcError
+from badshop.server.protocol import DocumentContext, GLOBAL_EVENTS
+from badshop.server.contracts import METHODS
+from badshop.server.run_state import RunState
+from badshop.server.grants import AdapterGrant, AdapterGrants
 from badshop.server.settings import ApprovalMode, Settings, load_settings, save_settings
 from badshop.session import branches, project
 from badshop.session.library import AssetDetails, AssetLibrary
@@ -160,6 +166,9 @@ class CoreApp:
     def __init__(self, settings: Settings | None = None,
                  executor_factory: Callable[..., Executor] = WorkerExecutor):
         self._loop = asyncio.get_running_loop()
+        self.core_instance_id = uuid.uuid4().hex
+        self._event_seq = 0
+        self._event_lock = threading.Lock()
         self.settings = settings if settings is not None else load_settings()
         # The last run's autosave, moved aside before this run can autosave over it: the restore offer
         # (spec 9, 10) that session.get reports and session.restore takes.
@@ -176,22 +185,19 @@ class CoreApp:
         self._provider_probes: set[asyncio.Task] = set()
         self._subscribers: dict[asyncio.Queue, asyncio.Task] = {}
         self._tasks: set[asyncio.Task] = set()  # background work (auto replays, cleanups)
-        self._turn: asyncio.Task | None = None
+        self._run: RunState | None = None
         self._starting = False  # a provider/keychain lookup reserved the next turn
         self._start_generation = 0  # Stop invalidates a lookup even before _turn exists
         self._approval_generation = 0  # disconnect/replacement also invalidates proposals still being saved
-        self._turn_cfg: TurnConfig | None = None
         self._switching = 0  # session.new / session.open calls under way: no turn may start meanwhile
         self._provider: Provider | None = None
         self._connection: tuple[str, str] | None = None
         self._cli_providers: dict[tuple[str, str], CLIProvider] = {}
+        self._grants = AdapterGrants()
         self._local_runtime = local_runtime.LocalVisionRuntime()
         self._local_vision = local_vision.LocalVisionProvider(self._local_runtime.endpoint, local_runtime.available)
         self._retired_clis: list[CLIProvider] = []
-        self._cli_turn_actor: str | None = None
-        self._cli_message_id: str | None = None
-        self._cli_remaining: int | None = None
-        self._cli_cancels: dict[str, threading.Event] = {}
+        self._cli_cancels: dict[int, tuple[Step, threading.Event]] = {}
         self._retry_session: Session | None = None
         self._profiles_error: EngineError | None = None
         try:
@@ -217,7 +223,7 @@ class CoreApp:
         self._downloads: dict[str, _Download] = {}
         self._prev_cancel = assets.CANCEL
         assets.CANCEL = self._download_cancelled
-        self.dispatcher = Dispatcher()
+        self.dispatcher = Dispatcher(contracts=METHODS, check_context=self._check_request_context)
         self._register()
         self.library = AssetLibrary(decoder=getattr(self._decoder, "decode", None))
         self.novelty = NoveltyMemory()
@@ -229,6 +235,18 @@ class CoreApp:
         register_retro(self)
 
     # --- plumbing -------------------------------------------------------------------------------
+
+    @property
+    def _turn(self) -> asyncio.Task | None:
+        return self._run.task if self._run else None
+
+    @property
+    def _turn_cfg(self) -> TurnConfig | None:
+        return self._run.config if self._run and self._run.task else None
+
+    @property
+    def _cli_turn_actor(self) -> str | None:
+        return self._run.cli_actor if self._run and self._run.task else None
 
     def _new_executor(self) -> Executor:
         return self._executor_factory(timeout_s=self.settings.tool_timeout_s,
@@ -244,9 +262,8 @@ class CoreApp:
                 "decoder": getattr(self._decoder, "decode", None)}
 
     def _own(self, session: Session) -> Session:
-        """Forward events and changes only while this is the open session. Step ids start at s1 in every session and
-        events carry no session id, so what a replaced session still does (a waiting CLI step it rejects
-        after session.open, say) must not reach a client: it would land on the new session's step."""
+        """Only the open session can publish changes. Cleanup of an old session
+        must not be stamped with the replacement document's wire context."""
         def emit(method: str, params: dict) -> None:
             if self.session is session:
                 self._emit(method, params)
@@ -316,9 +333,15 @@ class CoreApp:
         that step's own cancel event, even while the call still waits here for the lock; close() calls
         the executor's cancel() for any other call.)"""
         def work() -> Any:
+            owner = rpc.REQUEST_OWNERSHIP.get()
+            if owner:
+                self._check_request_context(owner)
+                owner.started = True
             try:
                 return fn(*args, **kw)
             finally:
+                if owner:
+                    owner.context = DocumentContext.model_validate(self._document_context())
                 self._autosave()
 
         async with self._lock:
@@ -335,20 +358,83 @@ class CoreApp:
                     fut.exception()  # mark it retrieved: the caller is gone, so is its result
                 raise
 
+    def _check_request_context(self, owner: rpc.RequestOwnership) -> None:
+        expected = owner.context
+        actual = self._document_context()
+        fields = ['core_instance_id', 'document_id', 'document_incarnation']
+        if owner.method not in ('chat.stop', 'chat.pause'):
+            fields.append('branch_id')
+        if owner.check_revision and owner.method not in ('chat.stop', 'chat.pause', 'recipes.stop', 'approval.respond'):
+            fields.append('revision')
+        stale_run = owner.run_id is not None and (
+            self._run is None or self._run.id != owner.run_id or self._run.outcome is not None)
+        if owner.authorization_id:
+            grant = self._grants.get(owner.authorization_id)
+            stale_run = stale_run or grant is None or grant.revoked or (
+                not grant.standalone and grant.run_id != owner.run_id)
+        if any(getattr(expected, field) != actual[field] for field in fields) or stale_run:
+            raise RpcError(-32002, 'The document changed before this action could run.',
+                           {'hint': 'Refresh the session and review the action before trying again.',
+                            'outcome': 'unknown' if owner.started else 'not_started'})
+
+    def authenticate_cli(self, token: str, actor: str, user_token: str,
+                         context: DocumentContext | None = None) -> AdapterGrant | None:
+        grant = self._grants.authenticate(token, actor)
+        if grant is not None:
+            return grant
+        from badshop.server.auth import actor_token
+        if not hmac.compare_digest(token.encode('utf-8', 'surrogatepass'), actor_token(user_token, actor).encode()):
+            return None
+        if context is not None:
+            actual = self._document_context()
+            if any(getattr(context, key) != actual[key] for key in (
+                    'core_instance_id', 'document_id', 'document_incarnation', 'branch_id')):
+                return None
+        # Explicit standalone MCP credentials remain supported, but their
+        # connection is bound to this document and direction, not self.session forever.
+        grant = self._grants.issue(actor, self.session.incarnation, standalone=True)
+        grant.branch_id = self.session.data.active_branch_id
+        return grant
+
+    def authorize_cli(self, grant: AdapterGrant, method: str) -> tuple[dict | None, str | None]:
+        from badshop.server.protocol import CLI_METHODS
+        if method not in CLI_METHODS:
+            raise RpcError(rpc.FORBIDDEN, 'This method is outside the CLI grant scope.')
+        if self._closed or grant.revoked or grant.document_incarnation != self.session.incarnation:
+            raise RpcError(rpc.FORBIDDEN, 'The CLI authorization has ended.')
+        if method == 'tools.list':
+            return None, None  # MCP discovery may run before the provider starts a turn.
+        if grant.branch_id != self.session.data.active_branch_id:
+            raise RpcError(rpc.FORBIDDEN, 'The CLI authorization belongs to another direction.')
+        if not grant.standalone and (self._run is None or self._turn is None or
+                                    self._run.outcome is not None or grant.run_id != self._run.id):
+            raise RpcError(rpc.FORBIDDEN, 'The CLI has no active run authorization.')
+        return self._document_context(), grant.run_id
+
+    async def _close_cli(self, provider: CLIProvider) -> None:
+        if grant := self._grants.get(getattr(provider, 'authorization_id', None)):
+            self._grants.revoke(grant)
+        await provider.close()
+
     def _emit(self, method: str, params: dict) -> None:
         """Queue an event for every subscriber. Callable from any thread (session calls run in threads)."""
-        msg = rpc.notification(method, params)
-        try:
-            here = asyncio.get_running_loop()
-        except RuntimeError:
-            here = None
-        if here is self._loop:
-            self._deliver(msg)
-            return
-        try:
-            self._loop.call_soon_threadsafe(self._deliver, msg)
-        except RuntimeError:  # the loop is closed: nobody is listening any more
-            pass
+        with self._event_lock:
+            self._event_seq += 1
+            envelope = {"core_instance_id": self.core_instance_id, "event_seq": self._event_seq}
+            if method not in GLOBAL_EVENTS:
+                envelope["context"] = self._document_context()
+            msg = rpc.notification(method, params, **envelope)
+            try:
+                # Queue even on the event loop: all emitters observe one ordering.
+                self._loop.call_soon_threadsafe(self._deliver, msg)
+            except RuntimeError:  # the loop is closed: nobody is listening any more
+                pass
+
+    def _document_context(self) -> dict:
+        return DocumentContext(core_instance_id=self.core_instance_id, document_id=self.session.data.id,
+                               document_incarnation=self.session.incarnation,
+                               branch_id=self.session.data.active_branch_id,
+                               revision=self._document_revision, event_seq=self._event_seq).model_dump()
 
     def _deliver(self, msg: str) -> None:
         for queue, pump in list(self._subscribers.items()):
@@ -386,7 +472,13 @@ class CoreApp:
         return unsubscribe
 
     def _spawn(self, coro: Awaitable[Any]) -> asyncio.Task:
-        task = self._loop.create_task(coro)
+        # Background turns/replays have their own explicit Session ownership;
+        # they must not inherit the initiating RPC's pre-checkpoint revision.
+        token = rpc.REQUEST_OWNERSHIP.set(None)
+        try:
+            task = self._loop.create_task(coro)
+        finally:
+            rpc.REQUEST_OWNERSHIP.reset(token)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
@@ -407,6 +499,10 @@ class CoreApp:
         visible = self.session.visible_artifact_ids()
         from badshop.session.session import BYPASS_TOOLS
         return {**self.session.data.model_dump(mode="json", by_alias=True),
+                "context": self._document_context(),
+                "run_id": self._run.id if self._run else None,
+                "last_turn_outcome": self._run.outcome if self._run else None,
+                "stream_text": self._run.stream_text if self._run and self._run.outcome is None else '',
                 "bypass_tools": sorted(BYPASS_TOOLS),
                 "artifacts": {aid: meta.model_dump(mode="json") for aid, meta in self.session.artifacts.meta.items()
                               if aid in visible},
@@ -489,13 +585,20 @@ class CoreApp:
             cached = self._cli_providers.get(key)
             if cached and cached.profile == profile:
                 return cached
-            from badshop.server.auth import actor_token
             from badshop.diagnostics import register_secret
-            url, user_token = self._connection
-            scoped_token = actor_token(user_token, f"cli:{profile.cli}")
-            register_secret(scoped_token)
-            provider = CLIProvider(profile, url, scoped_token)
+            url, _ = self._connection
+            grant = self._grants.issue(f'cli:{profile.cli}', self.session.incarnation, profile.id)
+            register_secret(grant.token)
+            try:
+                provider = CLIProvider(profile, url, grant.token)
+            except BaseException:
+                self._grants.revoke(grant)
+                raise
+            provider.authorization_id = grant.id
+            provider.actor = grant.execution_actor
             if cached:
+                if old_grant := self._grants.get(cached.authorization_id):
+                    self._grants.revoke(old_grant)
                 self._retired_clis.append(cached)
             self._cli_providers[key] = provider
             return provider
@@ -510,8 +613,9 @@ class CoreApp:
 
     # --- the agent turn -------------------------------------------------------------------------
 
-    async def _turn_main(self, session: Session, provider: Provider, text: str,
-                         attachments: list[str], cfg: TurnConfig, retry: bool = False) -> None:
+    async def _turn_main(self, run: RunState, provider: Provider, text: str,
+                         attachments: list[str], retry: bool = False) -> None:
+        session, cfg = run.session, run.config
         finished = False  # run_turn announced the end itself
         pending_text = io.StringIO()
         flush_handle: asyncio.TimerHandle | None = None
@@ -525,10 +629,20 @@ class CoreApp:
                 chunk = pending_text.getvalue()
                 pending_text.seek(0)
                 pending_text.truncate()
-                self._emit("message.delta", {"text": chunk})
+                if self._run is run and self.session is session:
+                    run.stream_text += chunk
+                    self._emit("message.delta", {"text": chunk, 'run_id': run.id})
 
         def emit(method: str, params: dict) -> None:
             nonlocal finished, flush_handle
+            if self._run is not run or self.session is not session:
+                return
+            if method == 'turn.finished' and not run.finish(params):
+                return
+            if method == 'turn.finished':
+                self._grants.end_run(run.id)
+            if method == 'message.delta' and run.outcome is not None:
+                return
             # Providers may drain many buffered chunks without yielding to the socket writer.
             if method == "message.delta":
                 pending_text.write(params["text"])
@@ -538,34 +652,36 @@ class CoreApp:
                     flush_handle = self._loop.call_later(CHAT_DELTA_INTERVAL_S, flush_text)
                 return
             flush_text()  # a completed message or turn must never be followed by its old deltas
+            if method == 'message.done':
+                run.stream_text = ''
             finished = finished or method == "turn.finished"
             if method == "turn.finished":
                 self._retry_session = session if params.get("reason") == "provider_error" else None
                 self._emit("provider.status", {"profile_id": session.data.provider_profile_id,
                                                "status": "error" if self._retry_session else "ready",
                                                "error": params.get("error")})
-            self._emit(method, params)
+            self._emit(method, {**params, 'run_id': run.id})
             if method == "turn.started":
                 self._emit("provider.status", {"profile_id": session.data.provider_profile_id, "status": "busy"})
 
         try:
             if isinstance(provider, CLIProvider):
-                await run_cli_turn(self, session, provider, text, attachments, cfg, emit, retry=retry)
+                await run_cli_turn(self, run, provider, text, attachments, emit, retry=retry)
             else:
                 await run_turn(session, provider, self.gate, text, attachments, cfg, emit,
                                blocking=self._blocking, retry=retry)
         except asyncio.CancelledError:  # stopped
             flush_text()
             if not finished:
-                self._emit("turn.finished", {"reason": "stopped"})
+                emit("turn.finished", {"reason": "stopped"})
         except Exception as e:  # the turn broke: say so, and keep the core serving
             flush_text()
             log.exception("the agent turn failed")
             self._log("error", f"the agent turn failed ({type(e).__name__}: {e})")
             if not finished:
-                self._emit("turn.finished", {"reason": "error", "error": f"{type(e).__name__}: {e}"})
+                emit("turn.finished", {"reason": "error", "error": f"{type(e).__name__}: {e}"})
         finally:
-            self._turn = self._turn_cfg = None
+            run.task = None
         await self._blocking(session.on_change)  # the old turn must never dirty a replacement session
 
     async def _stop_turn(self, note: str) -> bool:
@@ -577,15 +693,17 @@ class CoreApp:
         task, session, cli_actor = self._turn, self.session, self._cli_turn_actor
         if task is None:
             return starting
+        self._grants.end_run(self._run.id)
         if self._cli_turn_actor:
-            for step_id, cancel in self._cli_cancels.items():
-                if session.step(step_id).actor == cli_actor:
+            for step, cancel in self._cli_cancels.values():
+                if step.actor == cli_actor:
                     cancel.set()
         task.cancel()
         await asyncio.wait({task})
         if self._turn is task:  # cancelled before it ever ran: its own cleanup never happened
-            self._turn = self._turn_cfg = None
-            self._emit("turn.finished", {"reason": "stopped"})
+            self._run.task = None
+            if self._run.finish({'reason': 'stopped'}):
+                self._emit("turn.finished", self._run.outcome)
         await self._blocking(self._reject_waiting, session, note, cli_actor)
         return True
 
@@ -615,6 +733,7 @@ class CoreApp:
         if self._closed:
             return
         self._closed = True
+        self._grants.close()
         probes = list(self._provider_probes)
         for task in probes:
             task.cancel()
@@ -627,7 +746,7 @@ class CoreApp:
         self._cancel_approvals("badshop is closing")
         await self._stop_turn("badshop is closing")
         await self._local_runtime.close()
-        await asyncio.gather(*(p.close() for p in [*self._cli_providers.values(), *self._retired_clis]),
+        await asyncio.gather(*(self._close_cli(p) for p in [*self._cli_providers.values(), *self._retired_clis]),
                              return_exceptions=True)
         self._cli_providers.clear()
         self._retired_clis.clear()
@@ -743,16 +862,18 @@ class CoreApp:
                 replaced = self.session is not before
 
         self._switching += 1
+        previous_incarnation = self.session.incarnation
         try:
             await self._blocking(guarded_replace)
         finally:
             self._switching -= 1
             if replaced:
+                self._grants.revoke_document(previous_incarnation)
+                self._run = None
                 self._cancel_approvals(note)
                 for key, provider in list(self._cli_providers.items()):
-                    if key[0] != self.session.data.id:
-                        self._cli_providers.pop(key)
-                        await provider.close()
+                    self._cli_providers.pop(key)
+                    await self._close_cli(provider)
         return self._snapshot()
 
     async def _session_new(self, actor: str, name: SessionName = "Untitled",
@@ -886,6 +1007,8 @@ class CoreApp:
         finally:
             try:
                 if changed:
+                    self._grants.revoke_document(self.session.incarnation)
+                    self._run = None
                     self._cancel_approvals("the user changed creative direction")
                     retiring = list(self._cli_providers.values())
                     self._cli_providers.clear()
@@ -893,7 +1016,8 @@ class CoreApp:
                     # process cached for the wrong direction. close() also drains retired providers.
                     self._retired_clis.extend(retiring)
                     for provider in retiring:
-                        await provider.close()
+                        await self._close_cli(provider)
+                        self._retired_clis.remove(provider)
             finally:
                 self._switching -= 1
         return self._snapshot()
@@ -942,6 +1066,9 @@ class CoreApp:
         # Keep start atomic with provider/session changes, including while keyring is unlocking.
         generation = self._start_generation
         async with self._lock:
+            if owner := rpc.REQUEST_OWNERSHIP.get():
+                self._check_request_context(owner)
+                owner.started = True
             self._check_idle()
             if self._switching:
                 raise EngineError("the session is being replaced")
@@ -988,16 +1115,21 @@ class CoreApp:
         if session.data.provider_profile_id:
             profile = self._profile(session.data.provider_profile_id)
             cfg.before_request = lambda: self._check_provider_network(profile)
-        self._turn_cfg = cfg
         if not retry:
             branches.begin_turn(session)
+        self._run = run = RunState(session, cfg)
+        if isinstance(provider, CLIProvider) and (grant := self._grants.get(provider.authorization_id)):
+            grant.run_id, grant.branch_id = run.id, session.data.active_branch_id
         self._retry_session = None
-        self._turn = self._spawn(self._turn_main(session, provider, text, ids, cfg, retry))
+        run.task = self._spawn(self._turn_main(run, provider, text, ids, retry))
         return {"started": True}
 
     async def _chat_retry(self, actor: str) -> dict:
         generation = self._start_generation
         async with self._lock:
+            if owner := rpc.REQUEST_OWNERSHIP.get():
+                self._check_request_context(owner)
+                owner.started = True
             self._check_idle()
             if self._switching or self._retry_session is not self.session:
                 raise EngineError("there is no failed provider turn to retry")
@@ -1054,22 +1186,22 @@ class CoreApp:
 
         def propose() -> Step:
             if actor == self._cli_turn_actor and self._turn_cfg is not None:
-                if self._turn_cfg.pause_requested or (self.session.data.pause_before_finish and tool in {"deepfry", "save", "animate", "animate_sticker", "export", "export_profile"}):
+                if self._turn_cfg.pause_requested or (self.session.data.pause_before_finish and tool in FINISH_TOOLS):
                     self._turn_cfg.pause_requested = True
                     raise EngineError("paused for manual corrections")
-            if actor == self._cli_turn_actor and self._cli_remaining is not None:
-                if self._cli_remaining <= 0:
+            if actor == self._cli_turn_actor and self._turn_cfg is not None:
+                if self._turn_cfg.budget.exhausted:
                     raise EngineError("this turn's tool budget is used up", hint="ask the user to continue")
-                self._cli_remaining -= 1
             got["session"] = self.session  # read under the lock: the session the step really went into
+            got["budget"] = self._turn_cfg.budget if actor == self._cli_turn_actor and self._turn_cfg else None
             got["step"] = self.session.propose(tool, raw, actor)
-            if actor == self._cli_turn_actor and self._cli_message_id:
-                message = next((m for m in self.session.data.messages if m.id == self._cli_message_id), None)
+            if actor == self._cli_turn_actor and self._run and self._run.assistant_message_id:
+                message = next((m for m in self.session.data.messages if m.id == self._run.assistant_message_id), None)
                 if message:
                     message.step_ids.append(got["step"].id)
                     self._emit("message.done", {"message": message.model_dump(mode="json")})
             got["cancel"] = threading.Event()
-            self._cli_cancels[got["step"].id] = got["cancel"]
+            self._cli_cancels[id(got["step"])] = (got["step"], got["cancel"])
             return got["step"]
 
         try:
@@ -1077,35 +1209,39 @@ class CoreApp:
             session, edited = got["session"], None
             if step.lock_review or approval.needs_approval(registry.get(tool), session.data.approval_mode):
                 if generation != self._approval_generation or session is not self.session:
-                    step = await self._blocking(self._settle, session, step.id,
-                                                "the session changed or the user disconnected")
+                    step = await self._settle_owned(session, step, "the session changed or the user disconnected")
                     return step.model_dump(mode="json")
                 decision = await self._cli_gate.request(step)
                 if decision.decision == "reject":
-                    step = await self._blocking(self._settle, session, step.id, decision.note)
+                    step = await self._settle_owned(session, step, decision.note)
                     return step.model_dump(mode="json")
                 edited = decision.params if decision.decision == "edit" else None
                 step.lock_approved = True
-            task = asyncio.create_task(self._blocking(self._run_or_reject, session, step.id, edited, got["cancel"]))
+            task = asyncio.create_task(self._blocking(session.run_approved, step.id, edited,
+                                                       cancel=got["cancel"], budget=got["budget"]))
             got["task"] = task
             step = await asyncio.shield(task)
             return step.model_dump(mode="json")
+        except RpcError:
+            if 'step' not in got:
+                raise
+            step = await self._settle_owned(got['session'], got['step'], 'the run authorization ended')
+            return step.model_dump(mode='json')
         except asyncio.CancelledError:
             async def cleanup() -> None:
                 if "cancel" in got:
                     got["cancel"].set()
                 if "step" in got:
-                    self._cli_gate.cancel(got["step"].id)
+                    self._cli_gate.cancel(got["step"].id, expected=got["step"])
                 if "task" in got:
-                    await asyncio.shield(got["task"])
+                    await asyncio.gather(got["task"], return_exceptions=True)
                 if "step" in got:  # settle before relinquishing ownership, even under a second Stop
-                    await self._blocking(self._settle, got["session"], got["step"].id,
-                                         "the agent stopped waiting")
+                    await self._settle_owned(got["session"], got["step"], "the agent stopped waiting")
             await _to_the_end(cleanup())
             raise
         finally:
             if "step" in got:
-                self._cli_cancels.pop(got["step"].id, None)
+                self._cli_cancels.pop(id(got["step"]), None)
             if actor == self._cli_turn_actor and self._turn_cfg is not None and self._turn_cfg.pause_requested:
                 paused_turn = self._turn
                 async def finish_pause() -> None:
@@ -1113,25 +1249,28 @@ class CoreApp:
                         await self._stop_turn("paused for manual corrections")
                 self._spawn(finish_pause())
 
+    async def _settle_owned(self, session: Session, step: Step, note: str | None) -> Step:
+        """Revocation forbids new work, not cleanup of the already-owned proposal."""
+        def settle():
+            if any(candidate is step for candidate in session.data.steps):
+                return self._settle(session, step.id, note)
+            # A deleted or replaced timeline may reuse the display ID. Never
+            # resolve that ID against its new owner just to settle this caller.
+            if step.status in RUNNABLE:
+                step.status, step.finished_at = 'rejected', time.time()
+                step.result_text = 'rejected by user' + (f': {note}' if note else '')
+            return step
+        token = rpc.REQUEST_OWNERSHIP.set(None)
+        try:
+            return await self._blocking(settle)
+        finally:
+            rpc.REQUEST_OWNERSHIP.reset(token)
+
     @staticmethod
     def _settle(session: Session, step_id: str, note: str | None) -> Step:
         """Reject a step that is still waiting to run; one that ran or was rejected already stays as it is."""
         step = session.step(step_id)
         return session.reject(step_id, note) if step.status in RUNNABLE else step
-
-    @staticmethod
-    def _run_or_reject(session: Session, step_id: str, params: dict | None,
-                       cancel: threading.Event | None = None) -> Step:
-        """Run an approved (or user-edited) CLI step, with the fallback in the same locked call. The gate
-        already checks an edit (valid as the user's, image ids in the session); should `Session.run` still
-        refuse one, it does so before it changes the step, which would leave the step `proposed` with
-        nothing waiting for it. It is rejected instead, as Task 11's `_execute` does for the in-app turn."""
-        try:
-            return session.run(step_id, params, cancel=cancel)
-        except EngineError as e:
-            if params is None:  # a proposed step runs on its own params: nothing to fall back to
-                raise
-            return session.reject(step_id, f"the edited parameters were refused: {e.message}")
 
     async def _steps_preview(self, actor: str, step_id: str, params: dict) -> list[str]:
         def preview() -> list[str]:
@@ -1253,6 +1392,8 @@ class CoreApp:
         return [p.model_dump(mode="json") for p in self._profiles.values()]
 
     async def _providers_save(self, actor: str, profile: dict, api_key: str | None = None) -> dict:
+        retiring: list[CLIProvider] = []
+
         def save() -> dict:
             self._check_idle()
             self._check_profiles()
@@ -1287,10 +1428,22 @@ class CoreApp:
                     self._cleanup_key(new_ref)
                 raise
             self._profiles = updated
+            for key, provider in list(self._cli_providers.items()):
+                if key[1] == p.id and provider.profile != p:
+                    self._cli_providers.pop(key)
+                    retiring.append(provider)
+                    self._retired_clis.append(provider)
             if old and old.api_key_ref and old.api_key_ref != p.api_key_ref:
                 self._cleanup_key(old.api_key_ref)
             return p.model_dump(mode="json")
-        return await self._blocking(save)
+        try:
+            return await self._blocking(save)
+        finally:
+            # Persistence finishes before retirement. Failed saves keep the working
+            # provider; cancellation after persistence still owns its cleanup.
+            for provider in retiring:
+                await self._close_cli(provider)
+                self._retired_clis.remove(provider)
 
     async def _providers_select(self, actor: str, profile_id: str) -> dict:
         def select() -> None:
@@ -1331,18 +1484,29 @@ class CoreApp:
         return self._snapshot()
 
     async def _providers_delete(self, actor: str, profile_id: str) -> dict:
+        retiring: list[CLIProvider] = []
         def delete() -> None:
             self._check_idle()
             p = self._profile(profile_id)
             updated = {k: v for k, v in self._profiles.items() if k != profile_id}
             profiles.save_profiles(updated)
             self._profiles = updated
+            for key, provider in list(self._cli_providers.items()):
+                if key[1] == profile_id:
+                    self._cli_providers.pop(key)
+                    retiring.append(provider)
+                    self._retired_clis.append(provider)
             if p.api_key_ref:
                 self._cleanup_key(p.api_key_ref)
             if self.session.data.provider_profile_id == profile_id:
                 self.session.data.provider_profile_id = None
                 self._changed()
-        await self._blocking(delete)
+        try:
+            await self._blocking(delete)
+        finally:
+            for provider in retiring:
+                await self._close_cli(provider)
+                self._retired_clis.remove(provider)
         return {"deleted": True}
 
     async def _providers_test(self, actor: str, profile_id: str, probe: bool = False) -> dict:

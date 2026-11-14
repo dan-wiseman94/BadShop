@@ -407,7 +407,7 @@ export function Studio({
                       name,
                       tags: tagList(),
                       metadata: {
-                        ...(faceStep?.data?.faces ? { faces: faceStep.data.faces } : {}),
+                        ...(Array.isArray(faceStep?.data?.faces) ? { faces: faceStep.data.faces } : {}),
                       },
                     });
                   }

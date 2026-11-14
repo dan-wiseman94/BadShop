@@ -11,9 +11,11 @@ import uuid
 from badshop.engine.errors import EngineError
 from badshop.session.models import BranchSnapshot
 
+MAX_AUTOMATIC_BRANCHES = 10  # five recent before/after turn pairs; named directions are never pruned
 
-def _snapshot(session, id: str, name: str, created_at: float) -> BranchSnapshot:
-    return BranchSnapshot(id=id, name=name, created_at=created_at,
+
+def _snapshot(session, id: str, name: str, created_at: float, automatic: bool = False) -> BranchSnapshot:
+    return BranchSnapshot(id=id, name=name, created_at=created_at, automatic=automatic,
                           steps=copy.deepcopy(session.data.steps), messages=copy.deepcopy(session.data.messages),
                           transcript=copy.deepcopy(session.data.transcript),
                           creative=session.data.creative.model_copy(deep=True),
@@ -28,7 +30,7 @@ def _remember(session) -> None:
         session.data.active_branch_id = active
     else:
         old = session.data.branches[active]
-        session.data.branches[active] = _snapshot(session, active, old.name, old.created_at)
+        session.data.branches[active] = _snapshot(session, active, old.name, old.created_at, old.automatic)
 
 
 def listing(session) -> dict:
@@ -47,7 +49,7 @@ def _idle(session) -> None:
         raise EngineError("finish or reject pending steps before changing directions")
 
 
-def create(session, name: str, from_step: str | None = None) -> None:
+def create(session, name: str, from_step: str | None = None, *, automatic: bool = False) -> None:
     _idle(session)
     index = None
     if from_step is not None:
@@ -57,7 +59,7 @@ def create(session, name: str, from_step: str | None = None) -> None:
         index = session.data.steps.index(target)
     _remember(session)
     id = uuid.uuid4().hex
-    branch = _snapshot(session, id, name, time.time())
+    branch = _snapshot(session, id, name, time.time(), automatic)
     if index is not None:
         removed = {s.id for s in branch.steps[index + 1:]}
         branch.steps = branch.steps[:index + 1]
@@ -92,6 +94,7 @@ def switch(session, id: str) -> None:
         raise EngineError("no such creative direction")
     if id == session.data.active_branch_id:
         return
+    session.data.branches[id].automatic = False  # explicitly choosing a direction retains it
     _remember(session)
     _activate(session, session.data.branches[id])
     if id == session.data.undo_branch_id:
@@ -102,6 +105,7 @@ def rename(session, id: str, name: str) -> dict:
     if id not in session.data.branches:
         raise EngineError("no such creative direction")
     session.data.branches[id].name = name
+    session.data.branches[id].automatic = False
     session._changed()
     return listing(session)
 
@@ -127,11 +131,20 @@ def begin_turn(session) -> None:
         return
     _idle(session)
     changes = list(session.changes)
-    create(session, "Before AI turn")
+    create(session, "Before AI turn", automatic=True)
     checkpoint = session.data.active_branch_id
-    create(session, "AI turn")
+    create(session, "AI turn", automatic=True)
     session.changes = changes
     session.data.undo_branch_id = checkpoint
+    automatic = sorted((b for b in session.data.branches.values() if b.automatic), key=lambda b: b.created_at)
+    protected = {session.data.active_branch_id, checkpoint}
+    remaining = len(automatic)
+    for branch in automatic:
+        if remaining <= MAX_AUTOMATIC_BRANCHES:
+            break
+        if branch.id not in protected:
+            del session.data.branches[branch.id]
+            remaining -= 1
     session._changed()
 
 

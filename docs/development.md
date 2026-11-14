@@ -415,10 +415,12 @@ uv run --project core --locked python scripts/generate_wire_types.py --check
 pnpm --dir app build
 ```
 
-Frontend CI checks regeneration. Unsupported schema forms fail explicitly. Defaults
-are optional in generated DTOs for partial UI fixtures; the UI requires the default
-collections it iterates. Nullable serialized fields retain `null`. This is a compile-time
-contract, not runtime RPC validation. `scripts/tests/test_maintenance_evidence.py`
+Frontend CI checks regeneration. Unsupported schema forms fail explicitly. Input
+defaults and presentation fixture defaults stay optional; serialized response
+model defaults are required in the generated method/event contracts. Nullable
+serialized fields retain `null`. The dispatcher validates results and the client
+validates results/events against generated schemas at runtime.
+`scripts/tests/test_maintenance_evidence.py`
 changes an authoritative model and proves the drift check fails before regeneration.
 
 ### Generated session sequences

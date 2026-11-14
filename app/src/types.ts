@@ -1,5 +1,5 @@
 import type { RJSFSchema } from "@rjsf/utils";
-import type { Artifact, Message as WireMessage, Step as WireStep } from "./wire.generated";
+import type { Artifact, DocumentContext, Message as WireMessage, Step as WireStep } from "./wire.generated";
 export type { Artifact } from "./wire.generated";
 // Core responses include these defaults. The remaining defaults may be omitted
 // by UI fixtures; field types and nullability still come from the core schemas.
@@ -10,6 +10,9 @@ export type ApprovalMode = "auto" | "ask_changes" | "ask_all";
 export type NoveltyMode =
   "different-format" | "change-setting" | "another-era" | "avoid-recent";
 export interface Session {
+  context?: DocumentContext;
+  run_id?: string | null;
+  last_turn_outcome?: { run_id: string | null; reason: string; error?: string | null } | null;
   batch_running?: boolean;
   undo_branch_id?: string | null;
   pause_before_finish?: boolean;
@@ -51,7 +54,7 @@ export interface CLIDetection {
   available: boolean;
   supported: boolean;
   experimental: boolean;
-  error?: string;
+  error?: string | null;
 }
 export interface Profile {
   id: string;
@@ -62,7 +65,7 @@ export interface Profile {
   allow_insecure_http?: boolean;
   api_key_ref?: string | null;
   api_key_env?: string | null;
-  cli?: "claude" | "codex" | "gemini";
+  cli?: "claude" | "codex" | "gemini" | null;
   executable?: string | null;
   capability_overrides: Record<string, boolean>;
 }
@@ -92,227 +95,7 @@ export interface Connection {
   token: string;
   log_path?: string;
 }
-interface ArtifactPayload {
-  meta: Artifact;
-  mime: string;
-  data: string;
-}
-export interface MethodMap {
-  "artifacts.frame": [{ id: string; frame: number }, ArtifactPayload];
-  "sources.key": [{ source: string; api_key: string }, { saved: boolean }];
-  "cache.status": [
-    undefined,
-    { bytes: number; files: number; budget_mb: number },
-  ];
-  "cache.clear": [undefined, { removed: number }];
-  "retro.list": [undefined, RetroStyle[]];
-  "creative.set": [{ values: Params }, CreativePreferences];
-  "recipes.capture": [{ step_id: string }, Recipe];
-  "remix.inspect": [{ artifact_id: string; expected_revision: number }, { artifact_ids: string[]; step_count: number; sources: Record<string, unknown>[] }];
-  "remix.export": [{ artifact_id: string; expected_revision: number; include_credits: boolean }, { path: string }];
-  "recipes.save": [{ recipe: Recipe }, Recipe];
-  "recipes.remove": [{ name: string }, { removed: boolean }];
-  "recipes.run": [
-    { recipe: Recipe; inputs: string[] },
-    { completed: string[]; errors: { message: string }[]; cancelled: boolean },
-  ];
-  "recipes.stop": [undefined, { stopped: boolean }];
-  "credits.get": [
-    { artifact_id: string },
-    { sources: Params[]; notice: string },
-  ];
-  "credits.export": [
-    { artifact_id: string },
-    { path: string; credits: string },
-  ];
-  "sources.status": [
-    undefined,
-    {
-      id: string;
-      name: string;
-      configured: boolean;
-      requires_key: boolean;
-      env_var: string | null;
-      health?: { status: "failed" | "responded" | "not checked"; results?: number; step_id?: string };
-    }[],
-  ];
-  "novelty.recent": [
-    undefined,
-    { kind: string; value: string; label?: string; url?: string }[],
-  ];
-  "novelty.clear": [undefined, { cleared: boolean }];
-  "layouts.list": [undefined, LayoutDefinition[]];
-  "packs.list": [undefined, BuiltinPack[]];
-  "packs.install": [{ id: string }, LibraryEntry[]];
-  "packs.export": [
-    { ids: string[]; path: string; name?: string },
-    { path: string; count: number },
-  ];
-  "packs.import": [
-    { path: string },
-    { entries: LibraryEntry[]; name: string; count: number },
-  ];
-  "media.preview": [
-    {
-      path: string;
-      kind: "video" | "document";
-      start?: number;
-      end?: number;
-      count?: number;
-      page?: number;
-    },
-    MediaPreview,
-  ];
-  "media.status": [undefined, { video: boolean; pdf: boolean }];
-  "media.cancel": [undefined, { cancelled: boolean }];
-  "media.import": [
-    {
-      preview_id: string;
-      candidate_ids: string[];
-      crop?: number[];
-      animate?: boolean;
-      delay?: number;
-    },
-    { artifacts: Artifact[]; provenance: Params },
-  ];
-  "collections.index": [
-    { path: string; max_files?: number },
-    CollectionSummary,
-  ];
-  "collections.list": [undefined, CollectionSummary[]];
-  "collections.search": [
-    { id: string; query?: string; limit?: number },
-    CollectionEntry[],
-  ];
-  "collections.update": [
-    {
-      collection_id: string;
-      id: string;
-      tags?: string[];
-      description?: string;
-    },
-    CollectionEntry,
-  ];
-  "collections.import": [
-    { collection_id: string; id: string },
-    { working: Artifact; original: Artifact },
-  ];
-  "collections.remove": [{ id: string }, { removed: boolean }];
-  "library.list": [
-    { query?: string; tags?: string[] } | undefined,
-    LibraryEntry[],
-  ];
-  "library.save": [
-    { artifact_id: string; name: string; tags?: string[]; metadata?: Params },
-    LibraryEntry,
-  ];
-  "library.update": [
-    { id: string; name?: string; tags?: string[]; metadata?: Params },
-    LibraryEntry,
-  ];
-  "library.import": [
-    { id: string },
-    { working: Artifact; original: Artifact; entry: LibraryEntry },
-  ];
-  "library.remove": [{ id: string }, { removed: boolean }];
-  "library.thumbnail": [
-    { id: string; max_px?: number },
-    { mime: string; data: string },
-  ];
-  "branches.list": [undefined, BranchList];
-  "branches.create": [
-    { name: string; from_step?: string; expected_revision?: number },
-    Session,
-  ];
-  "branches.switch": [{ id: string; expected_revision?: number }, Session];
-  "branches.rename": [{ id: string; name: string }, BranchList];
-  "branches.remove": [{ id: string }, BranchList];
-  "session.get": [undefined, Session];
-  "session.new": [
-    { name?: string; expected_revision?: number; discard_unsaved?: boolean },
-    Session,
-  ];
-  "session.open": [
-    { path: string; expected_revision?: number; discard_unsaved?: boolean },
-    Session,
-  ];
-  "session.restore": [
-    { expected_revision?: number; discard_unsaved?: boolean } | undefined,
-    Session,
-  ];
-  "session.save": [
-    { expected_revision?: number } | undefined,
-    { path: string },
-  ];
-  "session.save_as": [
-    { path: string; expected_revision?: number },
-    { path: string },
-  ];
-  "session.export_recipe": [{ path: string }, { path: string }];
-  "session.set_approval_mode": [{ mode: ApprovalMode }, Session];
-  "chat.send": [
-    { text: string; attachments?: string[]; novelty?: NoveltyMode },
-    { started: boolean },
-  ];
-  "chat.stop": [undefined, { stopped: boolean }];
-  "chat.retry": [undefined, { started: boolean }];
-  "tools.list": [undefined, Tool[]];
-  "tools.run": [{ tool: string; params: Params }, Step];
-  "tools.preview": [{ tool: string; params: Params; expected_revision: number }, string[]];
-  "steps.edit": [{ step_id: string; params: Params }, { stale: string[] }];
-  "steps.preview": [{ step_id: string; params: Params }, string[]];
-  "steps.controls": [{ step_id: string; locked_fields?: string[]; bypassed?: boolean }, Session];
-  "chat.pause": [undefined, { requested: boolean }];
-  "chat.undo": [undefined, Session];
-  "chat.finish_checkpoint": [{ enabled: boolean }, Session];
-  "steps.replay_from": [{ step_id: string; use_cache?: boolean }, Step[]];
-  "steps.delete": [{ step_id: string }, { deleted: string }];
-  "approval.respond": [
-    {
-      step_id: string;
-      decision: "approve" | "reject" | "edit";
-      params?: Params;
-      note?: string;
-    },
-    { ok: boolean },
-  ];
-  "artifacts.get": [{ id: string; max_px?: number }, ArtifactPayload];
-  "artifacts.import": [
-    { path?: string; data?: string; name?: string; source?: Artifact["source"] },
-    { working: Artifact; original: Artifact },
-  ];
-  export: [{ artifact_id: string; name?: string }, { path: string }];
-  "providers.list": [undefined, Profile[]];
-  "providers.save": [{ profile: Partial<Profile>; api_key?: string }, Profile];
-  "providers.delete": [{ profile_id: string }, { deleted: boolean }];
-  "providers.select": [{ profile_id: string }, Session];
-  "providers.on_device": [undefined, Session];
-  "providers.test": [
-    { profile_id: string; probe?: boolean },
-    {
-      status: string;
-      error?: string;
-      capabilities?: Params;
-      warnings?: string[];
-      probed?: boolean;
-    },
-  ];
-  "providers.detect": [undefined, CLIDetection[]];
-  "settings.get": [undefined, Settings];
-  "settings.set": [{ values: Partial<Settings> }, Settings];
-  "assets.status": [undefined, Asset[]];
-  "assets.download": [{ name: string }, { path: string }];
-  "assets.cancel": [{ name: string }, { cancelled: boolean }];
-}
-interface RetroStyle {
-  id: string;
-  name: string;
-  era: string;
-  family: string;
-  width: number;
-  height: number;
-  preview: string;
-}
+export type { WireMethodMap as MethodMap } from "./wire.generated";
 interface CreativePreferences {
   remember_history?: boolean;
   animation_delay?: number;
@@ -331,7 +114,7 @@ interface CreativePreferences {
   mixer: Record<string, string>;
   source_roles: Record<string, string>;
 }
-export interface Recipe {
+export type Recipe = {
   version: number;
   name: string;
   steps: { tool: string; params: Params }[];
@@ -339,6 +122,9 @@ export interface Recipe {
 export interface CoreEvent {
   method: string;
   params: Params;
+  context?: DocumentContext;
+  core_instance_id?: string;
+  event_seq?: number;
 }
 export interface LibraryEntry {
   id: string;
@@ -346,7 +132,7 @@ export interface LibraryEntry {
   tags: string[];
   metadata: Params;
   artifact: Artifact;
-  original?: Artifact;
+  original?: Artifact | null;
   created_at: number;
   updated_at: number;
 }
@@ -373,17 +159,11 @@ export interface LayoutDefinition {
     mask?: string;
   }[];
 }
-interface BuiltinPack {
-  id: string;
-  name: string;
-  description: string;
-  count: number;
-}
 interface MediaCandidate {
   id: string;
   label: string;
-  time_s?: number;
-  page?: number;
+  time_s?: number | null;
+  page?: number | null;
   thumbnail_data_url: string;
   width: number;
   height: number;
@@ -396,13 +176,6 @@ export interface MediaPreview {
   height: number;
   sheet_data_url: string;
   candidates: MediaCandidate[];
-  warnings: string[];
-}
-interface CollectionSummary {
-  id: string;
-  name: string;
-  count: number;
-  duplicates: number;
   warnings: string[];
 }
 export interface CollectionEntry {

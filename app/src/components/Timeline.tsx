@@ -29,8 +29,7 @@ export function parameterSummary(params: Params) {
     )
     .join(" / ");
 }
-export function cliCommand(step: Step, tool?: Tool) {
-  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+export function cliArguments(step: Step, tool?: Tool): string[] {
   const positional: string[] = [];
   const flags: string[] = [];
   const normalized = tool ? normalizeSchema(tool.schema) : undefined;
@@ -74,7 +73,16 @@ export function cliCommand(step: Step, tool?: Tool) {
     ...(positional.some((word) => word.startsWith("-"))
       ? [...flags, "--", ...positional]
       : [...positional, ...flags]),
-  ]
+  ];
+}
+export function cliCommand(
+  step: Step,
+  tool?: Tool,
+  shell: "posix" | "powershell" = /Win/i.test(navigator.platform) ? "powershell" : "posix",
+) {
+  const quote = (value: string) =>
+    `'${value.replaceAll("'", shell === "powershell" ? "''" : "'\\''")}'`;
+  return cliArguments(step, tool)
     .map((word, i) => (i < 2 ? word : quote(word)))
     .join(" ");
 }

@@ -49,7 +49,7 @@ The MCP proxy forwards tool requests to that same core and does not own a projec
 | --- | --- | --- |
 | Layout, selection, drafts and forms | [App.tsx](../app/src/App.tsx), [components](../app/src/components), [store.ts](../app/src/store.ts) | UI state; no second project model |
 | Request lifecycle and cached core state | [rpc.ts](../app/src/rpc.ts), [data.ts](../app/src/data.ts) | Match replies by ID; reconcile snapshots and events |
-| Shared serialized types | [session/models.py](../core/src/badshop/session/models.py), [wire.generated.ts](../app/src/wire.generated.ts) | Python schemas own the generated artifact, step and message types; generation does not replace runtime validation |
+| Shared serialized types | [server/contracts.py](../core/src/badshop/server/contracts.py), [wire.generated.ts](../app/src/wire.generated.ts) | Handler signatures own parameters; Python models own response/event schemas. The dispatcher and client validate the wire boundary. |
 | Native dialogs, clipboard, startup and recovery | [native.ts](../app/src/native.ts), [Tauri library](../app/src-tauri/src/lib.rs), [supervisor](../app/src-tauri/src/supervisor.rs) | OS integration; no image algorithms |
 | RPC dispatch, active session, turn and approval coordination | [server/app.py](../core/src/badshop/server/app.py), [ws.py](../core/src/badshop/server/ws.py), [rpc.py](../core/src/badshop/server/rpc.py) | Authenticate clients and serialize document mutations |
 | Artifacts, steps, replay and persistence | [session/session.py](../core/src/badshop/session/session.py), [artifacts.py](../core/src/badshop/session/artifacts.py), [project.py](../core/src/badshop/session/project.py) | Authoritative project state |

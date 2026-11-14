@@ -333,9 +333,45 @@ def script(env: Path, replies: list[dict]) -> str:
 
 def test_methods_are_the_protocol(env):
     async def body(app):
+        from badshop.server.contracts import METHODS as contracts
         assert app.dispatcher.names() == METHODS
+        assert set(app.dispatcher.names()) == set(contracts)
+        schemas = app.dispatcher.schemas()
+        assert schemas['export']['scope'] == 'document'
+        assert schemas['export']['mutates'] is True
+        assert schemas['tools.run']['actors'] == 'any'
+        assert schemas['tools.run']['params']['required'] == ['tool']
+        assert schemas['tools.run']['params']['properties']['params']['default'] is None
+        assert 'outputs' in schemas['tools.run']['result']['required']
+        assert 'messages' in schemas['session.get']['result']['required']
+        assert schemas['settings.get']['mutates'] is False
 
     run(body)
+
+
+def test_invalid_handler_result_reports_unknown_outcome_without_repeating_action():
+    from badshop.server.contracts import METHODS as contracts
+
+    async def scenario():
+        dispatcher = Dispatcher(contracts=contracts)
+        calls = []
+
+        @dispatcher.method('export')
+        async def export(actor: str):
+            calls.append(actor)
+            return {'path': 123}
+
+        response = json.loads(await dispatcher.handle(
+            json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'export'}), 'user'))
+        assert 'error' in response, 'the invalid handler result crossed the wire as success'
+        assert response['error']['code'] == rpc.INTERNAL_ERROR
+        assert response['error']['data']['outcome'] == 'unknown'
+        assert calls == ['user']
+        assert 'result' not in response
+        with pytest.raises(ValueError, match='no wire contract'):
+            dispatcher.method('unregistered.contract')(export)
+
+    asyncio.run(scenario())
 
 
 def test_pinned_result_requires_cli_review_even_in_auto_mode(env):
@@ -567,14 +603,14 @@ def test_an_edit_the_session_refuses_rejects_the_cli_step(env):
     session = Session.new(executor=InProcessExecutor())
     lincoln = session.import_image(LINCOLN, "lincoln.png").id
     step = session.propose("cutout", {"image": lincoln, "box": HEAD, "no_ai": True}, "cli:claude")
-    refused = CoreApp._run_or_reject(session, step.id, {"image": "ffffff", "box": HEAD, "no_ai": True})
+    refused = session.run_approved(step.id, {"image": "ffffff", "box": HEAD, "no_ai": True})
     assert refused.status == "rejected"
     assert refused.result_text == ("rejected by user: the edited parameters were refused: "
                                    "no such artifact: ffffff")
     with pytest.raises(EngineError):  # on its own params there is nothing to fall back to
-        CoreApp._run_or_reject(session, step.id, None)
+        session.run_approved(step.id, None)
     ok = session.propose("cutout", {"image": lincoln, "box": HEAD, "no_ai": True}, "cli:claude")
-    assert CoreApp._run_or_reject(session, ok.id, None).status == "done"
+    assert session.run_approved(ok.id, None).status == "done"
     assert CoreApp._settle(session, ok.id, "too late").status == "done"  # a step that ran stays as it is
     assert [s.status for s in session.data.steps] == ["rejected", "done"]
 
@@ -829,7 +865,7 @@ def test_chat_turn_with_an_approval(env):
         await c.call("approval.respond", step_id=needed["step"]["id"], decision="edit",
                      params={"image": lincoln, "box": [100, 50, 300, 300], "no_ai": True})
 
-        assert await c.event("turn.finished") == {"reason": "done"}
+        assert await c.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()['run_id']}
         await idle(c)
         steps = app.session.data.steps
         assert [(s.tool, s.status, s.actor) for s in steps] == [("info", "done", "agent:fake"),
@@ -868,7 +904,7 @@ def test_switching_the_approval_mode_mid_turn(env):
         info = await c.waiting(lambda step: step["tool"] == "info")  # ask_all: now a read-only tool waits too
         await c.call("session.set_approval_mode", mode="auto")
         await c.call("approval.respond", step_id=info, decision="approve")
-        assert await c.event("turn.finished") == {"reason": "done"}  # auto: the filter ran without asking
+        assert await c.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()['run_id']}  # auto
         snap = await idle(c)
         assert [(s["tool"], s["status"]) for s in snap["steps"]] == [("cutout", "done"), ("info", "done"),
                                                                      ("filter", "done")]
@@ -898,7 +934,7 @@ def test_stop_and_client_gone(env):
         third = await c.waiting(lambda step: step["actor"] == "cli:codex")
         assert (await c.call("session.get"))["pending_approvals"] == [first, third]
         assert await c.call("chat.stop") == {"stopped": True}
-        assert await c.event("turn.finished") == {"reason": "stopped"}
+        assert await c.event("turn.finished") == {"reason": "stopped", "run_id": app._snapshot()['run_id']}
         assert app.session.step(first).status == "rejected"
         # Stop is about the chat: the CLI agent's call still waits for the user
         assert (await c.call("session.get"))["pending_approvals"] == [third]
@@ -911,7 +947,8 @@ def test_stop_and_client_gone(env):
         app.on_client_gone()
         assert (await waiting)["status"] == "rejected"
         await cli.count("turn.finished", 2)
-        assert [e["params"] for e in cli.events if e["method"] == "turn.finished"][-1] == {"reason": "stopped"}
+        assert [e["params"] for e in cli.events if e["method"] == "turn.finished"][-1] == {
+            "reason": "stopped", "run_id": app._snapshot()['run_id']}
 
         later = Client(app)  # the UI reconnects
         snap = await idle(later)
@@ -1093,7 +1130,7 @@ def test_no_turn_starts_while_the_session_is_being_replaced(env):
         assert (await busy)["status"] == "error"
         assert (await new)["name"] == "next"
         assert await c.call("chat.send", text="hi") == {"started": True}
-        assert await c.event("turn.finished") == {"reason": "done"}
+        assert await c.event("turn.finished") == {"reason": "done", "run_id": app._snapshot()['run_id']}
         assert [m["role"] for m in (await idle(c))["messages"]] == ["user", "assistant"]
 
     run(body, factory=lambda **limits: ex)
@@ -1152,7 +1189,8 @@ def test_failures_are_reported_and_the_core_keeps_serving(env, monkeypatch):
         await c.call("settings.set", values={"fake_provider_script": script(env, [{"text": "hi"}])})
         monkeypatch.setattr(server_app, "run_turn", broken_turn)
         assert await c.call("chat.send", text="hi") == {"started": True}
-        assert await c.event("turn.finished") == {"reason": "error", "error": "RuntimeError: kaput"}
+        assert await c.event("turn.finished") == {
+            "reason": "error", "error": "RuntimeError: kaput", "run_id": app._snapshot()['run_id']}
         assert await c.event("core.log") == {"level": "error",
                                              "message": "the agent turn failed (RuntimeError: kaput)"}
         assert (await idle(c))["turn_running"] is False

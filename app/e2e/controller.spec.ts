@@ -209,25 +209,34 @@ test("cloud provider presets save an editable model and the selected key environ
   await expect(keyEnv).toHaveValue("OPENROUTER_API_KEY");
 });
 
-test("first run reaches manual tools and Stop settles a waiting approval", async ({
-  page,
-  core,
-}) => {
-  await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
-  await expect(
-    page.getByRole("dialog", { name: "Welcome to badshop" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Edit a photo without AI" }).click();
-  await page.getByLabel("Message your agent").fill("Deep fry this.");
-  await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText("Your call", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Stop", exact: true }).click();
-  await expect(page.getByText("Your call", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("rejected", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Send message" }),
-  ).toBeVisible();
-});
+for (const unavailableStorage of [false, true]) {
+  test(`first run reaches manual tools and Stop settles a waiting approval${unavailableStorage ? " with unavailable preferences" : ""}`, async ({
+    page,
+    core,
+  }) => {
+    if (unavailableStorage) {
+      await page.addInitScript(() => {
+        Object.defineProperty(window, "localStorage", {
+          get() { throw new DOMException("Storage disabled", "SecurityError"); },
+        });
+      });
+    }
+    await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
+    await expect(
+      page.getByRole("dialog", { name: "Welcome to badshop" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Edit a photo without AI" }).click();
+    await page.getByLabel("Message your agent").fill("Deep fry this.");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByText("Your call", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(page.getByText("Your call", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("rejected", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Send message" }),
+    ).toBeVisible();
+  });
+}
 
 test("rejects an agent proposal with a note and exposes provider failures for retry", async ({
   page,

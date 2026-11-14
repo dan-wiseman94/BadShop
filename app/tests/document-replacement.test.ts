@@ -2,15 +2,26 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { action, importBlob, queries } from "../src/data";
 import { rpc } from "../src/rpc";
 import { useUI } from "../src/store";
-import type { Artifact, Session } from "../src/types";
+import type { MethodMap } from "../src/types";
+import type { ResponseArtifactMeta } from "../src/wire.generated";
 
-const session = {
+const session: MethodMap['session.get'][1] = {
   id: "same-session",
   messages: [],
   artifacts: {},
   steps: [],
-  stream_text: "",
-} as unknown as Session;
+  schema: 4, name: "Test", created_at: 0, provider_profile_id: null, approval_mode: "ask_all",
+  transcript: [], active_branch_id: null, branches: {}, recipes: [], undo_branch_id: null,
+  pause_before_finish: false, context: { core_instance_id: "core", document_id: "same-session",
+    document_incarnation: "open", branch_id: null, revision: 1, event_seq: 0 },
+  path: null, document_revision: 1, unsaved_changes: false, turn_running: false, batch_running: false,
+  pending_approvals: [], restorable: null, bypass_tools: [], run_id: null, last_turn_outcome: null,
+  stream_text: '',
+  creative: { style: "geocities", density: "balanced", era_strictness: "inspired", exact_text: true,
+    seed: 1, fit: "contain", takes: 1, remember_history: true, animation_delay: 100,
+    export_profile: "original", favorite_styles: [], favorite_briefs: [], saved_searches: [],
+    locks: {}, mixer: {}, source_roles: {} },
+};
 
 beforeEach(() => {
   queries.clear();
@@ -32,8 +43,9 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 it("does not return an old import result for selection after document replacement", async () => {
-  const artifact: Artifact = {
+  const artifact: ResponseArtifactMeta = {
     id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
+    frames: 1, produced_by: null, source: null, original_id: null,
   };
   vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });
   vi.spyOn(queries, "invalidateQueries").mockImplementationOnce(async () => {
@@ -52,8 +64,9 @@ it("rejects an image read that finishes after document replacement", async () =>
     readAsDataURL() { finishRead = () => this.onload?.(); }
   }
   vi.stubGlobal("FileReader", DelayedReader);
-  const artifact: Artifact = {
+  const artifact: ResponseArtifactMeta = {
     id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
+    frames: 1, produced_by: null, source: null, original_id: null,
   };
   const request = vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });
   try {
@@ -85,7 +98,7 @@ it("preserves drafts, selections and image cache when Open fails", async () => {
 });
 
 it("preserves document drafts on ordinary edits and saves", async () => {
-  vi.spyOn(rpc, "request").mockResolvedValue(session);
+  vi.spyOn(rpc, "request").mockResolvedValueOnce(session).mockResolvedValueOnce({ path: "/saved.badshop" });
   await action("session.set_approval_mode", { mode: "ask_all" });
   await action("session.save", { expected_revision: 1 });
   expect(useUI.getState()).toMatchObject({

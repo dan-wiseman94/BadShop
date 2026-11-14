@@ -136,6 +136,48 @@ def test_branches_keep_independent_replay_and_survive_save(tmp_path):
     assert len(restored.data.branches) == 1
 
 
+def test_automatic_turn_history_is_bounded_without_losing_named_directions_or_undo(tmp_path):
+    session = Session.new()
+    imported = session.import_image(picture((8, 8)), "base")
+    branches.create(session, "Keep forever")
+    named = session.data.active_branch_id
+    branches.begin_turn(session)
+    retained = session.data.active_branch_id
+    branches.rename(session, retained, "Chosen take")
+    before = session.artifacts.data(imported.id)
+    current = imported.id
+    for _ in range(20):
+        branches.begin_turn(session)
+        before = session.artifacts.data(current)
+        result = session.run_tool("filter", {"image": current, "names": ["invert"]}, "user")
+        assert result.status == "done"
+        current = result.outputs[-1]
+    assert named in session.data.branches and retained in session.data.branches
+    assert len(session.data.branches) == branches.MAX_AUTOMATIC_BRANCHES + 3
+    assert sum(b.automatic for b in session.data.branches.values()) == branches.MAX_AUTOMATIC_BRANCHES
+    assert session.data.active_branch_id in session.data.branches
+    assert session.data.undo_branch_id in session.data.branches
+    restored = project.open_project(project.save(session, tmp_path / "turns.badshop"))
+    assert sum(b.automatic for b in restored.data.branches.values()) == branches.MAX_AUTOMATIC_BRANCHES
+    branches.undo_turn(restored)
+    assert restored.artifacts.data(restored.last_output()) == before
+    branches.switch(restored, named)
+    assert restored.data.steps == []
+    assert restored.artifacts.data(imported.id) == session.artifacts.data(imported.id)
+    assert retained in restored.data.branches
+
+
+def test_legacy_turn_names_are_not_assumed_to_be_disposable():
+    session = Session.new()
+    branches.create(session, "Before AI turn")
+    legacy = session.data.active_branch_id
+    # Schema 1–4 archives have no automatic marker. The default is permanent.
+    assert not session.data.branches[legacy].automatic
+    for _ in range(10):
+        branches.begin_turn(session)
+    assert legacy in session.data.branches
+
+
 def test_v1_project_migrates_and_bad_branch_is_refused(tmp_path):
     path = project.save(Session.new(), tmp_path / "legacy.badshop")
     with zipfile.ZipFile(path) as z:

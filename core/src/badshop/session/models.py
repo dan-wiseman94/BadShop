@@ -97,6 +97,7 @@ class BranchSnapshot(BaseModel):
     id: str = Field(pattern=r"^[0-9a-f]{32}$")
     name: str = Field(min_length=1, max_length=200)
     created_at: float
+    automatic: bool = False  # legacy/unmarked directions are retained conservatively
     steps: list[Step] = []
     messages: list[Message] = []
     transcript: list[dict] = []
