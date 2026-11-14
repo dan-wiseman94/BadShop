@@ -23,6 +23,55 @@ def picture(size=(1300, 60)):
     return out.getvalue()
 
 
+def test_library_pages_are_stable_searchable_and_preserve_off_page_collections(tmp_path):
+    library = AssetLibrary(tmp_path)
+    session = Session.new()
+    image = session.import_image(picture((8, 8)), 'one shared blob')
+    saved = [library.save(session, image.id, f'Character {i:03}', ['cast', f'collection:group{i % 3}'],
+                          AssetDetails()) for i in range(55)]
+    first = library.page('', ['cast'], 0, 50)
+    last = library.page('', ['cast'], 50, 50)
+    assert len(first['entries']) == 50 and len(last['entries']) == 5
+    assert first['total'] == last['total'] == 55
+    assert {row['id'] for row in first['entries'] + last['entries']} == {row['id'] for row in saved}
+    assert last['collections'] == ['group0', 'group1', 'group2']
+    found = library.page('Character 000', [], 0, 50)
+    assert [row['id'] for row in found['entries']] == [saved[0]['id']]
+
+
+def test_damaged_library_record_does_not_hide_healthy_entries(tmp_path):
+    library = AssetLibrary(tmp_path)
+    session = Session.new()
+    image = session.import_image(picture(), 'healthy')
+    entry = library.save(session, image.id, 'Healthy', [], AssetDetails())
+    damaged = tmp_path / ('f' * 32 + '.json')
+    damaged.write_bytes(b'damaged original evidence')
+    assert [row['id'] for row in library.list()] == [entry['id']]
+    assert library.issues()[0]['file'] == damaged.name
+    assert damaged.read_bytes() == b'damaged original evidence'
+
+
+def test_library_collection_retains_shared_bytes_and_stops_on_unknown_metadata(tmp_path):
+    library = AssetLibrary(tmp_path)
+    session = Session.new()
+    image = session.import_image(picture((8, 8)), 'shared')
+    first = library.save(session, image.id, 'First', [], AssetDetails())
+    second = library.save(session, image.id, 'Second', [], AssetDetails())
+    blobs = [path for path in tmp_path.iterdir() if path.suffix != '.json']
+    library.remove(first['id'])
+    library.collect(grace_seconds=0)
+    assert all(path.exists() for path in blobs)
+    assert library.restore(Session.new(), second['id'])['working']['blob_id'] == image.blob_id
+    damaged = tmp_path / ('f' * 32 + '.json')
+    damaged.write_bytes(b'preserved corrupt evidence')
+    library.remove(second['id'])
+    library.collect(grace_seconds=0)
+    assert all(path.exists() for path in blobs)
+    damaged.unlink()  # user repairs/removes the unknown metadata before another collection
+    library.collect(grace_seconds=0)
+    assert all(not path.exists() for path in blobs)
+
+
 def test_library_preserves_original_provenance_and_cutout(tmp_path):
     first = Session.new()
     source = Source(kind="commons", page="https://example.org/photo", license="CC0", creator="Tester")
@@ -34,9 +83,9 @@ def test_library_preserves_original_provenance_and_cutout(tmp_path):
     fresh = AssetLibrary(tmp_path / "library")
     target = Session.new()
     restored = fresh.restore(target, entry["id"])
-    assert restored["working"]["id"] == image.id
+    assert restored["working"]["id"] != image.id
     assert restored["original"]["width"] == 1300
-    assert target.artifacts.data(image.id) == first.artifacts.data(image.id)
+    assert target.artifacts.data(restored["working"]["id"]) == first.artifacts.data(image.id)
     assert restored["working"]["source"]["license"] == "CC0"
     assert restored["entry"]["metadata"]["crop"] == [1, 2, 30, 40]
     assert "facing right" in target.data.transcript[-1]["content"]
@@ -65,7 +114,7 @@ def test_library_cutout_recovers_source_crop_and_unchanged_pixels(tmp_path):
     restored = lib.restore(target, entry["id"])
     assert target.artifacts.data(restored["working"]["id"]) == session.artifacts.data(step.outputs[0])
     reopened = project.open_project(project.save(target, tmp_path / "reused.badshop"))
-    assert reopened.artifacts.meta[step.outputs[0]].source == source
+    assert reopened.artifacts.meta[restored["working"]["id"]].source == source
 
 
 def test_library_refuses_corrupt_data_without_partial_import(tmp_path):
@@ -73,7 +122,7 @@ def test_library_refuses_corrupt_data_without_partial_import(tmp_path):
     im = session.import_image(picture(), "example")
     lib = AssetLibrary(tmp_path)
     entry = lib.save(session, im.id, "Saved", [], AssetDetails())
-    (tmp_path / f"{im.id}.png").write_bytes(b"corrupt")
+    (tmp_path / f"{im.blob_id}.png").write_bytes(b"corrupt")
     target = Session.new()
     with pytest.raises(EngineError, match="hash"):
         lib.restore(target, entry["id"])
@@ -104,8 +153,8 @@ def test_library_save_failure_preserves_existing_assets_and_cleans_temporary_fil
     assert library.list() == before
     assert not list(library.root.glob("*.tmp"))
     restored = Session.new()
-    library.restore(restored, entry["id"])
-    assert restored.artifacts.data(existing.id) == session.artifacts.data(existing.id)
+    result = library.restore(restored, entry["id"])
+    assert restored.artifacts.data(result["working"]["id"]) == session.artifacts.data(existing.id)
 
 
 def test_branches_keep_independent_replay_and_survive_save(tmp_path):
@@ -124,7 +173,7 @@ def test_branches_keep_independent_replay_and_survive_save(tmp_path):
     assert session.artifacts.data(session.step(first.id).outputs[0]) == original_pixels
     saved = project.save(session, tmp_path / "directions.badshop")
     restored = project.open_project(saved)
-    assert restored.data.schema_ == 5
+    assert restored.data.schema_ == 6
     assert branches.listing(restored)["active_id"] == original
     branches.switch(restored, poster)
     assert restored.artifacts.data(restored.step(first.id).outputs[0]) == poster_pixels
@@ -188,7 +237,7 @@ def test_v1_project_migrates_and_bad_branch_is_refused(tmp_path):
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("session.json", json.dumps(payload))
     opened = project.open_project(path)
-    assert opened.data.schema_ == 5 and opened.data.branches == {}
+    assert opened.data.schema_ == 6 and opened.data.branches == {}
     branches.create(opened, "Alt")
     broken = opened.data.model_dump(mode="json", by_alias=True)
     broken["branches"][opened.data.active_branch_id]["artifact_ids"] = ["f" * 64]
@@ -215,7 +264,7 @@ def test_server_library_and_branch_revisions():
                          expected_revision=before["document_revision"])
         await c.call("session.new")
         restored = await c.call("library.import", id=saved["id"])
-        assert restored["working"]["id"] == image
+        assert restored["working"]["id"] != image
         cli = Client(app, "cli:codex")
         with pytest.raises(Failed):
             await cli.call("library.list")
@@ -268,9 +317,9 @@ def test_library_import_visible_on_branch_and_metadata_survives_reopen(tmp_path)
     entry = library.save(source, image.id, "Head", ["facing right"], AssetDetails(notes="expressive"))
     target = Session.new()
     branches.create(target, "New")
-    library.restore(target, entry["id"])
-    assert image.id in target.visible_artifact_ids()
+    restored = library.restore(target, entry["id"])
+    assert restored["working"]["id"] in target.visible_artifact_ids()
     opened = project.open_project(project.save(target, tmp_path / "import.badshop"))
-    assert image.id in opened.visible_artifact_ids()
+    assert restored["working"]["id"] in opened.visible_artifact_ids()
     assert "facing right" in opened.data.transcript[-1]["content"]
     assert opened.data.transcript[-1]["role"] == "user"

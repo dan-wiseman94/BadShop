@@ -22,6 +22,7 @@ import { themes, savePreference, type Density, type Motion } from "../appearance
 import { pickFolder } from "../native";
 import { ErrorNotice } from "./ErrorNotice";
 import { SourceSettings } from "./SourceSettings";
+import { StorageSettings } from './StorageSettings';
 import { UpdateSettings, type useUpdates } from "../updates";
 import { BIREFNET_MEMORY_NOTE, ON_DEVICE } from "../constants";
 import type {
@@ -569,7 +570,7 @@ function ProviderChecks({ profile }: { profile: Profile }) {
   </div>;
 }
 
-export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }) {
+export function Settings({ updates, onRestore }: { updates: ReturnType<typeof useUpdates>; onRestore?: () => void }) {
   const [tab, setTab] = useState(updates.info?.version ? "updates" : "providers");
   const [edit, setEdit] = useState<Profile | null | undefined>(undefined);
   const [detected, setDetected] = useState<CLIDetection[] | null>(null);
@@ -615,6 +616,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
               ["preferences", "Preferences"],
               ["assets", "Assets"],
               ["updates", "Updates"],
+              ['storage', 'Storage'],
             ].map(([id, label]) => (
               <Button
                 key={id}
@@ -626,6 +628,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
           </nav>
           <div className="settings-content">
             {tab === "updates" && <UpdateSettings updates={updates} />}
+            {tab === 'storage' && <StorageSettings onRestore={onRestore} />}
             {tab === "providers" && (
               <>
                 {edit !== undefined ? (

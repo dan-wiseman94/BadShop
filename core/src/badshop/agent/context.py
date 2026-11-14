@@ -1,7 +1,6 @@
 """What the model sees: the system prompt, the tool definitions, and the conversation so far."""
 
 import base64
-import copy
 import io
 import json
 import re
@@ -13,6 +12,7 @@ from badshop.agent.creative import direction_prompt
 
 from badshop.session.artifacts import short
 from badshop.session.models import ArtifactMeta, Step
+from badshop.session.conversation import bounded_history, provider_message
 from badshop.session.session import Session
 from badshop.tools import REGISTRY
 from badshop.tools.registry import llm_schema
@@ -78,6 +78,7 @@ When done, say in a sentence or two what you made.""" + direction_prompt()
 
 MAX_IMAGES = 8
 MAX_IMAGE_PX = 1024
+MAX_IMAGE_BYTES = 12 * 2**20  # encoded provider payload, independent of stored original size
 _IMAGE_REF = re.compile(r"(?<![a-zA-Z0-9])[0-9a-fA-F]{6,64}(?![a-zA-Z0-9])")
 
 UNANSWERED = "not run: the app stopped before this call finished"
@@ -171,16 +172,22 @@ def _mark_web_results(messages: list[dict]) -> None:
 
 def _image_part(session: Session, aid: str) -> dict:
     """A transient PNG view. Nearest-neighbor resizing never mutates the stored artifact."""
-    with session.artifacts.image(aid) as original:
-        image = original.convert("RGBA")
-        try:
+    def render():
+        with session.artifacts.image(aid) as original, original.convert("RGBA") as image:
             image.thumbnail((MAX_IMAGE_PX, MAX_IMAGE_PX), Image.Resampling.NEAREST)
             with io.BytesIO() as output:
                 image.save(output, "PNG")
-                data = base64.b64encode(output.getvalue()).decode("ascii")
-        finally:
-            image.close()
+                return output.getvalue()
+    encoded = session.artifacts.representation(aid, ('model-v1', 0, MAX_IMAGE_PX, 'RGBA', 'PNG'), render)
+    data = base64.b64encode(encoded).decode('ascii')
     return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + data}}
+
+
+def validate_request_budget(messages: list[dict], tools: list[dict]) -> None:
+    """Bound the entire disposable envelope, including system text and tool schemas."""
+    if len(json.dumps({'messages': messages, 'tools': tools}, ensure_ascii=True).encode('ascii')) > 16 * 2**20:
+        raise EngineError('the provider request exceeds the context byte budget',
+                          hint='start a shorter direction; the complete project history is retained')
 
 
 def _add_images(session: Session, messages: list[dict], *, full_ids: bool = False) -> None:
@@ -219,31 +226,42 @@ def _add_images(session: Session, messages: list[dict], *, full_ids: bool = Fals
     content = messages[user_index].get("content") or ""
     parts = ([{"type": "text", "text": content}] if isinstance(content, str) else list(content))
     parts.append({"type": "text", "text": "Current session images (source pixel dimensions):"})
-    for aid in selected:
+    image_blocks, image_bytes = [], 0
+    for aid in reversed(selected):  # reserve bytes for the latest output first
         label = image_placeholder(session.artifacts.meta[aid])
         if full_ids:
             label += f" Artifact ID: {aid}"
-        parts.append({"type": "text", "text": label})
-        parts.append(_image_part(session, aid))
+        part = _image_part(session, aid)
+        size = len(part['image_url']['url'])
+        block = [{"type": "text", "text": label}]
+        if image_bytes + size <= MAX_IMAGE_BYTES:
+            block.append(part)
+            image_bytes += size
+        else:
+            block[0]['text'] += ' (view omitted from request byte budget; reopen with view)'
+        image_blocks.append(block)
+    parts.extend(part for block in reversed(image_blocks) for part in block)
     if len(refs) > MAX_IMAGES:
         parts.append({"type": "text", "text": "Older views omitted from the image budget; reopen with view:\n"
                       + "\n".join(image_placeholder(session.artifacts.meta[aid])
-                                  for aid in refs[:-MAX_IMAGES])})
+                                  for aid in refs[:-MAX_IMAGES][-16:])})
     messages[user_index]["content"] = parts
 
 
-def build_messages(session: Session, full_ids: bool = False, thought_signatures: bool = False) -> list[dict]:
+def build_messages(session: Session, full_ids: bool = False, thought_signatures: bool = False,
+                   continuation_scope: str | None = None) -> list[dict]:
     """Build a disposable provider request. Stored history has ids and text only, never base64.
 
     The most recent user message starts the image budget: older turn references stay placeholders.
     The latest completed output is always included, plus up to seven other recent references.
     """
-    summary = session.summary()
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}, *copy.deepcopy(_answered(session.data.transcript))]
-    if not thought_signatures:
-        for message in messages:
-            for call in message.get("tool_calls") or []:
-                call.pop("thought_signature", None)
+    summary = session.summary(limit=50)[-16384:]
+    if len(session.data.steps) > 50:
+        summary = f'{len(session.data.steps)} steps total; latest 50 shown.\n' + summary
+    history = bounded_history(session.data.transcript)
+    messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                *_answered([provider_message(entry, thought_signatures=thought_signatures,
+                                               continuation_scope=continuation_scope) for entry in history])]
     _mark_web_results(messages)
     _add_images(session, messages, full_ids=full_ids)
     # Project errors, labels and actors can contain arbitrary imported text. They

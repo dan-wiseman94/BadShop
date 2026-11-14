@@ -7,8 +7,8 @@ the next safe point"). The memory limit is an RSS watchdog, not RLIMIT_AS (under
 core, so a worker whose core has died exits on its own.
 
 Asset downloads inside a tool (the first cutout fetches its model) report progress to the core's
-`assets.PROGRESS` through the pipe, and each report pushes the deadline back to a full `timeout_s`:
-downloading is not the tool's time, and a slow connection must not kill every first cutout.
+`assets.PROGRESS` through the pipe. Reports refresh the idle deadline while an absolute
+four-times-timeout ceiling also bounds serialization, pipe transfer and continuous progress.
 
 Between calls, a worker that holds more than half of the memory limit drops its cached rembg session
 (carry-forward TRI T7 F3), so a cache never leaves the next call too little room.
@@ -23,15 +23,17 @@ frozen build must call `multiprocessing.freeze_support()` first.
 
 import multiprocessing
 import multiprocessing.connection
+from multiprocessing.reduction import ForkingPickler
 import os
+import queue
 import signal
 import threading
-import tempfile
 import time
 import warnings
 from typing import Literal, NoReturn
 
 import psutil
+from badshop.session import scratch
 from PIL import Image
 from pydantic import Field
 
@@ -41,8 +43,10 @@ from badshop.engine.result import EngineResult
 from badshop.engine.types import Params
 from badshop.session.execution import (CRASH_HINT, STOPPED, DecodeCall, MediaCall, ToolCall, ToolOutcome,
                                        decoded_image, execute_call, execute_decode, execute_media)
+
 from badshop.tools.registry import ToolSpec, register  # importing badshop.tools registers every tool
 
+MAX_IPC_BYTES = 512 * 2**20  # permits one 100 Mpx RGBA decode, bounds retained framing buffers
 TEST_TOOLS_ENV = "BADSHOP_WORKER_TEST_TOOLS"  # "1": the worker also registers the test tools below
 STARTUP_TIMEOUT_S = 60.0  # spawning Python and importing the tools; not counted against the tool
 CHILDREN_EVERY_S = 1.0  # listing the worker's own subprocesses scans every process, so do it sparingly
@@ -119,9 +123,9 @@ class WorkerExecutor:
     def media(self, operation: str, root: str, *, cancel: threading.Event | None = None, **params) -> dict:
         # The parent owns scratch files: killing a decoder cannot strand a copy
         # of the user's source in the OS temp folder.
-        with tempfile.TemporaryDirectory(prefix="badshop-media-") as scratch:
+        with scratch.temporary('media') as folder:
             if operation in ("preview", "capture"):
-                params = {**params, "_scratch": scratch}
+                params = {**params, "_scratch": folder}
             result = self.run(MediaCall(operation, root, params), cancel=cancel)
         if not result.ok:
             raise EngineError(result.error_message or "source could not be decoded", hint=result.error_hint)
@@ -151,12 +155,9 @@ class WorkerExecutor:
         try:
             if self._proc is None or not self._proc.is_alive():
                 self._start(cancel)
-            try:
-                self._conn.send((call, self.max_rss_mb))  # the worker drops cached models above half of it
-            except OSError:  # the worker died between calls
-                self._died()
             outcome = self._receive(time.monotonic() + self.timeout_s, _failed(
-                f"the tool took longer than {self.timeout_s:g} s and was stopped", LIMIT_HINT), cancel)
+                f"the tool took longer than {self.timeout_s:g} s and was stopped", LIMIT_HINT), cancel,
+                send=(call, self.max_rss_mb), absolute=time.monotonic() + self.timeout_s * 4)
         except _Stopped as s:
             return s.outcome
         except BaseException:
@@ -192,30 +193,72 @@ class WorkerExecutor:
                       _failed(f"the tool worker did not start within {STARTUP_TIMEOUT_S:g} s", "try again"),
                       cancel)
 
-    def _receive(self, deadline: float, late: ToolOutcome, cancel: threading.Event | None):
-        """The worker's next message other than download progress, which goes to assets.PROGRESS and
-        moves the deadline. On cancel() or the call's own `cancel` event, the deadline, the memory limit
-        or the worker's death, the worker is stopped and _Stopped carries the outcome."""
-        while True:
+    def _receive(self, deadline: float, late: ToolOutcome, cancel: threading.Event | None,
+                 *, send=None, absolute=None):
+        """Watch serialization, blocked writes and partial reads as well as tool execution.
+
+        One bounded I/O thread owns the pipe while this call owns the executor.
+        Killing the worker releases blocked pipe I/O; an unjoined thread retires
+        the executor, so repeated timeouts cannot accumulate helper threads.
+        Progress extends the idle deadline, never the absolute operation deadline.
+        """
+        absolute = deadline if absolute is None else absolute
+        connection = self._conn
+        messages = queue.Queue(maxsize=1)
+        stopped = threading.Event()
+
+        def publish(value):
+            while not stopped.is_set():
+                try:
+                    messages.put(value, timeout=self.poll_s)
+                    return
+                except queue.Full:
+                    pass
+
+        def transfer():
             try:
-                ready = self._conn.poll(self.poll_s)
-                message = self._conn.recv() if ready else None
-            except (EOFError, OSError):  # the worker's end closed (on Windows, poll itself raises)
-                self._died()
-            if ready:
-                if not (isinstance(message, tuple) and message[:1] == ("progress",)):
+                if send is not None:
+                    connection.send(send)
+                while not stopped.is_set():
+                    if not connection.poll(self.poll_s):
+                        continue
+                    message = ForkingPickler.loads(connection.recv_bytes(MAX_IPC_BYTES))
+                    publish((True, message))
+                    if not (isinstance(message, tuple) and message[:1] == ('progress',)):
+                        return
+            except BaseException as error:
+                publish((False, error))
+
+        thread = threading.Thread(target=transfer, name='badshop-worker-io', daemon=True)
+        thread.start()
+        try:
+            while True:
+                if self._cancel.is_set() or (cancel is not None and cancel.is_set()):
+                    self._kill(_failed(STOPPED))
+                if time.monotonic() >= min(deadline, absolute):
+                    self._kill(late)
+                if self._rss_mb() > self.max_rss_mb:
+                    self._kill(_failed(f"the tool used more than {self.max_rss_mb} MB of memory and was stopped",
+                                       LIMIT_HINT))
+                try:
+                    ok, message = messages.get(timeout=self.poll_s)
+                except queue.Empty:
+                    if not self._proc.is_alive():
+                        self._died()
+                    continue
+                if not ok:
+                    if isinstance(message, (EOFError, OSError)):
+                        self._died()
+                    raise message
+                if not (isinstance(message, tuple) and message[:1] == ('progress',)):
                     return message
                 _report_progress(*message[1:])
                 deadline = max(deadline, time.monotonic() + self.timeout_s)
-            elif not self._proc.is_alive():
-                self._died()
-            if self._cancel.is_set() or (cancel is not None and cancel.is_set()):
-                self._kill(_failed(STOPPED))
-            if time.monotonic() >= deadline:
-                self._kill(late)
-            if self._rss_mb() > self.max_rss_mb:
-                self._kill(_failed(f"the tool used more than {self.max_rss_mb} MB of memory and was stopped",
-                                   LIMIT_HINT))
+        finally:
+            stopped.set()
+            thread.join(STOP_WAIT_S)
+            if thread.is_alive():
+                self._closed = True
 
     def _rss_mb(self) -> float:
         """Resident memory of the worker and its own subprocesses, in MB."""
@@ -293,7 +336,10 @@ class _Sender:
 
     def __call__(self, message) -> None:
         with self.lock:
-            self.conn.send(message)
+            payload = ForkingPickler.dumps(message)
+            if len(payload) > MAX_IPC_BYTES:
+                payload = ForkingPickler.dumps(_failed('the worker result exceeded the 512 MiB transfer budget', LIMIT_HINT))
+            self.conn.send_bytes(payload)
 
     def progress(self, name: str, done: int, total: int | None) -> None:
         message = ("progress", name, done, total)

@@ -7,7 +7,6 @@ from PIL import Image
 
 from badshop.engine.errors import EngineError
 from badshop.session import project
-from badshop.session.models import Step
 from badshop.session.session import Session
 from badshop.tools.registry import REGISTRY, image_refs, map_image_refs
 
@@ -89,8 +88,7 @@ def export(session: Session, artifact_id: str, include_credits: bool = False) ->
     mapped = {}
     for index, aid in enumerate(ids):
         source = session.artifacts.meta[aid].source if include_credits else None
-        mapped[aid] = clean.artifacts.add(_clean_image(session, aid), f"picture-{index + 1}", source=source).id
-    external_inputs: set[str] = set()
+        mapped[aid] = clean.artifacts.add(_clean_image(session, aid), f"picture-{index + 1}", source=source, new_use=True).id
     for index in indices:
         old = session.data.steps[index]
         tool = "transform" if old.bypassed else old.tool
@@ -99,19 +97,14 @@ def export(session: Session, artifact_id: str, include_credits: bool = False) ->
         if "name" in raw:
             raw["name"] = None
         params = map_image_refs(REGISTRY[tool].params, raw, lambda ref: mapped[session.artifacts.resolve(ref)])
-        step_id = f"s{len(clean.data.steps) + 1}"
         inputs = set(image_refs(REGISTRY[tool].params, params))
-        # Re-encoding can merge different containers with identical pixels. An image
-        # already consumed as an import must not acquire a later producer.
-        external_inputs.update(aid for aid in inputs if clean.artifacts.meta[aid].produced_by is None)
-        for aid in old.outputs:
-            output = mapped[aid]
-            meta = clean.artifacts.meta[output]
-            if output not in external_inputs and meta.produced_by is None:
-                clean.artifacts.meta[output] = meta.model_copy(update={"produced_by": step_id})
-        clean.data.steps.append(Step(id=step_id, index=len(clean.data.steps) + 1,
-                                     tool=tool, params=params, actor="user", status="done",
-                                     outputs=[mapped[aid] for aid in old.outputs]))
+        step = clean.propose(tool, params, 'user')
+        step.status = 'done'
+        step.outputs = [mapped[aid] for aid in old.outputs]
+        step.output_ports = {key: mapped[aid] for key, aid in old.output_ports.items()}
+        for key, aid in step.output_ports.items():
+            clean.artifacts.meta[aid] = clean.artifacts.meta[aid].model_copy(update={
+                'produced_by': step.id, 'invocation_id': step.invocation_id, 'output_key': key, 'inputs': tuple(inputs)})
     session.output_dir.mkdir(parents=True, exist_ok=True)
     path = session.output_dir / f"remix-{secrets.token_hex(8)}.badshop"
     # Own a new destination before project.save's atomic replace; never replace a user's file.

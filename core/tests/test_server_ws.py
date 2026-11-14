@@ -28,7 +28,6 @@ from badshop.server import ws as transport
 from badshop.server.auth import actor_token
 from badshop.server.settings import Settings
 from badshop.server.ws import bound_port, serve
-from badshop.session.artifacts import ArtifactStore
 from badshop.session.execution import InProcessExecutor
 from badshop.session.project import open_project
 from badshop.session.session import Session
@@ -38,6 +37,34 @@ from test_server_app import run
 
 TOKEN = "t0ken-for-tests"
 WAIT_S = 120  # generous: the first tool call also starts the worker process
+
+
+def test_binary_artifact_reply_uses_authenticated_socket_and_preserves_exact_bytes(env):
+    async def body(app):
+        output = io.BytesIO()
+        Image.new('RGB', (8, 8), 'red').save(output, 'PNG')
+        image = app.session.import_image(output.getvalue(), 'binary')
+        async with await serve(app, TOKEN) as server:
+            async with connect(f'ws://127.0.0.1:{bound_port(server)}') as ws:
+                await ws.send(json.dumps({'type': 'hello', 'token': TOKEN, 'actor': 'user'}))
+                welcome = json.loads(await ws.recv())
+                assert 'binary-artifact-v1' in welcome['capabilities']
+                await ws.send(json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'artifacts.get',
+                    'params': {'id': image.id}, 'response_encoding': 'binary-artifact-v1'}))
+                payload = await ws.recv()
+                assert isinstance(payload, bytes) and payload[:4] == b'BSM1'
+                size = int.from_bytes(payload[4:8], 'big')
+                metadata = json.loads(payload[8:8 + size])
+                pixels = payload[8 + size:]
+                assert pixels == output.getvalue()
+                assert metadata['id'] == 1 and metadata['result']['byte_length'] == len(pixels)
+                assert metadata['result']['meta']['blob_id'] == hashlib.sha256(pixels).hexdigest()
+                assert 'data' not in metadata['result']
+                # Compatibility clients keep their exact existing JSON result contract.
+                await ws.send(json.dumps({'jsonrpc': '2.0', 'id': 2, 'method': 'artifacts.get', 'params': {'id': image.id}}))
+                legacy = json.loads(await ws.recv())
+                assert base64.b64decode(legacy['result']['data']) == pixels
+    run(body)
 
 
 def test_native_updater_welcome_fixture_matches_core_contract():
@@ -551,11 +578,6 @@ async def core(root: Path, script: list | None = None, data: Path | None = None)
     assert "Traceback" not in log.read_text(encoding="utf-8")
 
 
-def working_id(name: str) -> str:
-    """The artifact id the core gives a fixture's working copy (imports are deterministic)."""
-    return ArtifactStore().import_image((FIXTURES / f"{name}.png").read_bytes(), name)[0].id
-
-
 def test_paste_size_error_preserves_the_approval_and_connection(env, monkeypatch):
     # The full-size paste cap leaves room for base64 expansion and a typical RPC envelope.
     assert 4 * ((server_app.MAX_PASTE_BYTES + 2) // 3) + 1024 < transport.MAX_MESSAGE
@@ -564,14 +586,17 @@ def test_paste_size_error_preserves_the_approval_and_connection(env, monkeypatch
     image = FIXTURES / "trump.png"  # far above the paste cap, but sent as a path
     script = env / "script.json"
     script.write_text(json.dumps([{"tool_calls": [{"name": "cutout", "arguments": {
-        "image": working_id("trump"), "box": [147, 159, 329, 330], "no_ai": True,
+        "image": "pending", "box": [147, 159, 329, 330], "no_ai": True,
     }}]}]), encoding="utf-8")
 
     async def scenario(app):
         server = await serve(app, TOKEN)
         try:
             async with client(bound_port(server), TOKEN) as ui:
-                await ui.call("artifacts.import", {"path": str(image)})
+                imported = await ui.call("artifacts.import", {"path": str(image)})
+                replies = json.loads(script.read_text())
+                replies[0]['tool_calls'][0]['arguments']['image'] = imported['working']['id']
+                script.write_text(json.dumps(replies))
                 await ui.call("chat.send", {"text": "Cut out the face"})
                 step = (await ui.event("approval.needed"))["step"]
                 before = await ui.call("session.get")
@@ -596,8 +621,7 @@ def test_paste_size_error_preserves_the_approval_and_connection(env, monkeypatch
 
 
 def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_serving(tmp_path):
-    trump = working_id("trump")
-    cut = {"name": "cutout", "arguments": {"image": trump, "box": [147, 159, 329, 330], "no_ai": True}}
+    cut = {"name": "cutout", "arguments": {"image": "pending", "box": [147, 159, 329, 330], "no_ai": True}}
     # Every reply asks for the same cutout, so the second turn asks again whether the core makes the
     # provider once or per turn.
     script = [{"text": "Cutting the face out.", "tool_calls": [cut]},
@@ -610,7 +634,9 @@ def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_ser
             async with client(port, token, "cli:claude") as watcher:
                 async with client(port, token) as ui:
                     imported = await ui.call("artifacts.import", {"path": str(FIXTURES / "trump.png")})
-                    assert imported["working"]["id"] == trump
+                    trump = imported['working']['id']
+                    cut['arguments']['image'] = trump
+                    (tmp_path / 'script.json').write_text(json.dumps(script))
                     sent = await ui.call("chat.send", {"text": "cut the face out", "attachments": [trump]})
                     assert sent == {"started": True}
                     first = (await ui.event("approval.needed"))["step"]
@@ -668,13 +694,13 @@ def test_the_core_stops_cleanly_when_its_stdin_closes(tmp_path):
     """Spec §5.7, ruling R10: the shell spawns the core with a stdin pipe it never writes to. A shell that
     dies without stopping the core closes that pipe, and the core stops as it does on SIGTERM (clients get
     1001, the session is autosaved, the tool worker is closed, exit 0) instead of outliving it."""
-    trump = working_id("trump")
     data = tmp_path / "data"  # private: the test reads back the autosave this core leaves
 
     async def scenario() -> str:
         async with core(tmp_path, data=data) as running:
             async with client(running.port, running.token) as ui:
-                await ui.call("artifacts.import", {"path": str(FIXTURES / "trump.png")})
+                imported = await ui.call("artifacts.import", {"path": str(FIXTURES / "trump.png")})
+                trump = imported['working']['id']
                 ran = await ui.call("tools.run", {"tool": "info", "params": {"image": trump}})
                 assert ran["status"] == "done" and ran["data"] == {"width": 474, "height": 600}
                 started = psutil.Process(running.proc.pid).children(recursive=True)
@@ -684,9 +710,9 @@ def test_the_core_stops_cleanly_when_its_stdin_closes(tmp_path):
             assert await asyncio.wait_for(running.proc.wait(), 10) == 0  # at once, not at some timeout
             await until(lambda: not running_ones(started))  # nothing the core started outlives it
         # Leaving `core` checked that nothing more came on stdout and that the log has no traceback.
-        return ran["id"]
+        return ran["id"], trump
 
-    step_id = asyncio.run(scenario())
+    step_id, trump = asyncio.run(scenario())
     assert "badshop-core: stdin closed" in (tmp_path / "core.log").read_text(encoding="utf-8")
     from badshop.session.recovery import load
     autosaved = load(data / "autosave" / "session.sqlite")
@@ -704,27 +730,28 @@ CAPTION = {"text": "four score and seven memes ago", "bottom": True}
 
 
 def expected_ids(out: Path) -> dict[str, str]:
-    """The same work done in-process: the ids the core must produce (the engine is deterministic)."""
+    """The same work done in-process: byte hashes the deterministic engine must produce."""
     s = Session.new(executor=InProcessExecutor(), output_dir=out)
     ids = {n: s.import_image((FIXTURES / f"{n}.png").read_bytes(), n).id for n in ("lincoln", "trump")}
     ids["cut"] = s.run_tool("cutout", {"image": ids["trump"], **CUT_EDITED}, "user").outputs[0]
     ids["pasted"] = s.run_tool("paste", {"base": ids["lincoln"], "piece": ids["cut"], **PASTE},
                                "user").outputs[0]
     ids["captioned"] = s.run_tool("text", {"image": ids["pasted"], **CAPTION}, "user").outputs[0]
-    return ids
+    return {name: s.artifacts.meta[aid].blob_id for name, aid in ids.items()}
 
 
 @pytest.mark.models  # find uses YuNet, and text the Impact lookalike font
 def test_end_to_end_turn_save_reopen_and_replay(tmp_path):
     ids = expected_ids(tmp_path / "in-process")
+    expected = dict(ids)
     lincoln, trump = ids["lincoln"], ids["trump"]
     script = [
         {"text": "Finding the faces first.",
          "tool_calls": [{"name": "find", "arguments": {"image": trump, **FIND}}]},
         {"text": "", "tool_calls": [{"name": "cutout", "arguments": {"image": trump, **CUT}}]},
         {"text": "", "tool_calls": [{"name": "paste", "arguments": {
-            "base": lincoln[:8], "piece": ids["cut"], **PASTE}}]},  # a short ref, as models write them
-        {"text": "", "tool_calls": [{"name": "text", "arguments": {"image": ids["pasted"], **CAPTION}}]},
+            "base": lincoln[:8], "piece": '$latest_image', **PASTE}}]},
+        {"text": "", "tool_calls": [{"name": "text", "arguments": {"image": '$latest_image', **CAPTION}}]},
         {"text": "Done: bad, as requested."},
     ]
     project = tmp_path / "trumpcoln.badshop"
@@ -737,7 +764,13 @@ def test_end_to_end_turn_save_reopen_and_replay(tmp_path):
             async with client(running.port, running.token) as ui:
                 for name in ("lincoln", "trump"):
                     got = await ui.call("artifacts.import", {"path": str(FIXTURES / f"{name}.png")})
-                    assert got["working"]["id"] == ids[name]
+                    assert got["working"]["blob_id"] == expected[name]
+                    ids[name] = got['working']['id']
+                lincoln, trump = ids['lincoln'], ids['trump']
+                script[0]['tool_calls'][0]['arguments']['image'] = trump
+                script[1]['tool_calls'][0]['arguments']['image'] = trump
+                script[2]['tool_calls'][0]['arguments']['base'] = lincoln[:8]
+                (tmp_path / 'first' / 'script.json').write_text(json.dumps(script), encoding='utf-8')
                 sent = await ui.call("chat.send", {"text": "put trump's face on lincoln",
                                                    "attachments": [lincoln, trump]})
                 assert sent == {"started": True}
@@ -767,10 +800,12 @@ def test_end_to_end_turn_save_reopen_and_replay(tmp_path):
                     (tool, "agent:fake", "done") for tool in ("find", "cutout", "paste", "text")]
                 assert steps[1]["params"]["box"] == CUT_EDITED["box"]  # the user's edit is what ran
                 assert steps[2]["params"]["base"] == lincoln  # stored params hold full ids
-                assert [s["outputs"][0] for s in steps[1:]] == [ids["cut"], ids["pasted"], ids["captioned"]]
+                assert [snap['artifacts'][s['outputs'][0]]['blob_id'] for s in steps[1:]] == [
+                    expected['cut'], expected['pasted'], expected['captioned']]
+                ids.update(zip(('cut', 'pasted', 'captioned'), (s['outputs'][0] for s in steps[1:])))
                 assert snap["artifacts"][ids["captioned"]]["produced_by"] == steps[3]["id"]
                 got = await ui.call("artifacts.get", {"id": ids["captioned"]})
-                assert hashlib.sha256(base64.b64decode(got["data"])).hexdigest() == ids["captioned"]
+                assert hashlib.sha256(base64.b64decode(got["data"])).hexdigest() == expected["captioned"]
 
                 saved = await ui.call("session.save_as", {"path": str(project)})
                 assert Path(saved["path"]) == project and project.is_file()

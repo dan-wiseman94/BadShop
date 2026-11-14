@@ -1,3 +1,4 @@
+import { useLibraryPage } from '../libraryPage';
 import { Button } from "./Button";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField } from "./Fields";
@@ -13,7 +14,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
   const { busy, error, notice, setNotice, perform } = useOperation();
   const { data: definitions = [] } = useCoreQuery("layouts.list");
   const { data: packs = [] } = useCoreQuery("packs.list");
-  const { data: library = [] } = useCoreQuery("library.list");
+  const { entries: library, controls: libraryPages } = useLibraryPage();
   const { data: session } = useSession();
   const [template, setTemplate] = useState("trading-card");
   const [title, setTitle] = useState("");
@@ -276,6 +277,7 @@ export function LayoutsPacks({ onAttach }: { onAttach: (id: string) => void }) {
         Choose saved assets to export. Packs include images, originals, tags, source credits, and placement
         anchors.
       </p>
+      {libraryPages}
       <div className="pack-selection">
         {library.map((entry) => (
           <label key={entry.id} className="check-label">

@@ -229,7 +229,7 @@ def install_builtin(library: AssetLibrary, id: str):
         im.save(buf, "PNG")
         source = Source(kind="builtin-pack", title=f"{name}: {label}", creator="badshop procedural artwork",
                         license="MIT", page=None)
-        meta = session.artifacts.add(buf.getvalue(), label, source=source)
+        meta = session.artifacts.add(buf.getvalue(), label, source=source, new_use=True)
         entries.append(library.save(session, meta.id, label, [id, "prop", "transparent" if im.mode == 'RGBA' else 'opaque'],
                                    AssetDetails(anchors={"center": (im.width // 2, im.height // 2), "bottom": (im.width // 2, im.height - 1)},
                                                 notes=f"Original geometric artwork drawn by badshop; pack: {name}.")))

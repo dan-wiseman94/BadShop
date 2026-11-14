@@ -19,10 +19,11 @@ from badshop.engine.errors import EngineError
 from badshop.atomic import sync_directory
 from badshop.session.blobs import BlobStore
 
-VERSION = 1
+VERSION = 2
 JOURNAL_MODE = 'DELETE'
 SYNCHRONOUS = 'EXTRA'
 FANOUT = 32
+RECEIPT_RESULT_BUDGET = 16 * 2**20
 _last_collection = (None, 0.0)
 
 
@@ -100,7 +101,7 @@ class Nodes:
         return result
 
 
-def _version(connection, *, create=False):
+def _version(connection, *, create=False, path=None):
     connection.execute('PRAGMA trusted_schema=OFF')
     version = connection.execute('PRAGMA user_version').fetchone()[0]
     if version == 0 and create:
@@ -108,15 +109,50 @@ def _version(connection, *, create=False):
             BEGIN IMMEDIATE;
             CREATE TABLE nodes (id TEXT PRIMARY KEY, body BLOB NOT NULL) WITHOUT ROWID;
             CREATE TABLE head (singleton INTEGER PRIMARY KEY CHECK(singleton=1), root TEXT NOT NULL);
-            PRAGMA user_version=1;
+            CREATE TABLE operations (id TEXT PRIMARY KEY, body BLOB NOT NULL) WITHOUT ROWID;
+            PRAGMA user_version=2;
             COMMIT;
         ''')
-    elif version != VERSION:
+    elif version == 1 and create:
+        if path is None:
+            raise EngineError('recovery upgrade requires a rollback copy')
+        # SQLite backup settles the source and creates an independently readable copy.
+        backup = path.with_name(path.stem + '.pre-v2.sqlite')
+        staged = backup.with_name('.' + backup.name + '.' + secrets.token_hex(8) + '.part')
+        try:
+            with contextlib.closing(sqlite3.connect(staged)) as target:
+                connection.backup(target)
+                if target.execute('PRAGMA integrity_check').fetchone() != ('ok',):
+                    raise EngineError('recovery rollback copy failed verification')
+            with staged.open('rb') as file:
+                os.fsync(file.fileno())
+            for index in range(1000):
+                candidate = backup if index == 0 else backup.with_name(f'{path.stem}.pre-v2.{index}.sqlite')
+                try:
+                    if os.name == 'nt':
+                        os.rename(staged, candidate)
+                    else:
+                        os.link(staged, candidate)
+                    break
+                except FileExistsError:
+                    continue
+            else:
+                raise EngineError('too many recovery rollback copies; preserve them before upgrading')
+            sync_directory(path.parent)
+        finally:
+            staged.unlink(missing_ok=True)
+        connection.executescript('''
+            BEGIN IMMEDIATE;
+            CREATE TABLE operations (id TEXT PRIMARY KEY, body BLOB NOT NULL) WITHOUT ROWID;
+            PRAGMA user_version=2;
+            COMMIT;
+        ''')
+    elif version not in (1, VERSION):
         raise EngineError(f'unsupported recovery database version {version}',
                           hint='keep this file and open it with a compatible BadShop version')
 
 
-def save(session, path: Path):
+def save(session, path: Path, *, operation=None):
     # Import here avoids a second document validation/normalization implementation.
     from badshop.session import project
 
@@ -130,7 +166,7 @@ def save(session, path: Path):
     payload = session.data.model_dump(mode='json', by_alias=True)
     payload['artifacts'] = {aid: meta.model_dump(mode='json') for aid, meta in session.artifacts.meta.items() if aid in keep}
     raw = _encoded(payload)
-    problem = project._size_problem(len(raw), {aid: session.artifacts.size(aid) for aid in keep})
+    problem = project._size_problem(len(raw), {session.artifacts.meta[aid].blob_id: session.artifacts.size(aid) for aid in keep})
     if problem:
         raise EngineError(f'cannot save recovery: {problem}')
     created_folder = not path.parent.exists()
@@ -140,9 +176,10 @@ def save(session, path: Path):
     blobs = BlobStore(path.parent / 'blobs')
     # Validate existing content too: never commit a reference to a corrupted blob.
     for aid in keep:
-        target = blobs.path(aid)
+        digest = session.artifacts.meta[aid].blob_id
+        target = blobs.path(digest)
         if target.exists():
-            blobs.verify(target, aid)
+            blobs.verify(target, digest)
         else:
             blobs.put(session.artifacts.data(aid))
     creating = not path.exists()
@@ -151,11 +188,18 @@ def save(session, path: Path):
         with contextlib.closing(sqlite3.connect(destination)) as connection:
             connection.execute(f'PRAGMA journal_mode={JOURNAL_MODE}')
             connection.execute(f'PRAGMA synchronous={SYNCHRONOUS}')
-            _version(connection, create=True)
+            _version(connection, create=True, path=path)
             with connection:
                 nodes = Nodes(connection)
                 root = nodes.put(payload)
                 connection.execute('INSERT OR REPLACE INTO head VALUES (1, ?)', (root,))
+                if operation is not None:
+                    previous = connection.execute('SELECT body FROM operations WHERE id=?', (operation['id'],)).fetchone()
+                    if previous and json.loads(previous[0])['fingerprint'] != operation['fingerprint']:
+                        raise EngineError('operation identity was reused for another command')
+                    connection.execute('INSERT OR REPLACE INTO operations VALUES (?, ?)',
+                                       (operation['id'], _encoded(operation)))
+                    _trim_receipt_results(connection)
                 # A retained branch/undo history is already in the current root.
                 # Reclaim old metadata without duplicating complete memberships.
                 connection.execute('CREATE TEMP TABLE live (id TEXT PRIMARY KEY) WITHOUT ROWID')
@@ -169,6 +213,92 @@ def save(session, path: Path):
     finally:
         if creating:
             destination.unlink(missing_ok=True)
+
+
+def _trim_receipt_results(connection):
+    """Bound cached replies while retaining every deduplication identity.
+
+    A compacted committed receipt refuses replay rather than repeating side effects.
+    Pending identities and document history are never removed by this cache policy.
+    """
+    total = connection.execute('SELECT COALESCE(SUM(length(body)), 0) FROM operations').fetchone()[0]
+    if total <= RECEIPT_RESULT_BUDGET:
+        return
+    receipts = [(identity, raw, json.loads(raw))
+                for identity, raw in connection.execute('SELECT id, body FROM operations')]
+    for identity, raw, receipt in sorted(receipts, key=lambda item: item[2]['created_at']):
+        if total <= RECEIPT_RESULT_BUDGET:
+            break
+        if receipt.get('result') is not None:
+            receipt['result'] = None
+            compact = _encoded(receipt)
+            connection.execute('UPDATE operations SET body=? WHERE id=?', (compact, identity))
+            total -= len(raw) - len(compact)
+
+
+def operation(path: Path, identity: str):
+    """Read a receipt without creating files or changing document recovery state."""
+    if not path.exists():
+        return None
+    try:
+        with contextlib.closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as connection:
+            _version(connection)
+            if connection.execute('PRAGMA user_version').fetchone()[0] == 1:
+                return None
+            row = connection.execute('SELECT body FROM operations WHERE id=?', (identity,)).fetchone()
+            return json.loads(row[0]) if row else None
+    except (sqlite3.Error, ValueError) as error:
+        raise EngineError('operation receipt storage is damaged or unreadable', hint=str(error)) from None
+
+
+def record_intent(path: Path, receipt: dict):
+    """Persist admission against the last committed head without waiting for a worker.
+
+    Cancellation and document replacement must be able to signal a running worker
+    while it owns the document lock. This transaction never reads mutable session data.
+    """
+    try:
+        with contextlib.closing(sqlite3.connect(path)) as connection:
+            connection.execute(f'PRAGMA synchronous={SYNCHRONOUS}')
+            _version(connection, create=True, path=path)
+            with connection:
+                connection.execute('BEGIN IMMEDIATE')
+                previous = connection.execute('SELECT body FROM operations WHERE id=?', (receipt['id'],)).fetchone()
+                if previous:
+                    return json.loads(previous[0])
+                connection.execute('INSERT INTO operations VALUES (?, ?)', (receipt['id'], _encoded(receipt)))
+    except (sqlite3.Error, OSError) as error:
+        raise EngineError('could not record operation intent', hint=str(error)) from None
+    return None
+
+
+def inspect(folder: Path) -> list[dict]:
+    """Read-only recovery diagnostics. Never repair in place or discard damaged evidence."""
+    reports = []
+    for path in sorted(folder.glob('*.sqlite')):
+        report = {'file': path.name, 'ok': False, 'version': 0, 'pending_operations': 0, 'error': ''}
+        try:
+            with contextlib.closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as connection:
+                _version(connection)
+                report['version'] = connection.execute('PRAGMA user_version').fetchone()[0]
+                if connection.execute('PRAGMA quick_check').fetchone() != ('ok',):
+                    raise EngineError('database integrity check failed')
+                row = connection.execute('SELECT root FROM head WHERE singleton=1').fetchone()
+                if row is None:
+                    raise EngineError('no committed document')
+                payload = Nodes(connection).get(row[0])
+                from badshop.session import project
+                data = project._session_data(path, _encoded(payload))
+                for meta in {meta.blob_id: meta for meta in data.artifacts.values()}.values():
+                    BlobStore.verify(folder / 'blobs' / meta.blob_id, meta.blob_id)
+                if report['version'] >= 2:
+                    report['pending_operations'] = sum(json.loads(row[0]).get('status') == 'pending'
+                        for row in connection.execute('SELECT body FROM operations'))
+                report['ok'] = True
+        except (EngineError, sqlite3.Error, OSError, ValueError, KeyError, TypeError) as error:
+            report['error'] = str(error)[:500]
+        reports.append(report)
+    return reports
 
 
 def collect(folder: Path, *, grace_seconds: float = 86400) -> None:
@@ -192,7 +322,7 @@ def collect(folder: Path, *, grace_seconds: float = 86400) -> None:
                 if row is None:
                     return
                 payload = Nodes(connection).get(row[0])
-                live.update(payload['artifacts'])
+                live.update(meta.get('blob_id', aid) for aid, meta in payload['artifacts'].items())
     except (EngineError, sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         return
     cutoff = time.time() - grace_seconds
@@ -230,18 +360,20 @@ def load(path: Path, **session_kw):
         data = project._session_data(path, raw)
         if len(data.artifacts) + 2 > project.MAX_MEMBERS:
             raise EngineError('recovery has too many images')
-        sizes = {aid: (path.parent / 'blobs' / aid).stat().st_size for aid in data.artifacts}
+        sizes = {meta.blob_id: (path.parent / 'blobs' / meta.blob_id).stat().st_size for meta in data.artifacts.values()}
         problem = project._size_problem(len(raw), sizes)
         if problem:
             raise EngineError(f'recovery is too large: {problem}')
         artifacts = ArtifactStore(decoder=session_kw.get('decoder'))
         for aid, meta in data.artifacts.items():
-            blob_path = path.parent / 'blobs' / aid
+            blob_path = path.parent / 'blobs' / meta.blob_id
             if blob_path.stat().st_size > project.MAX_MEMBER_BYTES:
                 raise EngineError('recovery image is too large')
-            blob = BlobStore.read(blob_path, aid)
+            blob = BlobStore.read(blob_path, meta.blob_id)
             artifacts.add(blob, meta.label, produced_by=meta.produced_by, source=meta.source,
-                          original_id=meta.original_id)
+                          original_id=meta.original_id, identity=aid,
+                          invocation_id=meta.invocation_id, output_key=meta.output_key,
+                          input_ids=meta.inputs, legacy_identity=meta.legacy_identity)
         return project._restore(path, data, artifacts, session_kw)
     except (sqlite3.Error, OSError, ValueError, TypeError) as error:
         raise EngineError('recovery is damaged or unreadable', hint=str(error)) from None

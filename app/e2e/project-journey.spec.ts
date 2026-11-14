@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { test, expect, root, startCore, type Core } from "./fixtures";
+import { test, expect, expectImageBytes, root, startCore, type Core } from "./fixtures";
 import type { Session } from "../src/types";
 
 const snapshot = async (core: Core) => await core.call("session.get") as Session;
@@ -33,12 +33,12 @@ async function save(page: Page, core: Core, filename: string) {
 async function expectImage(page: Page, core: Core, id: string) {
   const artifact = await core.call("artifacts.get", { id }) as { mime: string; data: string };
   const image = page.locator(".canvas-image");
-  await expect(image).toHaveAttribute("src", `data:${artifact.mime};base64,${artifact.data}`);
+  await expectImageBytes(image, artifact.data);
   await expect.poll(() => image.evaluate(node => {
     const img = node as HTMLImageElement;
     return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
   })).toBe(true);
-  expect(hash(Buffer.from(artifact.data, "base64"))).toBe(id);
+  expect(hash(Buffer.from(artifact.data, "base64"))).toBe((await snapshot(core)).artifacts[id].blob_id);
   return Buffer.from(artifact.data, "base64");
 }
 
@@ -186,7 +186,7 @@ test("branch counts and previews follow timeline edits and survive reopening", a
   await page.getByLabel("New branch name").fill("Fried version");
   await page.getByRole("button", { name: "Create & switch" }).click();
   await expect(take).toContainText("1 steps");
-  await expect(take.locator("img")).toHaveAttribute("src", /^data:image/);
+  await expect(take.locator("img")).toHaveAttribute("src", /^(data:image|blob:)/);
   const oldPreview = (await take.locator("img").getAttribute("src"))!;
   await closeStudio.click();
 
@@ -196,7 +196,7 @@ test("branch counts and previews follow timeline edits and survive reopening", a
   await studio.click();
   await branches.click();
   await expect(take).toContainText("2 steps");
-  await expect(take.locator("img")).toHaveAttribute("src", /^data:image/);
+  await expect(take.locator("img")).toHaveAttribute("src", /^(data:image|blob:)/);
   await expect(take.locator("img")).not.toHaveAttribute("src", oldPreview);
   await page.locator(".studio-card").filter({ hasText: "Original" })
     .getByRole("button", { name: "Switch to this take" }).click();

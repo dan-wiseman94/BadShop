@@ -41,7 +41,8 @@ def test_autosave_failure_remains_retryable_without_another_edit(env, monkeypatc
 
         monkeypatch.setattr(project, "autosave", save)
         try:
-            await app._blocking(app.session.import_image, IMAGE, "portrait")
+            with pytest.raises(EngineError, match="temporary full disk"):
+                await app._blocking(app.session.import_image, IMAGE, "portrait")
             assert app._dirty, "a failed autosave must retain its pending recovery write"
             await app._blocking(lambda: None)
             assert len(attempts) == 2 and not app._dirty

@@ -1,13 +1,14 @@
 """The session data model (spec §6). It is also session.json in a .badshop project file."""
 
 from typing import Literal
+import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from badshop.engine.result import EXT as OUTPUT_EXT
 from badshop.session.preferences import CreativePreferences
 
-SCHEMA = 5  # v5 replaces copied branch/undo histories with shared immutable records
+SCHEMA = 6  # logical artifact uses and stable invocation/output bindings
 
 ImageFormat = Literal["PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF", "HEIF"]
 EXT: dict[str, str] = {**OUTPUT_EXT, "BMP": ".bmp", "TIFF": ".tiff", "AVIF": ".avif", "HEIF": ".heic"}  # tool outputs keep their CLI extensions
@@ -28,10 +29,15 @@ class Source(BaseModel):
 
 
 class ArtifactMeta(BaseModel):
-    """An immutable image. Frozen: an artifact produced twice keeps its first label and produced_by."""
+    """An immutable image use with independent provenance and shared encoded bytes."""
 
     model_config = ConfigDict(frozen=True)
-    id: str = Field(pattern=r"^[0-9a-f]{64}$")  # sha256 of the stored bytes
+    id: str = Field(pattern=r"^[0-9a-f]{64}$")  # logical use, independent of byte identity
+    blob_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    invocation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    output_key: str | None = None
+    inputs: tuple[str, ...] = ()
+    legacy_identity: bool = False
     label: str
     width: int
     height: int
@@ -41,6 +47,20 @@ class ArtifactMeta(BaseModel):
     produced_by: str | None = None  # step id
     source: Source | None = None
     original_id: str | None = None  # an import's working copy -> the full-size original it was made from
+
+    @model_validator(mode='before')
+    @classmethod
+    def legacy_blob(cls, value):
+        if isinstance(value, dict) and 'blob_id' not in value:
+            value = {**value, 'blob_id': value.get('id'), 'legacy_identity': True}
+        return value
+
+    @field_validator('inputs', mode='before')
+    @classmethod
+    def immutable_inputs(cls, value):
+        # The legacy model validator crosses the JSON/Python validation boundary.
+        # Restore the immutable representation without relaxing element validation.
+        return tuple(value) if isinstance(value, list) else value
 
     @property
     def ext(self) -> str:
@@ -54,6 +74,13 @@ class StepError(BaseModel):
 
 class Step(BaseModel):
     id: str  # "s1", "s2", ...
+    invocation_id: str = Field(default_factory=lambda: uuid.uuid4().hex, pattern=r"^[0-9a-f]{32}$")
+    operation_id: str | None = Field(None, pattern=r"^[0-9a-f]{32}$")
+    batch_row: int | None = Field(None, ge=0)
+    batch_item: int | None = Field(None, ge=0)
+    output_ports: dict[str, str] = {}
+    # Parameter references bind to a producer and port, not to byte equality.
+    input_bindings: dict[str, tuple[str, str]] = {}
     index: int
     tool: str
     params: dict  # validated, JSON-safe; image refs are full artifact ids
@@ -125,7 +152,7 @@ class SessionData(BaseModel):
     messages: list[Message] = []
     steps: list[Step] = []
     artifacts: dict[str, ArtifactMeta] = {}
-    transcript: list[dict] = []  # the provider-format message history the agent resumes from
+    transcript: list[dict] = []  # the canonical conversation history the agent resumes from
     active_branch_id: str | None = None
     branches: dict[str, BranchSnapshot] = {}
     history_nodes: dict[str, str] = {}
@@ -153,4 +180,6 @@ class SessionData(BaseModel):
     def collect_history(self) -> None:
         from badshop.session.history import collect
         collect(self.history_nodes, [branch.revision for branch in
-                [*self.branches.values(), *self.manual_undo, *self.manual_redo]])
+                [*self.branches.values(), *self.manual_undo, *self.manual_redo]] + list(self._history_leases))
+
+    _history_leases: list[str] = PrivateAttr(default_factory=list)

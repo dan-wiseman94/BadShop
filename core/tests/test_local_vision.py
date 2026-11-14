@@ -1,12 +1,16 @@
 """On-device validation recovery stays inside the agent's bounded tool loop."""
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 from badshop.providers.local_vision import LocalVisionProvider
+from badshop.agent.local_strategy import LocalEditStrategy
+from badshop.session.session import Session
+from badshop.session.models import Step
 
 
 def test_invalid_image_reference_is_returned_to_model_for_repair():
-    provider = LocalVisionProvider(AsyncMock(), lambda: True)
+    provider = LocalEditStrategy(LocalVisionProvider(AsyncMock(), lambda: True), Session.new())
     provider._request = AsyncMock(return_value={
         "content": "", "tool_calls": [{"id": "fixed", "function": {
             "name": "deepfry", "arguments": '{"image":"abc123","level":1}',
@@ -27,7 +31,7 @@ def test_invalid_image_reference_is_returned_to_model_for_repair():
 
 
 def test_failed_edit_explains_error_without_promising_a_nonexistent_step():
-    provider = LocalVisionProvider(AsyncMock(), lambda: True)
+    provider = LocalEditStrategy(LocalVisionProvider(AsyncMock(), lambda: True), Session.new())
     provider._request = AsyncMock()
     error = "error: invalid parameters for deepfry: level must be at least 1"
     reply = asyncio.run(provider.complete([
@@ -41,7 +45,7 @@ def test_failed_edit_explains_error_without_promising_a_nonexistent_step():
 
 def test_image_schema_names_actual_context_ids_without_rewriting_model_arguments():
     aid = 'a' * 64
-    provider = LocalVisionProvider(AsyncMock(), lambda: True)
+    provider = LocalEditStrategy(LocalVisionProvider(AsyncMock(), lambda: True), Session.new())
     provider._request = AsyncMock(return_value={'content': '', 'tool_calls': [{
         'id': 'model', 'function': {'name': 'deepfry', 'arguments': '{"image":"invalid label"}'},
     }]})
@@ -57,3 +61,34 @@ def test_image_schema_names_actual_context_ids_without_rewriting_model_arguments
     assert sent['function']['parameters']['properties']['image']['enum'] == [aid]
     assert 'enum' not in definition['function']['parameters']['properties']['image']
     assert reply.tool_calls[0].arguments == '{"image":"invalid label"}'
+
+
+def test_laser_geometry_uses_recorded_invocation_not_result_prose(tmp_path):
+    aid = 'a' * 64
+    session = Session.new()
+    detector = Step(id='s1', index=1, tool='find', params={'image': aid}, actor='user', status='done',
+                    data={'faces': [{'box': [0, 0, 20, 20], 'eyes': [[4, 8], [15, 8]]}]})
+    session.data.steps.append(detector)
+    session.data.transcript = [
+        {'role': 'user', 'content': 'Laser eyes'},
+        {'role': 'assistant', 'content': None, 'calls': [{'id': 'detector', 'name': 'find',
+         'arguments': json.dumps({'image': aid})}]},
+        {'role': 'tool', 'tool_call_id': 'detector', 'content': 'Entirely different presentation text.',
+         'invocation_id': detector.invocation_id},
+    ]
+    from badshop.session import project
+    # The invocation link survives the portable document validator too.
+    validated = project._imported_transcript(tmp_path / 'test.badshop', session.data.transcript)
+    assert validated[-1]['invocation_id'] == detector.invocation_id
+    session.data.transcript = validated
+    provider = LocalEditStrategy(LocalVisionProvider(AsyncMock(), lambda: True), session)
+    provider._request = AsyncMock(return_value={'content': '{"face":1}'})
+    messages = [{'role': 'user', 'content': [
+        {'type': 'text', 'text': 'Laser eyes'},
+        {'type': 'text', 'text': f'Artifact ID: {aid}'},
+        {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AA=='}},
+    ]}, {'role': 'assistant', 'tool_calls': [{'id': 'detector', 'function': {
+        'name': 'find', 'arguments': json.dumps({'image': aid})}}]},
+        {'role': 'tool', 'tool_call_id': 'detector', 'content': 'No structured_data delimiter.'}]
+    reply = asyncio.run(provider.complete(messages, [{'function': {'name': 'find'}}], lambda _: None))
+    assert reply.tool_calls[0].arguments == {'image': aid, 'at': [[4, 8], [15, 8]]}

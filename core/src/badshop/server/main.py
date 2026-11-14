@@ -138,6 +138,8 @@ def _stop_at_stdin_eof(stop: asyncio.Event) -> None:
 
 
 async def _serve(port: int) -> int:
+    from badshop.session import scratch
+    await asyncio.to_thread(scratch.collect)
     # Bind before the app exists: CoreApp sets the last run's autosave aside for its restore offer as soon
     # as it is made (Task 12), and a start that can't listen must leave it for the next one to offer.
     try:

@@ -34,6 +34,7 @@ TRUMP = FIXTURES / "trump.png"
 HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
 NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
+    'operations.get', 'storage.inspect',
     "history.undo", "history.redo", "projects.recent", "projects.forget",
     'retro.list', 'creative.set', 'recipes.capture', 'recipes.save', 'recipes.remove', 'recipes.run', 'recipes.stop',
     'tools.preview', 'remix.inspect', 'remix.export',
@@ -42,7 +43,7 @@ METHODS = sorted([
     "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",
     "media.status", "media.cancel", "media.capture", "media.discard", "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
     "collections.update", "collections.import", "collections.remove",
-    "library.list", "library.save", "library.update", "library.import", "library.remove", "library.thumbnail",
+    "library.list", "library.page", "library.save", "library.update", "library.import", "library.remove", "library.thumbnail",
     "branches.list", "branches.create", "branches.switch", "branches.rename", "branches.remove",
     "providers.list", "providers.save", "providers.add", "providers.select", "providers.delete", "providers.test",
     "chat.retry", "chat.pause", "chat.undo", "chat.finish_checkpoint", "steps.preview", "steps.controls",
@@ -495,7 +496,7 @@ def test_import_run_get_and_events(env, monkeypatch):
 
         snap = await c.call("session.get")
         assert [s["status"] for s in snap["steps"]] == ["done", "error"]
-        assert snap["schema"] == 5 and snap["id"] == app.session.data.id and snap["path"] is None
+        assert snap["schema"] == 6 and snap["id"] == app.session.data.id and snap["path"] is None
         assert snap["turn_running"] is False and snap["pending_approvals"] == []
 
     run(body)
@@ -1212,11 +1213,16 @@ def test_failures_are_reported_and_the_core_keeps_serving(env, monkeypatch):
                                              "message": "the agent turn failed (RuntimeError: kaput)"}
         assert (await idle(c))["turn_running"] is False
 
+        autosave = project.autosave
         monkeypatch.setattr(project, "autosave", full_disk)
-        cut = await c.call("tools.run", tool="cutout", params={"image": lincoln, "box": HEAD, "no_ai": True})
-        assert cut["status"] == "done"  # the step is fine; its autosave failed, and that is reported
+        with pytest.raises(Failed, match='disk full'):
+            await c.call("tools.run", tool="cutout", params={"image": lincoln, "box": HEAD, "no_ai": True})
+        cut = app.session.data.steps[-1].model_dump()
+        assert cut["status"] == "error"  # admission could not commit, so the worker never executes
+        assert cut["outputs"] == []
         assert await c.event("core.log", lambda p: p["level"] == "warning") == {
             "level": "warning", "message": "autosave failed: can't save the project (disk full)"}
+        monkeypatch.setattr(project, 'autosave', autosave)
 
         monkeypatch.setattr(Session, "replay_from", broken_replay)
         await c.call("steps.edit", step_id=cut["id"],

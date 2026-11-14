@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RpcClient, RpcError } from "../src/rpc";
+import { RpcClient } from "../src/rpc";
 const welcome = { type: "welcome", protocol: 1, core_instance_id: "core", build_id: "build", event_seq: 0 };
 const context = { core_instance_id: "core", document_id: "document", document_incarnation: "open-1",
   branch_id: null, revision: 1, event_seq: 1 };
 const step = { id: "s1", index: 0, tool: "filter", params: {}, actor: "user", status: "done",
+  invocation_id: 'a'.repeat(32), output_ports: {}, input_bindings: {},
+  operation_id: null, batch_row: null, batch_item: null,
   outputs: [], result_text: "", data: null, error: null, reason: null, edited: false,
   started_at: null, finished_at: null, cache_key: null, previous_outputs: [], locked_fields: [],
   bypassed: false, lock_review: false, lock_approved: false };
@@ -160,9 +162,10 @@ describe("authenticated RPC", () => {
       core_instance_id: "core", event_seq: 1, context,
     });
     const response = rpc.request("chat.retry");
-    const assertion = expect(response).rejects.toEqual(
-      new RpcError("No turn", "Send a message", -32000),
-    );
+    const assertion = expect(response).rejects.toMatchObject({
+      message: 'No turn', hint: 'Send a message', code: -32000,
+      operationId: expect.stringMatching(/^[0-9a-f]{32}$/),
+    });
     socket.receive({
       jsonrpc: "2.0",
       id: JSON.parse(socket.sent.at(-1)!).id,

@@ -95,7 +95,7 @@ def tool_entries(session) -> dict[str, str]:
 
 
 def every_call_answered(transcript: list[dict]) -> bool:
-    calls = [c["id"] for e in transcript if e["role"] == "assistant" for c in e.get("tool_calls") or []]
+    calls = [c["id"] for e in transcript if e["role"] == "assistant" for c in e.get("calls", e.get("tool_calls")) or []]
     answers = [e["tool_call_id"] for e in transcript if e["role"] == "tool"]
     return sorted(calls) == sorted(answers)
 
@@ -170,14 +170,18 @@ def test_turn_runs_tools_and_reports_back(tmp_path):
     user, asked, answer, final = session.data.transcript
     assert user == {"role": "user", "content": "circle the face"}
     assert asked["role"] == "assistant" and asked["content"] == "Circling his face."
-    assert asked["tool_calls"][0]["id"] == "c1"
-    assert json.loads(asked["tool_calls"][0]["function"]["arguments"]) == {"image": img.id[:8],
+    assert asked["calls"][0]["id"] == "c1"
+    assert json.loads(asked["calls"][0]["arguments"]) == {"image": img.id[:8],
                                                                            "circle": [[200, 150, 60]]}
-    assert answer == {"role": "tool", "tool_call_id": "c1", "content": step.result_text}
+    assert answer == {"role": "tool", "tool_call_id": "c1", "content": step.result_text,
+                      "invocation_id": step.invocation_id}
     assert step.outputs[0][:8] in answer["content"] and "drew 1 shape" in answer["content"]  # + tool lines
-    assert final == {"role": "assistant", "content": "Done: a red circle."}
+    assert {key: value for key, value in final.items() if key != 'completion'} == {
+        "role": "assistant", "content": "Done: a red circle."}
+    assert final['completion']['duration_ms'] >= 0 and final['completion']['request_bytes'] > 0
     second = provider.received[1]
-    assert session.summary() not in second[0]["content"] and second[-1] == answer
+    assert session.summary() not in second[0]["content"]
+    assert second[-1] == {key: value for key, value in answer.items() if key != 'invocation_id'}
     assert any(part.get("text", "").endswith(json.dumps(session.summary(), ensure_ascii=True))
                for part in second[1]["content"])
 

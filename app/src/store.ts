@@ -11,7 +11,7 @@ interface UIState {
   status: "starting" | "connecting" | "ready" | "disconnected" | "failed";
   logPath?: string;
   selectedStep: string | null;
-  selectedArtifact: string | { stepId: string; outputIndex: number } | null;
+  selectedArtifact: string | { invocationId: string; outputKey: string } | null;
   viewerBefore: boolean;
   viewerZoom: "fit" | number;
   documentGeneration: number;
@@ -22,6 +22,7 @@ interface UIState {
   pick: PickRequest | null;
   error: string | null;
   errorAction: "retry-turn" | null;
+  errorOperationId: string | null;
   notice: string | null;
   theme: string;
   density: Density;
@@ -43,6 +44,7 @@ export const useUI = create<UIState>()((set) => ({
   pick: null,
   error: null,
   errorAction: null,
+  errorOperationId: null,
   notice: null,
   theme: validTheme(readPreference("theme", "system")),
   density: readPreference("density", "comfortable") === "compact" ? "compact" : "comfortable",
@@ -54,22 +56,27 @@ export const useUI = create<UIState>()((set) => ({
     ...patch,
   }),
 }));
-// A timeline output follows its slot when replay replaces the underlying bytes.
+export function outputSelection(step: Step, artifactId = step.outputs[0]): UIState['selectedArtifact'] {
+  const outputKey = Object.entries(step.output_ports ?? {}).find(([, id]) => id === artifactId)?.[0];
+  return outputKey && step.invocation_id ? { invocationId: step.invocation_id, outputKey } : artifactId ?? null;
+}
+// A missing named output stays unresolved; another port must never replace it silently.
 export function useSelectedArtifact(steps: Step[] | undefined) {
   return useUI(({ selectedArtifact }) => {
     if (!selectedArtifact || typeof selectedArtifact === "string") return selectedArtifact;
-    const outputs = steps?.find((step) => step.id === selectedArtifact.stepId)?.outputs;
-    return outputs?.[selectedArtifact.outputIndex] ?? outputs?.[0] ?? null;
+    return steps?.find((step) => step.invocation_id === selectedArtifact.invocationId)
+      ?.output_ports?.[selectedArtifact.outputKey] ?? null;
   });
 }
 /** The canvas and manual controls must agree on the image currently being inspected. */
 export function useCanvasArtifact(session: Session | undefined) {
   const selectedStep = useUI((state) => state.selectedStep);
   const selectedArtifact = useSelectedArtifact(session?.steps);
+  const explicitSelection = useUI(state => state.selectedArtifact !== null);
   const before = useUI((state) => state.viewerBefore);
   const selected = session?.steps.find((step) => step.id === selectedStep);
   const artifacts = Object.values(session?.artifacts ?? {});
-  const afterId = selectedArtifact ?? selected?.outputs[0] ??
+  const afterId = explicitSelection ? selectedArtifact : selected?.outputs[0] ??
     session?.steps.slice().reverse().find((step) => step.outputs.length)?.outputs[0] ??
     artifacts.find((artifact) => artifact.original_id)?.id ?? artifacts[0]?.id ?? null;
   const inputId = afterId && selected?.outputs.includes(afterId)
@@ -85,6 +92,8 @@ export function showError(
 ) {
   useUI.getState().set({
     errorAction,
+    errorOperationId: error instanceof Error && 'operationId' in error && typeof error.operationId === 'string'
+      ? error.operationId : null,
     error:
       error instanceof Error
         ? error.message === "no model provider is set up yet"

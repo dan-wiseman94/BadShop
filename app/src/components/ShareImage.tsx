@@ -80,7 +80,7 @@ export function ShareImage({ id }: { id: string }) {
   }
   return <section className="share-image" aria-label="Share selected image">
     <h2>Ready for the group chat?</h2>
-    <p>{meta ? `${meta.width} × ${meta.height} · ${meta.format} · ${(data.data.length * 3 / 4 - (data.data.endsWith("==") ? 2 : data.data.endsWith("=") ? 1 : 0)).toLocaleString()} bytes` : "Loading image…"}</p>
+    <p>{meta ? `${meta.width} × ${meta.height} · ${meta.format} · ${data.byteLength.toLocaleString()} bytes` : "Loading image…"}</p>
     <img className="share-preview" src={imageUrl(data)} alt="Selected image at chat preview size" />
     <p className="muted">Preview at 320 px. Make sure the joke is readable at this size.</p>
     <CopyImage id={id} animated={(meta?.frames ?? 1) > 1} />

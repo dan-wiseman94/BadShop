@@ -72,7 +72,7 @@ def _reviews(manifest: Path, *, embed: bool) -> list[Review]:
         reviews.append(review)
 
     totals = Counter((r.case_id, r.phase) for r in reviews if r.phase)
-    variants = Counter((r.case_id, r.phase, r.meta.id) for r in reviews if r.phase)
+    variants = Counter((r.case_id, r.phase, r.meta.blob_id) for r in reviews if r.phase)
     for review in reviews:
         target = cases[review.case_id].get("takes")
         if target and review.phase:
@@ -80,7 +80,7 @@ def _reviews(manifest: Path, *, embed: bool) -> list[Review]:
             unique = sum(case_id == review.case_id and phase == review.phase for case_id, phase, _ in variants)
             review.checks.append(Check("Distinct saved takes", "pass" if unique >= target else "fail",
                                        f"{unique} unique artifact hashes among {count} selected takes; expected {target}."))
-        if review.phase and variants[review.case_id, review.phase, review.meta.id] > 1:
+        if review.phase and variants[review.case_id, review.phase, review.meta.blob_id] > 1:
             review.checks.append(Check("Duplicate take", "fail", "Another take in this phase has identical bytes."))
     return reviews
 

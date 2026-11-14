@@ -185,10 +185,16 @@ def manual_edit(session, name: str):
     existing_nodes = set(session.data.history_nodes)
     active = session.data.active_branch_id or uuid.uuid4().hex
     before = _snapshot(session, active, name, time.time())
+    # A running-step commit can collect while this transaction is executing.
+    # Retain its prospective undo root until it becomes a durable history member.
+    session.data._history_leases.append(before.revision)
     try:
         yield
     finally:
-        after = _snapshot(session, active, name, before.created_at)
+        try:
+            after = _snapshot(session, active, name, before.created_at)
+        finally:
+            session.data._history_leases.remove(before.revision)
         if after != before:
             if pending:
                 session.data.manual_undo.clear()

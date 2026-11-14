@@ -1,10 +1,14 @@
-"""The session's images: immutable artifacts stored by the SHA-256 of their bytes (spec §5.3)."""
+"""Logical image uses with immutable SHA-256-addressed bytes (spec §5.3)."""
 
 import hashlib
 import io
 import re
 import os
 import shutil
+import uuid
+import json
+import threading
+from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from functools import cached_property
@@ -24,6 +28,7 @@ register_heif_opener()
 IMPORT_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF", "HEIF")
 MAX_IMPORT_PIXELS = 100_000_000  # the most pixels any artifact may have; refused before decoding
 MAX_STORED_BYTES = 2 * 2**30  # same payload ceiling as project archives; originals count too
+REPRESENTATION_BYTES = 32 * 2**20
 WORKING_MAX = 1000  # an import's working copy: longest side in px, as `prep` makes
 MIME: dict[str, str] = {"PNG": "image/png", "JPEG": "image/jpeg", "GIF": "image/gif", "WEBP": "image/webp",
                         "BMP": "image/bmp", "TIFF": "image/tiff", "AVIF": "image/avif", "HEIF": "image/heif"}
@@ -31,6 +36,15 @@ FORMAT_ALIASES = {"MPO": "JPEG"}  # a phone's multi-picture JPEG opens as MPO; i
 MIN_PREFIX = 6
 REF_HINT = "use an artifact id from a tool result, like a3f9c1d2"
 FORMATS_HINT = "use a PNG, JPEG, GIF, WebP, BMP, TIFF, AVIF or HEIC/HEIF image"
+
+
+def _use_id(blob_id, label, source, original_id, invocation_id, output_key, input_ids=()):
+    if invocation_id is None or output_key is None:
+        return uuid.uuid4().hex + uuid.uuid4().hex
+    # A stable version of one named output. Equal bytes in another invocation
+    # remain a distinct use; replaying unchanged bytes preserves this use.
+    body = [blob_id, label, source.model_dump() if source else None, original_id, invocation_id, output_key, input_ids]
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=True).encode('ascii')).hexdigest()
 
 
 def short(id: str) -> str:
@@ -91,18 +105,48 @@ def _working_copy(im: Image.Image, name: str) -> bytes:
 
 
 class ArtifactStore:
-    """Artifact bytes and metadata. An id is always the sha256 of the bytes, computed here, never trusted."""
+    """Distinct provenance records share immutable blobs; derived views are disposable."""
 
     def __init__(self, decoder: Callable[[bytes, str, int], Image.Image] | None = None):
         self.meta: dict[str, ArtifactMeta] = {}
         self._data: dict[str, Path] = {}
         self.decoder = decoder
+        self._representations: OrderedDict[tuple, bytes] = OrderedDict()
+        self._representation_size = 0
+        self._representation_lock = threading.Lock()
+
+    def representation(self, aid: str, options: tuple, produce: Callable[[], bytes]) -> bytes:
+        """Cache encoded views by content and complete rendering options, bounded by bytes.
+
+        The store owns this cache; closing a document releases it. Callers provide a
+        rendering version, frame, dimensions and encoding, never a mutable use ID.
+        Decoding stays on the existing decoder path and outside the cache lock.
+        """
+        key = (self.meta[aid].blob_id, *options)
+        with self._representation_lock:
+            if key in self._representations:
+                self._representations.move_to_end(key)
+                return self._representations[key]
+        data = produce()
+        if len(data) <= REPRESENTATION_BYTES:
+            with self._representation_lock:
+                previous = self._representations.pop(key, b'')
+                self._representation_size -= len(previous)
+                while self._representations and self._representation_size + len(data) > REPRESENTATION_BYTES:
+                    _, evicted = self._representations.popitem(last=False)
+                    self._representation_size -= len(evicted)
+                self._representations[key] = data
+                self._representation_size += len(data)
+        return data
 
     @cached_property
     def _blobs(self):
         return BlobStore()
 
     def close(self):
+        with self._representation_lock:
+            self._representations.clear()
+            self._representation_size = 0
         if '_blobs' in self.__dict__:
             self._blobs.close()
 
@@ -127,7 +171,9 @@ class ArtifactStore:
 
     def _capacity(self, *blobs: bytes) -> None:
         incoming = {hashlib.sha256(blob).hexdigest(): len(blob) for blob in blobs}
-        total = sum(path.stat().st_size for path in self._data.values()) + sum(size for aid, size in incoming.items() if aid not in self._data)
+        paths = set(self._data.values())
+        stored = {path.name for path in paths}
+        total = sum(path.stat().st_size for path in paths) + sum(size for aid, size in incoming.items() if aid not in stored)
         if total > MAX_STORED_BYTES:
             raise EngineError("this project has reached its 2 GB image storage limit",
                               hint="save this project and start another, or remove unused images")
@@ -143,16 +189,26 @@ class ArtifactStore:
             raise
 
     def add(self, data: bytes, label: str, *, produced_by: str | None = None, source: Source | None = None,
-            original_id: str | None = None) -> ArtifactMeta:
-        """Store bytes as an artifact. Bytes already stored return the existing meta unchanged, so an
-        artifact keeps the label, produced_by and source it was first stored with."""
-        id = hashlib.sha256(data).hexdigest()
+            original_id: str | None = None, new_use: bool = False, identity: str | None = None,
+            invocation_id: str | None = None, output_key: str | None = None,
+            input_ids: tuple[str, ...] = (), legacy_identity: bool = False) -> ArtifactMeta:
+        """Store one immutable use. Existing identities retain their original metadata.
+
+        Product imports/outputs request distinct uses. Content identities remain
+        available for internal decoder fixtures and supported legacy archives.
+        """
+        blob_id = hashlib.sha256(data).hexdigest()
+        id = identity or (_use_id(blob_id, label, source, original_id, invocation_id, output_key, input_ids) if new_use else blob_id)
         if id in self.meta:
+            if self.meta[id].blob_id != blob_id:
+                raise EngineError('artifact use cannot change its immutable bytes')
             return self.meta[id]
         self._capacity(data)
         with self._open(data, label) as im:  # only images that open are stored, so image() never fails later
             fmt = FORMAT_ALIASES.get(im.format, im.format)
-            meta = ArtifactMeta(id=id, label=label, width=im.width, height=im.height, format=fmt,
+            meta = ArtifactMeta(id=id, blob_id=blob_id, invocation_id=invocation_id, output_key=output_key,
+                                inputs=input_ids, legacy_identity=legacy_identity,
+                                label=label, width=im.width, height=im.height, format=fmt,
                                 mime=MIME[fmt], frames=_frames(im, label), produced_by=produced_by,
                                 source=source, original_id=original_id)
         self._data[id] = self._blobs.put(data)
@@ -164,7 +220,15 @@ class ArtifactStore:
             path = self._data[id]
         except KeyError:
             raise EngineError(f"no such artifact: {id}", hint=REF_HINT) from None
-        return self._blobs.read(path, id)
+        return self._blobs.read(path, self.meta[id].blob_id)
+
+    def clone_use(self, id: str, *, produced_by: str, invocation_id: str, output_key: str) -> ArtifactMeta:
+        source = self.meta[id]
+        identity = _use_id(source.blob_id, source.label, source.source, source.original_id, invocation_id, output_key, source.inputs)
+        meta = self.meta[id].model_copy(update={'id': identity, 'produced_by': produced_by,
+            'invocation_id': invocation_id, 'output_key': output_key, 'legacy_identity': False})
+        self.meta[identity], self._data[identity] = meta, self._data[id]
+        return meta
 
     def size(self, id: str) -> int:
         return self._data[id].stat().st_size
@@ -174,7 +238,10 @@ class ArtifactStore:
         store = ArtifactStore(decoder=self.decoder)
         store.meta = dict(self.meta)
         for aid, path in self._data.items():
-            target = store._blobs.path(aid)
+            target = store._blobs.path(self.meta[aid].blob_id)
+            if target.exists():
+                store._data[aid] = target
+                continue
             try:
                 os.link(path, target)
             except OSError:
@@ -205,13 +272,14 @@ class ArtifactStore:
         """Forget artifacts (ids not in the store are ignored)."""
         for id in list(ids):
             path = self._data.get(id)
-            if path is not None:
-                path.unlink(missing_ok=True)
             self.meta.pop(id, None)
             self._data.pop(id, None)
+            if path is not None and path not in self._data.values():
+                path.unlink(missing_ok=True)
 
     def import_image(self, data: bytes, label: str, source: Source | None = None, *,
-                     produced_by: str | None = None) -> tuple[ArtifactMeta, ArtifactMeta]:
+                     produced_by: str | None = None, invocation_id: str | None = None,
+                     output_key: str | None = None) -> tuple[ArtifactMeta, ArtifactMeta]:
         """A new image entering the session (a file, a drop, a paste, a fetched picture): returns
         (working copy, original).
 
@@ -225,10 +293,12 @@ class ArtifactStore:
             work_bytes = _working_copy(im, shown)
         self._capacity(data, work_bytes)  # refuse before storing either half of an import
         if work_bytes == data:  # a small upright PNG from badshop is its own working copy: stored once
-            meta = self.add(data, f"{name}_work", produced_by=produced_by, source=source)
+            meta = self.add(data, f"{name}_work", produced_by=produced_by, source=source,
+                            new_use=True, invocation_id=invocation_id, output_key=output_key)
             return meta, meta
         with self.atomic():
-            original = self.add(data, name, produced_by=produced_by, source=source)
+            original = self.add(data, name, produced_by=produced_by, source=source, new_use=True,
+                                invocation_id=invocation_id, output_key=f'{output_key}:original' if output_key else None)
             working = self.add(work_bytes, f"{name}_work", produced_by=produced_by, source=source,
-                               original_id=original.id)
+                               original_id=original.id, new_use=True, invocation_id=invocation_id, output_key=output_key)
         return working, original

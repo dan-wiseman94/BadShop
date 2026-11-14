@@ -251,7 +251,7 @@ creation-workflow golden changes were preserved during reconciliation.
   nullability/pattern-property regression passed. No full-suite failure is hidden
   by the earlier focused reruns.
 
-### Remaining
+### Remaining at the storage checkpoint (superseded by the continuation below)
 
 The full W0–W14 modernization is **not complete**. W4 explicit artifact-use,
 invocation and named-output identities remain open. W5 now shares branch/undo
@@ -353,3 +353,103 @@ enters the timeline using Tab. It failed because no mounted row remained tabbabl
 (`20261114T070622Z-349191`). Keeping the first row as the initial roving Tab stop
 fixed the failure; the same test passed (`20261114T070729Z-349733`) with bounded
 mounted rows, full keyboard navigation and all 250 core steps preserved.
+
+## Schema 6 / operation / context completion continuation
+
+Task baseline and fetched upstream: `105f37e73abfe7067868e392dd2b669a825f7b58`.
+This includes the merged #54 history work and upstream #53/#55/#56 installed
+acceptance, Flatpak and release/licence work. No release tag is created by this task.
+The Windows implementation worktree is `architecture-audit/BadShop`, branch
+`codex/modernization-completion`; Linux verification uses the isolated
+`badshop-linux-test/worktrees/architecture-completion` checkout and its own venv.
+
+### Implemented ownership and acceptance
+
+- W2/W3/W6: document commands have durable pending/committed receipts; retries
+  retain the same operation identity and never repeat a pending side effect.
+  Document events follow a successful commit. Running steps commit before worker
+  execution. Disk-full admission fails without executing; interrupted runs recover
+  as errors. Steps retain parent operation IDs and recipe row/item positions.
+  Receipt inspection links retained invocations; oversized/evicted cached replies
+  retain deduplication tombstones. Chat acceptance and terminal run completion
+  remain distinct. No exactly-once external-file claim is made.
+- W4: immutable logical artifact uses share byte hashes, with distinct provenance
+  for identical imports and outputs. Named producer/output bindings replace
+  positional replay substitution. Missing ports fail explicitly. Unknown tools
+  open read-only; structurally invalid documents are still refused. Schema 1–5
+  migration preserves existing ambiguity, and schema 6 save preserves a verified
+  pre-v6 archive. Recovery storage 1 upgrades with a verified, exclusive pre-v2
+  backup, including when an older/damaged backup already occupies its name.
+- W5: shared branch/undo records remain authoritative; temporary history leases
+  protect a manual transaction's undo snapshot during running-step commits.
+  The current timeline is deliberately materialized for editing. There is no
+  second live event-sourced document or alternate mutation executor.
+- W6/W11: storage inspection checks recovery and library integrity without
+  overwriting evidence. Healthy library entries remain available when another
+  entry is corrupt. Shared-library blob collection uses a one-day grace period
+  and refuses collection on unreadable metadata. UI library pages bound mounted
+  cards and thumbnail requests; full collection exports gather all entries.
+- W7: worker writes/partial reads have idle and absolute watchdogs; encoded inputs
+  and IPC frames have explicit ceilings. Media decode admission is separate from
+  document mutation locking. Authenticated WebSocket binary replies replace the
+  renderer's base64 transport; no file-serving HTTP endpoint is introduced.
+  Core/renderer view caches have byte ceilings, and Blob URL effects own cleanup.
+  Aged scratch reclamation requires a marker and proof its process is dead.
+- W8: a normalized projection supplies step/output lookup, live text has its own
+  store, completed Markdown is memoized, and long chat/gallery/timeline views are
+  windowed with keyboard navigation. Saved-library views use 50-entry pages.
+- W9: canonical conversation records replace persisted OpenAI envelopes. Request
+  projection retains complete bounded turns and images; continuation metadata is
+  scoped to adapter/model/document/branch/version. Measured request bytes, timing,
+  reported usage and omitted turns are visible; unknown costs are not invented.
+  Local one-edit/face-selection policy moved from HTTP transport into the agent
+  layer; face geometry follows the recorded invocation, independent of prose.
+- W10/W12/W13: existing pane isolation, close/recovery ownership, release receipt,
+  package identity and promotion gates are retained. The supplied scope is one
+  coordinated migration PR as explicitly requested, superseding the normal
+  one-behavior-per-PR preference. No engine pixel algorithm or pixel golden changes.
+- W14: current architecture/compatibility guides describe the actual new owners,
+  bounds, schema migration, backup and rollback limitations. Legacy format readers
+  and protocol-1 JSON media name their supported clients and removal conditions.
+
+### Decisions and gates that are not implementation passes
+
+The original plan contains experiments and external acceptance work as well as
+code. ACP adoption, shared-memory IPC, immutable active-timeline storage, portal
+permission reduction and installer payload pruning are not automatically better
+architectures. The current explicit owners and bounded paths remain; adoption of
+those alternatives requires the plan's comparative measurements and compatibility
+exit criteria. No unverified alternate runtime is enabled merely to check a box.
+
+Live provider authentication/actual image and continuation behavior, installed
+Windows/macOS acceptance, signed update/rollback, native screen-reader observation,
+publisher signing/notarization and consenting beta-user return studies are separate
+release/field gates. Fixture tests and a source Linux debug build cannot satisfy
+those gates. No invitations, credential provisioning, paid model calls, signing
+identity setup or public release publication are implied by this implementation.
+The full original W0–W14 acceptance remains open wherever such evidence is absent.
+
+### Verification in this continuation
+
+Evidence is retained under the Linux worktree's `artifacts/verification/`:
+
+- `20261114T155231Z-1944`: 101 receipt, history, worker, library, identity and real
+  WebSocket checks passed; one model test deselected.
+- `stream-component.log`: 30 stream/document-replacement/RPC component checks passed.
+- `20261114T160230Z-5665`: 50 receipt/migration and recipe/layout checks passed.
+- `20261114T160250Z-5787`: broad run found two core expectation/commit failures,
+  one protocol fixture failure and a missing snapshot field; not a passing run.
+- `20261114T160629Z-21447`: 119 passed, one canonical invocation-link expectation
+  failed and was corrected without removing content or pixel assertions.
+- `20261114T161103Z-778`: 1,533 core checks passed, two failed; 92 frontend checks
+  passed. Lint and frontend fixture compilation still required corrections.
+- `20261114T161524Z-657`: all 12 focused privacy/local-strategy/protocol/agent checks
+  passed after those fixes. Cold SDK import is outside the five-second active-request
+  cancellation bound; no cancellation assertion or timeout was weakened.
+
+Final browser/native, resource measurement, maintenance, negative control, frozen
+smoke and PR CI outcomes are recorded below after they run. Earlier passing runs
+are not represented as validation of edits made afterward.
+
+The user explicitly retained paid/live-model testing on 2026-11-14. It is excluded
+from this implementation PR, rather than represented as fixture-verified compatibility.

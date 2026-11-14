@@ -12,6 +12,7 @@ import os
 import platform
 import re
 import threading
+import sqlite3
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -157,4 +158,8 @@ def diagnostic_report(directory: Path | None = None) -> dict:
         if len(lines) >= 200:
             break
         lines = (_tail(previous) + lines)[-200:]
-    return {"versions": versions, "os": platform.platform(), "log_path": str(path), "log_lines": lines}
+    versions['sqlite'] = sqlite3.sqlite_version
+    with sqlite3.connect(':memory:') as database:
+        sqlite_options = [row[0] for row in database.execute('PRAGMA compile_options')]
+    return {"versions": versions, "sqlite_compile_options": sqlite_options,
+            "os": platform.platform(), "log_path": str(path), "log_lines": lines}

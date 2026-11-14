@@ -13,6 +13,36 @@ from badshop.session.models import Part
 from test_server_app import Client, Failed, HEAD, imported, run
 
 
+def test_unknown_tool_project_opens_read_only_and_preserves_images_and_opaque_parameters(env):
+    async def body(app):
+        from badshop.session.session import Session
+        from test_document_identity import png
+        session = Session.new()
+        image = session.import_image(png('red'), 'source')
+        step = session.run_tool('filter', {'image': image.id, 'names': ['invert']}, 'user')
+        step.tool = 'future_tool'
+        step.params = {'future_input': image.id, 'future_option': {'value': 42}}
+        path = project.save(session, env / 'future.badshop')
+        before = path.read_bytes()
+        client = Client(app)
+        opened = await client.call('session.open', path=str(path))
+        assert 'unavailable tools' in opened['read_only_reason']
+        assert opened['steps'][0]['params'] == step.params
+        with pytest.raises(Failed, match='unavailable tools'):
+            await client.call('tools.run', tool='canvas', params={'width': 8, 'height': 8})
+        copy = env / 'preserved.badshop'
+        await client.call('session.save_as', path=str(copy))
+        restored = project.open_project(copy)
+        assert restored.data.steps[0].params == step.params
+        assert restored.artifacts.data(step.outputs[0]) == session.artifacts.data(step.outputs[0])
+        assert restored.artifacts.data(image.id) == session.artifacts.data(image.id)
+        assert path.read_bytes() == before
+        exported = await client.call('export', artifact_id=step.outputs[0], name='future-output')
+        from pathlib import Path
+        assert Path(exported['path']).read_bytes() == session.artifacts.data(step.outputs[0])
+    run(body)
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("BADSHOP_CONFIG_DIR", str(tmp_path / "config"))

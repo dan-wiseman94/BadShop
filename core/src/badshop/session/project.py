@@ -74,7 +74,7 @@ _ZIP_ERRORS = (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, EOFError, Valu
 
 
 def _member(meta: ArtifactMeta) -> str:
-    return f"artifacts/{meta.id}{meta.ext}"
+    return f"artifacts/{meta.blob_id}{meta.ext}"
 
 
 def _mb(n: int) -> str:
@@ -144,7 +144,8 @@ def save(session: Session, path: Path) -> Path:
                           hint="this is a bug in badshop; export the images you want to keep")
     # The desktop lists images in insertion order. Preserve that order across Save and Open.
     keep = [aid for aid in session.artifacts.meta if aid in referenced]
-    if len(keep) + 2 > MAX_MEMBERS:
+    blobs = {session.artifacts.meta[aid].blob_id: aid for aid in keep}
+    if len(blobs) + 2 > MAX_MEMBERS:
         raise EngineError("can't save: too many project members", hint=TOO_BIG_HINT)
     payload = session.data.model_dump(mode="json", by_alias=True)
     payload["artifacts"] = {aid: session.artifacts.meta[aid].model_dump(mode="json", by_alias=True)
@@ -153,7 +154,7 @@ def save(session: Session, path: Path) -> Path:
     # escape and read back unchanged, where UTF-8 could not encode it at all.
     session_json = json.dumps(payload, indent=1).encode("ascii")
     recipe_json = (json.dumps(export_recipe(session), indent=2) + "\n").encode("ascii")
-    problem = _size_problem(len(session_json), {aid: session.artifacts.size(aid) for aid in keep})
+    problem = _size_problem(len(session_json), {blob: session.artifacts.size(aid) for blob, aid in blobs.items()})
     if problem:
         raise EngineError(f"can't save {path.name}: the project would be too big to open again ({problem})",
                           hint=TOO_BIG_HINT)
@@ -168,7 +169,7 @@ def save(session: Session, path: Path) -> Path:
             with zipfile.ZipFile(fh, "w") as zf:
                 zf.writestr(SESSION_JSON, session_json, zipfile.ZIP_DEFLATED)
                 zf.writestr(RECIPE_JSON, recipe_json, zipfile.ZIP_DEFLATED)
-                for aid in keep:  # PNG, JPEG and GIF are compressed already: store them as they are
+                for aid in blobs.values():  # publish shared bytes once, preserving every logical use in metadata
                     zf.writestr(_member(session.artifacts.meta[aid]), session.artifacts.data(aid))
             fh.flush()
             os.fsync(fh.fileno())
@@ -268,6 +269,27 @@ def _imported_transcript(path: Path, entries: list[dict]) -> list[dict]:
         raise invalid()
     result, pending = [], set()
     for entry in entries:
+        invocation_id = entry.get('invocation_id')
+        if invocation_id is not None and (not isinstance(invocation_id, str)
+                                         or re.fullmatch(r'[0-9a-f]{32}', invocation_id) is None):
+            raise invalid()
+        completion = entry.get('completion')
+        if completion is not None:
+            from badshop.session.conversation import CompletionInfo
+            try:
+                completion = CompletionInfo.model_validate(completion).model_dump(exclude_defaults=True)
+            except ValidationError:
+                raise invalid() from None
+        continuation_scope = entry.get('continuation_scope')
+        if continuation_scope is not None and (not isinstance(continuation_scope, str)
+                                                or not ARTIFACT_ID.fullmatch(continuation_scope)):
+            raise invalid()
+        if 'calls' in entry:
+            from badshop.session.conversation import provider_message
+            try:
+                entry = provider_message(entry, thought_signatures=True)
+            except (ValidationError, KeyError, TypeError):
+                raise invalid() from None
         role = entry.get("role")
         if not isinstance(role, str) or role not in {"user", "assistant", "tool", "system", "developer"}:
             raise invalid()
@@ -279,6 +301,14 @@ def _imported_transcript(path: Path, entries: list[dict]) -> list[dict]:
         if role in {"system", "developer"}:
             continue
         message = {"role": role, "content": content}
+        if invocation_id is not None:
+            if role != 'tool':
+                raise invalid()
+            message['invocation_id'] = invocation_id
+        if completion is not None:
+            message['completion'] = completion
+        if continuation_scope is not None:
+            message['continuation_scope'] = continuation_scope
         calls = entry.get("tool_calls")
         if role == "assistant" and content is None and not calls:
             raise invalid()
@@ -316,7 +346,8 @@ def _imported_transcript(path: Path, entries: list[dict]) -> list[dict]:
                 normalized.append(normalized_call)
             message["tool_calls"] = normalized
         result.append(message)
-    return result
+    from badshop.session.conversation import canonical
+    return [canonical(entry) for entry in result]
 
 
 
@@ -336,6 +367,12 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
         data = SessionData.model_validate(migrate(payload))
     except ValidationError as e:
         raise _damaged(path, "session.json isn't a badshop session", hint=runner.explain(e)) from None
+    if schema >= 6:
+        if any('blob_id' not in meta for meta in payload.get('artifacts', {}).values()):
+            raise _damaged(path, 'artifact byte identity is missing')
+        if any(not {'invocation_id', 'output_ports', 'input_bindings'} <= step.keys()
+               for step in payload.get('steps', [])):
+            raise _damaged(path, 'step invocation identity is missing')
     data.transcript = _imported_transcript(path, data.transcript)
     if len({step.id for step in data.steps}) != len(data.steps):
         raise _damaged(path, "duplicate step ids")
@@ -343,14 +380,34 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
         raise _damaged(path, "step indexes are not in timeline order")
     if len({message.id for message in data.messages}) != len(data.messages):
         raise _damaged(path, "duplicate message ids")
+    if schema < 6:
+        from badshop.tools.registry import image_refs
+        producers = {}
+        for step in data.steps:
+            spec = REGISTRY.get(step.tool)
+            if spec:
+                step.input_bindings = {aid: producers[aid] for aid in image_refs(spec.params, step.params)
+                                       if aid in producers}
+            step.output_ports = {f'legacy:{i}': aid for i, aid in enumerate(step.outputs or step.previous_outputs)}
+            producers.update({aid: (step.invocation_id, key) for key, aid in step.output_ports.items()})
+    from badshop.tools.registry import image_refs
+    invocations = set()
     for step in data.steps:
+        if step.invocation_id in invocations:
+            raise _damaged(path, 'duplicate invocation ids')
+        if any(invocation not in invocations for invocation, port in step.input_bindings.values()):
+            raise _damaged(path, 'input binding does not name an earlier invocation')
+        invocations.add(step.invocation_id)
+        if set(step.output_ports.values()) != set(step.outputs or step.previous_outputs):
+            raise _damaged(path, 'named outputs do not match step outputs')
         if step.tool not in REGISTRY:
-            raise _damaged(path, f"step {step.index} uses a tool this badshop doesn't have ({step.tool})",
-                           hint="update badshop to open it")
+            continue  # preserved as opaque data; the application permits read-only inspection
         try:  # stored params were validated when the step was made; anything else was changed since
             runner.validate(step.tool, step.params)
         except EngineError as e:
             raise _damaged(path, f"step {step.index} ({step.tool}) has bad parameters", hint=e.hint) from None
+        if not step.input_bindings.keys() <= set(image_refs(REGISTRY[step.tool].params, step.params)):
+            raise _damaged(path, 'input binding does not name a parameter image')
     for aid, meta in data.artifacts.items():
         if not ARTIFACT_ID.match(aid) or meta.id != aid:
             raise _damaged(path, f"artifact {aid[:16]!r} is listed under the wrong id")
@@ -375,11 +432,12 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
         if any(aid not in data.artifacts for aid in branch.artifact_ids):
             raise _damaged(path, "a creative direction references a missing artifact")
         # Reuse the same step/parameter/id checks, without nesting branch data recursively.
-        branch_payload = {"schema": SCHEMA, "id": data.id, "name": branch.name,
+        branch_payload = {"schema": schema, "id": data.id, "name": branch.name,
                           "created_at": branch.created_at, "steps": [s.model_dump() for s in state.steps],
                           "messages": [m.model_dump() for m in state.messages],
                           "transcript": state.transcript}
-        state.transcript = _session_data(path, json.dumps(branch_payload).encode("ascii")).transcript
+        validated = _session_data(path, json.dumps(branch_payload).encode("ascii"))
+        state.steps, state.transcript = validated.steps, validated.transcript
         # Serialized counters are only hints. Recompute from validated IDs so
         # an older/manual writer cannot make a retained undo ID reusable.
         step_ids = [step.id for step in state.steps] + [sid for message in state.messages for sid in message.step_ids]
@@ -404,7 +462,7 @@ def _finish_interrupted(data: SessionData, artifacts: ArtifactStore) -> None:
 
 
 def _preserve_legacy(path: Path) -> None:
-    """Keep a verified, byte-identical pre-v5 archive before format replacement.
+    """Keep a verified, byte-identical pre-v6 archive before format replacement.
 
     Never replace an earlier backup. Publication is exclusive and only happens
     after the bounded project reader has verified metadata and every image.
@@ -418,7 +476,7 @@ def _preserve_legacy(path: Path) -> None:
             schema = payload.get('schema') if isinstance(payload, dict) else None
     except (zipfile.BadZipFile, KeyError, ValueError):
         return  # Saving over a non-project file is not a format migration.
-    if type(schema) is not int or not 1 <= schema < 5:
+    if type(schema) is not int or not 1 <= schema < SCHEMA:
         return
     temporary = path.with_name(f'.{path.name}.{secrets.token_hex(8)}.backup.part')
     try:
@@ -436,7 +494,7 @@ def _preserve_legacy(path: Path) -> None:
         index = 0
         while True:
             suffix = f'-{index}' if index else ''
-            backup = path.with_name(f'{path.stem}.pre-v5{suffix}{EXT}')
+            backup = path.with_name(f'{path.stem}.pre-v{SCHEMA}{suffix}{EXT}')
             try:
                 if os.name == 'nt':
                     os.rename(temporary, backup)
@@ -484,20 +542,23 @@ def open_project(path: Path, **session_kw) -> Session:
                 raise EngineError(f"{path.name} isn't a badshop project (it has no session.json)",
                                   hint="open a .badshop file saved by badshop") from None
             data = _session_data(path, _read(path, zf, info, MAX_SESSION_BYTES))
-            missing = [aid for aid in data.artifacts if aid not in members]
+            missing = [aid for aid, meta in data.artifacts.items() if meta.blob_id not in members]
             if missing:
                 raise _damaged(path, f"artifact {short(missing[0])} is missing")
-            problem = _size_problem(info.file_size, {aid: members[aid].file_size for aid in data.artifacts})
+            problem = _size_problem(info.file_size, {meta.blob_id: members[meta.blob_id].file_size
+                                                   for meta in data.artifacts.values()})
             if problem:
                 raise _too_big(path, problem)
             artifacts = ArtifactStore(decoder=session_kw.get("decoder"))
             for aid, meta in data.artifacts.items():
-                blob = _read(path, zf, members[aid], MAX_MEMBER_BYTES)
-                if hashlib.sha256(blob).hexdigest() != aid:
+                blob = _read(path, zf, members[meta.blob_id], MAX_MEMBER_BYTES)
+                if hashlib.sha256(blob).hexdigest() != meta.blob_id:
                     raise _damaged(path, f"artifact {short(aid)} doesn't match its id")
                 try:  # decodes through the import formats only (never EPS), within MAX_IMPORT_PIXELS
                     artifacts.add(blob, meta.label, produced_by=meta.produced_by, source=meta.source,
-                                  original_id=meta.original_id)
+                                  original_id=meta.original_id, identity=aid,
+                                  invocation_id=meta.invocation_id, output_key=meta.output_key,
+                                  input_ids=meta.inputs, legacy_identity=meta.legacy_identity)
                 except EngineError as e:
                     raise _damaged(path, f"artifact {short(aid)} can't be opened: {e.message}") from None
     except EngineError:
@@ -512,6 +573,27 @@ def open_project(path: Path, **session_kw) -> Session:
 
 def _restore(path, data, artifacts, session_kw):
     """Shared normalization and reference validation for archive and local recovery."""
+    # Immutable provenance is a DAG. Iterative traversal bounds Python stack use
+    # even for a long valid edit chain and refuses forged self/cross-use cycles.
+    visited, visiting = set(), set()
+    for aid in artifacts.meta:
+        stack = [(aid, False)]
+        while stack:
+            current, exiting = stack.pop()
+            if exiting:
+                visiting.remove(current)
+                visited.add(current)
+                continue
+            if current in visiting:
+                raise _damaged(path, f'artifact {short(current)} has cyclic provenance')
+            if current in visited:
+                continue
+            meta = artifacts.meta.get(current)
+            if meta is None:
+                raise _damaged(path, f'artifact {short(current)} is missing')
+            visiting.add(current)
+            stack.append((current, True))
+            stack.extend((parent, False) for parent in {*meta.inputs, *([meta.original_id] if meta.original_id else [])})
     _finish_interrupted(data, artifacts)
     session = Session(data, artifacts, **session_kw)  # Session makes data.artifacts the store's metas
     missing = session.referenced_ids() - set(artifacts.ids())

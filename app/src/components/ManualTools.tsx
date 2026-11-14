@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { action, useCoreQuery, useSession } from "../data";
-import { useUI } from "../store";
+import { outputSelection, useUI } from "../store";
 import type { Params } from "../types";
 import { ToolForm } from "./ToolForm";
 
@@ -40,7 +40,7 @@ export function ManualTools({ image }: { image: string }) {
           const step = await action("tools.run", { tool: tool.name, params });
           if (step.status === "error") throw new Error(step.error?.message ?? "Manual tool failed");
           useUI.getState().set({ selectedStep: step.id,
-            selectedArtifact: step.outputs.length ? { stepId: step.id, outputIndex: 0 } : null });
+            selectedArtifact: outputSelection(step) });
           setChoice(null);
         }} />
       <button type="button" onClick={() => setChoice(null)}>Close manual tool</button>

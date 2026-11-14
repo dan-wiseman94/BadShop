@@ -57,8 +57,12 @@ test("edited cast collections transfer to a fresh profile and removal keeps proj
     const imported = await recipient.call("session.get") as Session;
     const original = await emptyCore.call("session.get") as Session;
     for (const id of Object.keys(imported.artifacts)) {
-      expect(original.artifacts[id]).toBeDefined();
-      expect(await recipient.call("artifacts.get", { id })).toEqual(await emptyCore.call("artifacts.get", { id }));
+      const sourceUse = Object.values(original.artifacts).find(meta => meta.blob_id === imported.artifacts[id].blob_id)!;
+      expect(sourceUse).toBeDefined();
+      expect(sourceUse.id).not.toBe(id);
+      expect(imported.artifacts[id].source).toEqual(sourceUse.source);
+      expect((await recipient.call("artifacts.get", { id }) as { data: string }).data)
+        .toBe((await emptyCore.call("artifacts.get", { id: sourceUse.id }) as { data: string }).data);
     }
     await cast.getByLabel("Show cast collection").selectOption("Heroes");
     await cast.getByRole("button", { name: "Remove character", exact: true }).click();
@@ -74,7 +78,9 @@ test("edited cast collections transfer to a fresh profile and removal keeps proj
     await expect.poll(async () => (await recipient.call("session.get") as Session).unsaved_changes).toBe(false);
     await recipient.call("session.open", { path: project });
     for (const id of Object.keys(imported.artifacts)) {
-      expect(await recipient.call("artifacts.get", { id })).toEqual(await emptyCore.call("artifacts.get", { id }));
+      const sourceUse = Object.values(original.artifacts).find(meta => meta.blob_id === imported.artifacts[id].blob_id)!;
+      expect((await recipient.call("artifacts.get", { id }) as { data: string }).data)
+        .toBe((await emptyCore.call("artifacts.get", { id: sourceUse.id }) as { data: string }).data);
     }
     await page.reload();
     await page.getByText("Your cast of characters", { exact: true }).click();

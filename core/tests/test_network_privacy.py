@@ -10,6 +10,10 @@ from test_server_app import Client, Failed, env as env, run
 
 
 def test_local_only_stops_active_api_before_acknowledgement(env):
+    # This measures cancellation of an active request, not concurrent workers'
+    # cold SDK import time. Keep the five-second request/cancellation bounds.
+    from badshop.providers.litellm_provider import _load_sdk
+    _load_sdk()
     seen, release = threading.Event(), threading.Event()
     requests = []
 

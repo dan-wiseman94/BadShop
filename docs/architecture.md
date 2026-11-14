@@ -158,22 +158,72 @@ and [sync modes](https://www.sqlite.org/pragma.html#pragma_synchronous).
 Both recovery slots are garbage-collection roots; unreferenced blobs receive a
 24-hour grace period, and unreadable metadata prevents collection.
 
-The in-memory session remains the mutation owner, and events may precede the
-recovery commit. This is not yet a durable operation-receipt protocol. Portable
-schema 5 and live branch/undo snapshots use content-addressed immutable records
-and bounded shared list chunks. Activation materializes an independent mutable
-timeline; inactive histories are excluded from normal UI snapshots. The active
-timeline still has a materialized representation in the document. Schema 1–4
-archives import through the same validators; overwriting them requires a verified,
-non-overwriting pre-v5 backup.
+The in-memory session remains the mutation owner. Document events are buffered
+until the corresponding SQLite commit succeeds. Running-step admission commits
+before worker execution; recovery turns interrupted running steps into explicit
+errors. Manual edit transactions lease their prospective undo root during these
+intermediate commits, then release it after installing the undo record.
+
+Portable schema 6 separates an immutable artifact use from its encoded blob hash.
+Imports of identical bytes keep independent labels and source credits while sharing
+one blob. Steps have UUID invocation identities, named output ports, and explicit
+producer/port input bindings. Replay refuses a disappeared port instead of attaching
+a descendant to a different image by output position. Immutable input provenance
+survives replay and branch edits. Shared history nodes retain branch/undo membership;
+activation materializes the current mutable timeline. Schema 1–5 readers preserve
+legacy ambiguity rather than inventing provenance. Save creates a verified pre-v6
+archive backup before replacing an older format.
+
+Document mutations carry an operation UUID. SQLite storage version 2 records a
+pending intent before invoking the handler and commits its result with the document
+head. Reusing the UUID with different parameters is refused. A committed cached
+result can be returned without executing again; pending or compacted receipts
+require inspection. Reply bodies are limited to 1 MiB individually and trimmed
+oldest-first against a 16 MiB cache target, retaining identity tombstones even when
+those alone exceed the target. Steps retain their parent operation and recipe row /
+item positions. `operations.get` exposes linked invocations across retained branches.
+For asynchronous chat, the command receipt means the run was accepted; the run's
+terminal outcome remains a separate lifecycle event. There is no exactly-once
+promise for an external file write interrupted between publication and receipt.
+
+Storage inspection verifies recovery metadata and blob hashes without repairing
+in place. Unreadable library records remain on disk while healthy records stay
+usable. Library views use 50-entry pages; collection export gathers the complete
+collection explicitly. Library and recovery collection preserve shared blob roots,
+use a one-day grace period, and stop when metadata cannot be read. Scratch cleanup
+requires an aged application marker and a demonstrably dead owning process.
+
+Media reads have two decode slots and at most 32 admitted requests. The negotiated
+`binary-artifact-v1` reply carries a bounded JSON header and raw encoded bytes over
+the existing authenticated WebSocket. It introduces no HTTP file endpoint. Legacy
+protocol-1 clients still receive base64 JSON. Media replies are limited to 64 MiB,
+encoded worker inputs to 256 MiB, and worker IPC frames to 512 MiB. The existing
+worker RSS limit is separate. Worker watchdogs cover blocked writes, partial reads,
+idle time and an absolute deadline. Core representation cache: 32 MiB; renderer
+media cache: 128 MiB. Blob URLs are created and revoked by React effects.
+
+The frontend derives indexed document selectors from authoritative snapshots.
+Streaming text has a separate transient store and does not rewrite the document
+cache on every delta. Timeline, chat and project materials window long histories;
+saved-library views page independently. These limits bound particular buffers and
+mounted views, not total application RSS or optional model memory.
 
 ## Provider paths
 
 API and local providers use BadShop's agent loop: build context, send text/images
 and tool definitions, stream the response, validate proposed tools, apply approvals,
 execute through the session, and return results. The provider layer includes
-LiteLLM-based routing and the dedicated Perplexity adapter. Context can reopen
-stored artifacts with `view`; the whole project is not sent on every request.
+LiteLLM-based routing and the dedicated Perplexity adapter. Canonical conversation records contain named calls, tool results and invocation
+links; provider-specific message envelopes are disposable adapter projections.
+Continuation metadata is scoped to adapter/model/document/branch/version. Context
+keeps complete recent turns (20 turns / 128 KiB), the latest 50-step summary and up
+to eight nearest-neighbor image views (12 MiB encoded budget). The entire request,
+including tool schemas, is capped at 16 MiB. An oversized current turn fails clearly
+instead of silently truncating instructions. The persisted conversation is unchanged.
+Chat exposes actual reported tokens, elapsed time, request bytes and omitted-turn
+count; unknown usage and cost are not invented. Context can reopen older images
+with `view`. On-device one-edit and face-selection policy lives in the agent layer;
+HTTP transport does not parse result prose to obtain geometry.
 
 Subscription CLIs run their own agent loop. BadShop launches and observes the CLI,
 supplies a private MCP configuration and gates its tool requests in the core.

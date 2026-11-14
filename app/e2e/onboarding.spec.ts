@@ -135,6 +135,7 @@ test("on-device download can cancel, retry after failure, and open chat after ac
     let instance = "";
     let sequence = 0;
     server.onMessage(frame => {
+      if (typeof frame !== "string") { client.send(frame); return; }
       const reply = JSON.parse(String(frame));
       if (reply.type === "welcome") { instance = reply.core_instance_id; sequence = reply.event_seq; }
       if (reply.method) {

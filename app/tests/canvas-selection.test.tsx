@@ -23,7 +23,7 @@ it("keeps composition order and stops element selection across unknown geometry"
 
 it("compares the selected step output but never an unrelated selected attachment", () => {
   const session = {
-    steps: [{ id: "step", params: { image: "input" }, outputs: ["output"] }],
+    steps: [{ id: "step", invocation_id: "invocation", output_ports: { result: "output" }, params: { image: "input" }, outputs: ["output"] }],
     artifacts: { input: { id: "input" }, output: { id: "output" }, attachment: { id: "attachment" } },
   } as unknown as Session;
   useUI.getState().set({ selectedStep: "step", selectedArtifact: null, viewerBefore: false });
@@ -35,6 +35,14 @@ it("compares the selected step output but never an unrelated selected attachment
   expect(result.current).toEqual({ id: "attachment", inputId: undefined });
   act(() => useUI.getState().set({ viewerBefore: true }));
   expect(result.current.id).toBe("attachment");
-  act(() => useUI.getState().set({ selectedArtifact: { stepId: "step", outputIndex: 0 } }));
+  act(() => useUI.getState().set({ selectedArtifact: { invocationId: "invocation", outputKey: "result" } }));
   expect(result.current).toEqual({ id: "output", inputId: "input" });
+});
+
+it("does not redirect a missing named output to a different slot", () => {
+  const session = { steps: [{ id: 'step', invocation_id: 'call', outputs: ['left'],
+    output_ports: { left: 'left' }, params: {} }], artifacts: { left: { id: 'left' } } } as unknown as Session;
+  useUI.getState().set({ selectedStep: 'step', selectedArtifact: { invocationId: 'call', outputKey: 'right' } });
+  const { result } = renderHook(() => useCanvasArtifact(session));
+  expect(result.current.id).toBeNull();
 });

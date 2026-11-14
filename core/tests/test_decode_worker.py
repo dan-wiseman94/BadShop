@@ -43,7 +43,7 @@ def test_worker_import_animation_project_and_collection_keep_pixels_without_pare
         save(session, path)
         restored = open_project(path, decoder=worker.decode)
         assert restored.artifacts.data(original.id) == gif
-        assert restored.artifacts.data(work.id) == expected.data(work.id)
+        assert restored.artifacts.data(work.id) == expected.data(expected_work.id)
         with restored.artifacts.image(original.id, 1) as image:
             assert image.convert("RGB").getpixel((0, 0)) == (0, 0, 255)
         assert restored.import_image(png, "after-reopen.png").width == 20

@@ -26,7 +26,7 @@ def test_recent_choices_persist_without_saving_full_user_conversations(tmp_path)
     memory.remember(session)
     fresh = NoveltyMemory(memory.path)
     assert {r["kind"] for r in fresh.recent()} == {"image", "style"}
-    assert image.id in memory.path.read_text()
+    assert image.blob_id in memory.path.read_text()
     assert "Private text" not in memory.path.read_text()
     request = fresh.request(Session.new(), "Keep my dog", "avoid-recent")
     assert "exclude_urls" in request and "https://images.example/dog.png" in request

@@ -17,6 +17,7 @@ from badshop.session.models import ArtifactMeta, BranchSnapshot, Message, Sessio
 from badshop.session.preferences import CreativePreferences
 from badshop.session.recipes import Recipe
 from badshop.session.library import LibraryEntry
+from badshop.session.conversation import CompletionInfo
 
 
 def record(name: str, /, **fields):
@@ -32,6 +33,8 @@ SessionSnapshot = create_model('SessionSnapshot', __base__=SessionData,
     pending_approvals=(list[str], ...), restorable=(str | None, ...), bypass_tools=(list[str], ...),
     run_id=(str | None, ...), last_turn_outcome=(TurnOutcome | None, ...), recipes=(list[Recipe], ...),
     stream_text=(str, ...),
+    read_only_reason=(str | None, ...),
+    provider_usage=(CompletionInfo | None, None),
     manual_history=(record('ManualHistory', undo=str | None, redo=str | None), ...),
     manual_undo=(list[BranchSnapshot], Field(default_factory=list, exclude=True)),
     history_nodes=(dict[str, str], Field(default_factory=dict, exclude=True)),
@@ -76,6 +79,14 @@ RecentProjectStatus = create_model('RecentProjectStatus', __base__=RecentProject
 SettingsResponse = create_model('SettingsResponse', __base__=Settings, saved_designs=(list[Recipe], ...))
 
 RESULTS = {
+    'library.page': record('LibraryPage', entries=list[LibraryEntry], total=int, collections=list[str]),
+    'storage.inspect': record('StorageInspection',
+        recovery=list[record('RecoveryInspection', file=str, ok=bool, version=int, pending_operations=int, error=str)],
+        library=list[record('LibraryIssue', file=str, error=str)]),
+    'operations.get': record('OperationReceipt', id=str, status=Literal['not_found', 'pending', 'committed'],
+                             method=(str, ''), document_id=(str, ''), created_at=(float, 0.0), result=(Any, None),
+                             steps=(list[record('OperationStep', invocation_id=str, step_id=str, status=str,
+                                                batch_row=int | None, batch_item=int | None)], [])),
     'projects.recent': list[RecentProjectStatus], 'projects.forget': record('ForgottenProject', forgotten=bool),
     'history.undo': SessionSnapshot, 'history.redo': SessionSnapshot,
     'session.get': SessionSnapshot, 'session.new': SessionSnapshot, 'session.open': SessionSnapshot,
@@ -122,6 +133,9 @@ RESULTS = {
 }
 
 READ_METHODS = frozenset({
+    'library.page',
+    'storage.inspect',
+    'operations.get',
     'projects.recent',
     'session.get', 'branches.list', 'tools.list', 'artifacts.get', 'artifacts.frame', 'providers.list',
     'providers.detect', 'diagnostics.get', 'settings.get', 'assets.status', 'sources.status', 'novelty.recent',
@@ -130,6 +144,9 @@ READ_METHODS = frozenset({
     'steps.preview', 'tools.preview',
 })
 GLOBAL_METHODS = frozenset({
+    'library.page',
+    'storage.inspect',
+    'operations.get',
     'projects.recent', 'projects.forget', 'media.capture', 'media.discard',
     'tools.list', 'providers.list', 'providers.save', 'providers.add', 'providers.delete', 'providers.test',
     'providers.detect', 'diagnostics.get', 'settings.get', 'settings.set', 'updates.begin', 'updates.end',

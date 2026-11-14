@@ -20,6 +20,9 @@ class ToolCallRequest:
 class Reply:
     text: str = ""
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    actual_model: str | None = None
 
 
 class ProviderError(Exception):

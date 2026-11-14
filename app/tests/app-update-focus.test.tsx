@@ -43,6 +43,7 @@ beforeEach(() => {
   vi.spyOn(rpc, "disconnect").mockImplementation(() => {});
   vi.spyOn(rpc, "request").mockImplementation(method => Promise.resolve(
     method === "session.get" ? session
+      : method === "library.page" ? { entries: [], total: 0, collections: [] }
       : method === "settings.get" ? { no_remote: false, approval_mode: "auto" }
         : method === "branches.list" ? { active_id: "original", branches: [] } : [],
   ) as never);

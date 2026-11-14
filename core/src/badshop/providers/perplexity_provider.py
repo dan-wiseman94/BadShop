@@ -87,7 +87,8 @@ def _reply(response: dict) -> Reply:
             calls.append(ToolCallRequest(call_id, name, args, signature))
     if not text and not calls:
         raise ProviderError("Perplexity returned an empty reply")
-    return Reply(text="".join(text), tool_calls=[] if refused else calls)
+    from badshop.providers.litellm_provider import measured_reply
+    return measured_reply(Reply(text="".join(text), tool_calls=[] if refused else calls), response)
 
 
 class PerplexityProvider(LiteLLMProvider):

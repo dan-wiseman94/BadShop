@@ -1,6 +1,8 @@
+import { useLibraryPage } from '../libraryPage';
 import { useEffect, useState } from "react";
-import { action, useCoreQuery } from "../data";
+import { action } from "../data";
 import { packPath } from "../native";
+import { rpc } from '../rpc';
 import { useOperation } from "../useOperation";
 import { useUI } from "../store";
 import { LibraryImage } from "./LibraryImage";
@@ -9,7 +11,6 @@ import type { LibraryEntry } from "../types";
 const value = (entry: LibraryEntry, prefix: string) => entry.tags.find(tag => tag.startsWith(prefix))?.slice(prefix.length) ?? "";
 
 export function Cast({ image, disabled, onUse }: { image: string; disabled: boolean; onUse: (id: string) => void }) {
-  const { data: entries = [] } = useCoreQuery("library.list");
   const { busy, error, perform } = useOperation();
   const [name, setName] = useState("");
   const [expression, setExpression] = useState("");
@@ -17,12 +18,11 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState<LibraryEntry | null>(null);
   const [removing, setRemoving] = useState("");
-  const cast = entries.filter(e => e.tags.includes("cast"));
-  const collections = [...new Set(cast.map(e => value(e, "collection:")).filter(Boolean))];
+  const { entries: cast, collections, controls: libraryPages } = useLibraryPage("", ["cast", ...(filter ? [`collection:${filter}`] : [])]);
   const activeFilter = collections.includes(filter) ? filter : "";
   useEffect(() => {
-    if (filter && !entries.some(e => e.tags.includes("cast") && value(e, "collection:") === filter)) setFilter("");
-  }, [entries, filter]);
+    if (filter && collections.length && !collections.includes(filter)) setFilter("");
+  }, [collections, filter]);
   const shown = cast.filter(e => !activeFilter || value(e, "collection:") === activeFilter);
   const locked = disabled || busy;
   function reset() { setEditing(null); setName(""); setExpression(""); setCollection(""); }
@@ -46,6 +46,7 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
       <option value="">All my characters</option>
       {collections.map(group => <option key={group}>{group}</option>)}
     </select></label>
+    {libraryPages}
     <div className="quick-cards">{shown.map(entry => <article key={entry.id}>
       <LibraryImage entry={entry} /><strong>{entry.name}</strong><small>{value(entry, "expression:")}</small>
       <button disabled={locked} onClick={() => void perform(async () => {
@@ -60,8 +61,10 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
         <button disabled={locked} onClick={() => setRemoving("")}>Keep character</button></>}
     </article>)}</div>
     <button disabled={locked || !shown.length || shown.length > 100} onClick={() => void perform(async () => {
+      const collectionEntries = await rpc.request('library.list', { tags: ['cast', ...(activeFilter ? [`collection:${activeFilter}`] : [])] });
+      if (collectionEntries.length > 100) throw new Error('Choose a cast collection with at most 100 characters to export.');
       const path = await packPath(true);
-      if (path) { await action("packs.export", { ids: shown.map(e => e.id), path, name: activeFilter || "My cast" }); useUI.getState().set({ notice: `Cast pack saved to ${path}` }); }
+      if (path) { await action("packs.export", { ids: collectionEntries.map(e => e.id), path, name: activeFilter || "My cast" }); useUI.getState().set({ notice: `Cast pack saved to ${path}` }); }
     })}>Export this cast collection</button>
     <button disabled={locked} onClick={() => void perform(async () => { const path = await packPath(false); if (path) await action("packs.import", { path }); })}>Import a cast pack</button>
     <p>Cast packs contain the selected pictures, available originals and source credits. Review those pictures before sharing.</p>

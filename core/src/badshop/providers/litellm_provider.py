@@ -44,6 +44,22 @@ def _get(obj: Any, name: str, default=None):
     return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
 
 
+def measured_reply(reply: Reply, payload: Any) -> Reply:
+    """Keep only measured counts/model identity; never persist SDK response bodies."""
+    usage = _get(payload, 'usage', {}) or {}
+    for field, names in (('input_tokens', ('input_tokens', 'prompt_tokens')),
+                         ('output_tokens', ('output_tokens', 'completion_tokens'))):
+        for name in names:
+            value = _get(usage, name)
+            if type(value) is int and 0 <= value < 2**63:
+                setattr(reply, field, value)
+                break
+    model = _get(payload, 'model')
+    if isinstance(model, str) and 0 < len(model) <= 512:
+        reply.actual_model = model
+    return reply
+
+
 def safe_error(exc: Exception) -> str:
     """Class/status only; never interpolate an SDK exception or its response body."""
     kind = type(exc).__name__
@@ -294,7 +310,7 @@ class LiteLLMProvider:
                     calls.append(ToolCallRequest(id=call_id, name=name, arguments=args))
                 if len(calls) != len(seen_calls):
                     raise ProviderError("the provider's streamed tool calls could not be rebuilt; try another model")
-                return Reply(text=text, tool_calls=calls)
+                return measured_reply(Reply(text=text, tool_calls=calls), rebuilt)
         except ProviderError:
             raise
         except Exception as exc:

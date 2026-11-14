@@ -1,11 +1,14 @@
 import { Button } from "./Button";
 import { SelectField } from "./Fields";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
+import { useDocumentProjection } from '../documentProjection';
 import Markdown from "react-markdown";
 import { ArrowUp, Square, Paperclip, Scissors, Check, X, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { action, run, useSession } from "../data";
 import { useUI } from "../store";
+import { useStream } from '../stream';
 import { ArtifactThumb } from "./Viewer";
 import { openLink } from "../native";
 import type { Params, NoveltyMode } from "../types";
@@ -29,6 +32,7 @@ export function Chat({
   onDraftConsumed?: (id: string) => void;
 }) {
   const { data: session } = useSession();
+  const { stepsById } = useDocumentProjection(session);
   const text = useUI(state => state.chatDraft);
   const setText = useUI(state => state.setChatDraft);
   const [style, setStyle] = useState("");
@@ -45,10 +49,24 @@ export function Chat({
     onDraftConsumed?.(draft.id);
   }, [draft, sending, onDraftConsumed]);
   const history = useRef<HTMLDivElement>(null);
+  const [focusedMessage, setFocusedMessage] = useState<number | null>(null);
+  const windowed = (session?.messages.length ?? 0) > 100;
+  const virtual = useVirtualizer({
+    count: session?.messages.length ?? 0,
+    getScrollElement: () => history.current,
+    getItemKey: index => session!.messages[index].id,
+    estimateSize: () => 180,
+    overscan: 6,
+    enabled: windowed,
+    rangeExtractor: range => [...new Set([...defaultRangeExtractor(range),
+      ...(focusedMessage !== null && focusedMessage < (session?.messages.length ?? 0) ? [focusedMessage] : [])])].sort((a, b) => a - b),
+  });
+  const messageRows = windowed ? virtual.getVirtualItems()
+    : (session?.messages ?? []).map((message, index) => ({ key: message.id, index, start: 0 }));
   const following = useRef(true);
   const viewedSession = useRef<string | undefined>(undefined);
   const errorAction = useUI((state) => state.errorAction);
-  const stream = session?.stream_text ?? "";
+  const stream = useStream(state => state.text);
   const { data: providerEvents } = useQuery<Params[]>({
     queryKey: ["provider-events"],
     queryFn: () => [],
@@ -65,7 +83,7 @@ export function Chat({
     }
     if (!session?.messages.length && !stream && !session?.pending_approvals.length) return;
     if (following.current) node.scrollTop = node.scrollHeight;
-  }, [session?.id, session?.messages.length, stream, session?.pending_approvals.length]);
+  }, [session?.id, session?.messages.length, stream, session?.pending_approvals.length, virtual.getTotalSize()]);
   const send = (takes: 1 | 3 = 1) =>
     run(async () => {
       if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready) return;
@@ -110,6 +128,12 @@ export function Chat({
       <div
         className="chat-history"
         ref={history}
+        tabIndex={0}
+        aria-label="Conversation history"
+        onFocusCapture={event => {
+          const row = (event.target as HTMLElement).closest<HTMLElement>('[data-message-index]');
+          setFocusedMessage(row ? Number(row.dataset.messageIndex) : null);
+        }}
         onScroll={() => {
           const node = history.current;
           if (node) following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 40;
@@ -149,8 +173,13 @@ export function Chat({
             </div>
           </div>
         )}
-        {session?.messages.map((message) => (
-          <article key={message.id} className={`message ${message.role}`}>
+        <div style={windowed ? { height: virtual.getTotalSize(), position: 'relative' } : undefined}>
+        {messageRows.map(row => { const message = session!.messages[row.index]; return (
+          <article key={message.id} className={`message ${message.role}`}
+            data-index={row.index} data-message-index={row.index}
+            aria-label={`Message ${row.index + 1} of ${session!.messages.length}`}
+            ref={windowed ? virtual.measureElement : undefined}
+            style={windowed ? { position: 'absolute', top: 0, left: 0, width: '100%', paddingBottom: 23, marginBottom: 0, transform: `translateY(${row.start}px)` } : undefined}>
             <div className="message-name">
               {message.role === "user"
                 ? "You"
@@ -161,45 +190,7 @@ export function Chat({
             </div>
             {message.content.map((part, i) =>
               part.type === "text" ? (
-                <Markdown
-                  key={i}
-                  allowedElements={[
-                    "p",
-                    "strong",
-                    "em",
-                    "code",
-                    "pre",
-                    "ul",
-                    "ol",
-                    "li",
-                    "blockquote",
-                    "h1",
-                    "h2",
-                    "h3",
-                    "hr",
-                    "br",
-                    "a",
-                  ]}
-                  components={{
-                    a: ({ href, children }) => (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(event) => {
-                          if (href && /^https?:\/\//.test(href)) {
-                            event.preventDefault();
-                            run(() => openLink(href));
-                          }
-                        }}
-                      >
-                        {children}
-                      </a>
-                    ),
-                  }}
-                >
-                  {part.text ?? ""}
-                </Markdown>
+                <CompletedMarkdown key={i} text={part.text ?? ""} />
               ) : part.artifact_id ? (
                 <ArtifactThumb
                   key={i}
@@ -211,7 +202,7 @@ export function Chat({
             {message.step_ids.length > 0 && (
               <div className="tool-chips">
                 {message.step_ids.map((id) => {
-                  const step = session.steps.find((s) => s.id === id);
+                  const step = stepsById.get(id);
                   return (
                     <button
                       key={id}
@@ -225,7 +216,8 @@ export function Chat({
               </div>
             )}
           </article>
-        ))}
+        ); })}
+        </div>
         {stream && (
           <article className="message assistant streaming">
             <div className="message-name">
@@ -235,7 +227,7 @@ export function Chat({
           </article>
         )}
         {session?.pending_approvals.map((id) => {
-          const step = session.steps.find((s) => s.id === id);
+          const step = stepsById.get(id);
           if (!step) return null;
           return (
             <div key={id} className="approval-card">
@@ -339,6 +331,16 @@ export function Chat({
             ...creativeStyles.map((item) => [item.id, item.name] as const),
           ]}
         />
+        {session?.provider_usage && <details>
+          <summary>Last model request</summary>
+          <p>{session.provider_usage.actual_model ?? session.provider_usage.requested_model ?? 'Model not reported'}
+            {' · '}{(session.provider_usage.duration_ms / 1000).toFixed(1)} seconds
+            {' · '}{Math.ceil(session.provider_usage.request_bytes / 1024)} KiB sent.</p>
+          <p>Input tokens: {session.provider_usage.input_tokens ?? 'not reported'}.
+            {' '}Output tokens: {session.provider_usage.output_tokens ?? 'not reported'}. Cost is not estimated.</p>
+          {!!session.provider_usage.omitted_turns && <p>{session.provider_usage.omitted_turns} older turns were omitted
+            {' '}to stay within the context budget. The complete history remains in your project.</p>}
+        </details>}
         <div className="attachments">
           {attachments.map((id) => (
             <div key={id}>
@@ -410,3 +412,46 @@ export function Chat({
     </section>
   );
 }
+
+const CompletedMarkdown = memo(function CompletedMarkdown({ text }: { text: string }) {
+  return (
+                <Markdown
+                  allowedElements={[
+                    "p",
+                    "strong",
+                    "em",
+                    "code",
+                    "pre",
+                    "ul",
+                    "ol",
+                    "li",
+                    "blockquote",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "hr",
+                    "br",
+                    "a",
+                  ]}
+                  components={{
+                    a: ({ href, children }) => (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(event) => {
+                          if (href && /^https?:\/\//.test(href)) {
+                            event.preventDefault();
+                            run(() => openLink(href));
+                          }
+                        }}
+                      >
+                        {children}
+                      </a>
+                    ),
+                  }}
+                >
+                  {text}
+                </Markdown>
+  );
+});

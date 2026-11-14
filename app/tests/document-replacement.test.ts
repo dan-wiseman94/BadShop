@@ -16,7 +16,7 @@ const session: MethodMap['session.get'][1] = {
     document_incarnation: "open", branch_id: null, revision: 1, event_seq: 0 },
   path: null, document_revision: 1, unsaved_changes: false, turn_running: false, batch_running: false,
   pending_approvals: [], restorable: null, bypass_tools: [], run_id: null, last_turn_outcome: null,
-  stream_text: '',
+  stream_text: '', read_only_reason: null, provider_usage: null,
   manual_history: { undo: null, redo: null },
   creative: { style: "geocities", density: "balanced", era_strictness: "inspired", exact_text: true,
     seed: 1, fit: "contain", takes: 1, remember_history: true, animation_delay: 100,
@@ -47,6 +47,7 @@ it("does not return an old import result for selection after document replacemen
   const artifact: ResponseArtifactMeta = {
     id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
     frames: 1, produced_by: null, source: null, original_id: null,
+    blob_id: 'old', invocation_id: null, output_key: null, inputs: [], legacy_identity: false,
   };
   vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });
   vi.spyOn(queries, "invalidateQueries").mockImplementationOnce(async () => {
@@ -68,6 +69,7 @@ it("rejects an image read that finishes after document replacement", async () =>
   const artifact: ResponseArtifactMeta = {
     id: "old", label: "old", width: 1, height: 1, format: "PNG", mime: "image/png",
     frames: 1, produced_by: null, source: null, original_id: null,
+    blob_id: 'old', invocation_id: null, output_key: null, inputs: [], legacy_identity: false,
   };
   const request = vi.spyOn(rpc, "request").mockResolvedValue({ working: artifact, original: artifact });
   try {

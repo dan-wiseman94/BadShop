@@ -103,7 +103,7 @@ class SessionSequences(RuleBasedStateMachine):
                 parity = (parity + count) % 2
                 assert step.status == 'done'
                 data = self.session.artifacts.data(step.outputs[0])
-                assert hashlib.sha256(data).hexdigest() == step.outputs[0]
+                assert hashlib.sha256(data).hexdigest() == self.session.artifacts.meta[step.outputs[0]].blob_id
                 with Image.open(io.BytesIO(data)) as image:
                     assert image.size == (8, 6)
                     expected = bytes(255 - value for value in self.pixels) if parity else self.pixels

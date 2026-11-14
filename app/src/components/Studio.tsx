@@ -1,3 +1,4 @@
+import { useLibraryPage } from '../libraryPage';
 import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
 import { useOperation } from "../useOperation";
@@ -75,7 +76,7 @@ export function Studio({
   const [editing, setEditing] = useState<LibraryEntry | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const { data: session } = useSession();
-  const { data: library = [] } = useCoreQuery("library.list");
+  const { entries: library, controls: libraryPages } = useLibraryPage(filter);
   const { data: branches } = useCoreQuery("branches.list");
   const { data: sources = [], error: sourceError } = useCoreQuery("sources.status");
   useEffect(() => {
@@ -453,6 +454,7 @@ export function Studio({
               placeholder="Name or tag"
               bind={[filter, setFilter]}
             />
+            {libraryPages}
             {!library.length && (
               <p>Keep useful heads, props, backgrounds, and cutouts here for your next session.</p>
             )}

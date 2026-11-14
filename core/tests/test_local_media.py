@@ -1,6 +1,8 @@
 import shutil
 import base64
 import tempfile
+import os
+import time
 
 import pytest
 from PIL import Image
@@ -13,6 +15,21 @@ from badshop.session.session import Session
 from badshop.server.media_api import register
 from badshop.server.rpc import FORBIDDEN
 from test_server_app import Client, Failed, run, env as env
+
+
+def test_preview_collection_enforces_age_and_bytes_without_touching_imports(tmp_path, monkeypatch):
+    from badshop.session import media as module
+    media = MediaSources(tmp_path / 'previews')
+    media.root.mkdir()
+    folders = [media.root / (str(index) * 32) for index in (1, 2, 3)]
+    for folder in folders:
+        folder.mkdir()
+        (folder / 'frame.png').write_bytes(b'x' * 10)
+    os.utime(folders[0], (time.time() - 90000, time.time() - 90000))
+    monkeypatch.setattr(module, 'PREVIEW_BUDGET_BYTES', 15)
+    media.collect(keep=folders[2].name)
+    assert list(media.root.iterdir()) == [folders[2]]
+    assert (folders[2] / 'frame.png').read_bytes() == b'x' * 10
 
 
 def gif(path):
@@ -288,7 +305,9 @@ def test_uploaded_media_uses_existing_worker_and_cleans_staging_files(env, tmp_p
         with pytest.raises(Failed):
             await user.call("media.preview", kind="document", data=base64.b64encode(b"invalid").decode(), name="bad.pdf")
         assert set(scratch.iterdir()) == {app.session.artifacts._blobs.root}
-        assert set(app.session.artifacts._blobs.root.iterdir()) == set(app.session.artifacts._data.values())
+        from badshop.session.scratch import MARKER
+        assert set(app.session.artifacts._blobs.root.iterdir()) == (
+            set(app.session.artifacts._data.values()) | {app.session.artifacts._blobs.root / MARKER})
         assert len(app.session.visible_artifact_ids()) > 0
     run(scenario)
     assert not list(scratch.iterdir())  # closing the core releases its remaining session blobs

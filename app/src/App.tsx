@@ -660,6 +660,7 @@ export default function App() {
         !welcome &&
         !newSessionOpen &&
         !documents.pending && <ErrorNotice />}
+      {session?.read_only_reason && <div className="restore-banner" role="status">{session.read_only_reason}</div>}
       {sessionError && !ui.error && (
         <div className="error-banner" role="alert">
           {sessionError.message}
@@ -775,7 +776,10 @@ export default function App() {
         onBrowse={async () => { if (await documents.open()) setHomeOpen(false); }}
         onOpen={async path => { if (await documents.request({ kind: "open", path })) setHomeOpen(false); }}
         onRestore={async () => { if (await documents.request({ kind: "restore" })) setHomeOpen(false); }} />}
-      {ui.settingsOpen && !documents.pending && !updateModalOpen && <Settings updates={updates} />}
+      {ui.settingsOpen && !documents.pending && !updateModalOpen && <Settings updates={updates} onRestore={() => {
+        ui.set({ settingsOpen: false });
+        run(() => documents.request({ kind: 'restore' }));
+      }} />}
       {updates.info?.version && !ui.settingsOpen && !documents.pending && updates.phase === "idle" && (
         <div className="update-notice" role="status">
           badshop {updates.info.version} is available.

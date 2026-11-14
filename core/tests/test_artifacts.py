@@ -30,6 +30,29 @@ def gif3() -> bytes:
 # --- ArtifactStore.add / data / image / drop ---
 
 
+def test_representation_cache_shares_bytes_bounds_retention_and_releases_on_close(monkeypatch):
+    monkeypatch.setattr(artifacts, 'REPRESENTATION_BYTES', 8)
+    store = ArtifactStore()
+    data = encode(Image.new('RGB', (2, 2), 'red'))
+    first = store.import_image(data, 'first')[0]
+    second = store.import_image(data, 'second')[0]
+    calls = []
+    def render():
+        calls.append(True)
+        return b'12345'
+    assert store.representation(first.id, ('v1', 0, 160), render) == b'12345'
+    assert store.representation(second.id, ('v1', 0, 160), render) == b'12345'
+    assert len(calls) == 1
+    store.representation(first.id, ('v1', 1, 160), render)
+    assert store._representation_size == 5
+    store.representation(first.id, ('v1', 0, 160), render)
+    assert len(calls) == 3  # old frame was evicted by byte budget
+    assert store.representation(first.id, ('huge',), lambda: b'x' * 9) == b'x' * 9
+    assert store._representation_size == 5
+    store.close()
+    assert store._representation_size == 0 and not store._representations
+
+
 def test_the_same_bytes_keep_their_first_meta():
     # store half of Review Focus 2: an output produced again (or re-imported) keeps its first produced_by
     store = ArtifactStore()
@@ -178,16 +201,19 @@ def test_import_makes_a_working_copy_and_keeps_the_original_bytes():
     assert describe(working) == f"{working.id[:8]} (holiday_photo_work, 1000x500)"
     with store.image(working.id) as im:
         assert im.mode == "RGB" and max(im.size) == WORKING_MAX
-    again = store.import_image(photo, "renamed.jpg")  # the same file twice: nothing new
-    assert again == (working, original) and store.ids() == [original.id, working.id]
+    again = store.import_image(photo, "renamed.jpg")  # each import owns its provenance
+    assert again[0].id != working.id and again[1].id != original.id
+    assert again[0].blob_id == working.blob_id and again[1].blob_id == original.blob_id
     # a source tool's picture (Task 7): both halves are credited to the step that brought it in
     f_work, f_orig = ArtifactStore().import_image(photo, "holiday.jpg", src, produced_by="s4")
     assert f_work.produced_by == f_orig.produced_by == "s4" and f_work.original_id == f_orig.id
     assert f_work.source == f_orig.source == src
-    assert store.import_image(photo, "x.jpg", produced_by="s9") == (working, original)  # stored: first meta wins
+    third = store.import_image(photo, "x.jpg", produced_by="s9")
+    assert third[0].produced_by == third[1].produced_by == "s9"
+    assert third[0].blob_id == working.blob_id
     with pytest.raises(TypeError):
         store.import_image(photo, "x.jpg", src, "s9")  # produced_by is keyword-only
-    assert store.ids() == [original.id, working.id]
+    assert len(store.ids()) == 6
 
 
 def test_a_badshop_png_is_its_own_working_copy():
@@ -198,7 +224,8 @@ def test_a_badshop_png_is_its_own_working_copy():
     assert (working.label, working.original_id) == ("lincoln_lasers_work", None)
     scan, _ = store.import_image(encode(Image.new("RGB", (1200, 900), "red"), "BMP"), "scan.bmp")
     w, o = store.import_image(store.data(scan.id), "scan_work.png")  # an exported working copy, re-imported
-    assert w is o is scan and len(store.ids()) == 3
+    assert w is o and w.id != scan.id and w.blob_id == scan.blob_id
+    assert len(store.ids()) == 4
     one, same = ArtifactStore().import_image(data, "emoji_1f602.png", produced_by="s7")  # still one
     assert one is same and (one.label, one.produced_by, one.original_id) == ("emoji_1f602_work", "s7", None)
 

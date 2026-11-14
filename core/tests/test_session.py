@@ -128,24 +128,27 @@ def test_failed_step_has_clean_error(session, events):
     assert session.changes == [f"the user added image {short(work.id)} (lincoln_work)"]
 
 
-def test_identical_outputs_are_one_artifact_that_keeps_its_first_producer(session, events):
+def test_identical_outputs_keep_independent_uses_and_shared_bytes(session, events):
     work = session.import_image(LINCOLN, "lincoln")
     first = session.run_tool("filter", {"image": work.id, "names": ["sepia"]}, "user")
     before = set(session.artifacts.ids())
     second = session.run_tool("filter", {"image": work.id, "names": ["sepia"]}, "agent:fake")
-    assert second.status == "done" and second.outputs == first.outputs
-    assert set(session.artifacts.ids()) == before  # the same bytes were not stored twice
+    assert second.status == "done" and second.outputs != first.outputs
+    assert set(session.artifacts.ids()) == before | set(second.outputs)
+    assert session.artifacts._data[first.outputs[0]] == session.artifacts._data[second.outputs[0]]
     meta = session.artifacts.meta[first.outputs[0]]
     assert meta.produced_by == first.id and meta.label == "lincoln_filter"
     finished = [p for e, p in events if e == "step.finished"]
-    assert finished[-1]["artifacts"] == [meta.model_dump(mode="json")]  # produced_by still s1
+    assert finished[-1]["artifacts"][0]["produced_by"] == second.id
+    assert finished[-1]["artifacts"][0]["blob_id"] == meta.blob_id
     note = session.add_message("assistant", [Part(type="image", artifact_id=meta.id)], step_ids=[second.id])
     assert note.content[0].artifact_id == meta.id and note.step_ids == [second.id]
     # a step can give back an earlier step's pictures: prep of a prepped copy makes the same bytes
     small = session.run_tool("prep", {"image": work.id, "max": 300}, "user")
     again = session.run_tool("prep", {"image": small.outputs[0], "max": 300}, "agent:fake")
-    assert again.status == "done" and again.outputs == small.outputs
-    assert all(session.artifacts.meta[i].produced_by == small.id for i in again.outputs)
+    assert again.status == "done" and again.outputs != small.outputs
+    assert all(session.artifacts.meta[i].produced_by == again.id for i in again.outputs)
+    assert session.artifacts.data(again.outputs[0]) == session.artifacts.data(small.outputs[0])
 
 
 def test_tools_go_through_the_executor(tmp_path):
@@ -424,15 +427,17 @@ def test_the_agent_hears_about_pictures_the_user_adds(tmp_path):
     work = s.import_image(LINCOLN, "lincoln")
     assert seen == [[f"the user added image {short(work.id)} (lincoln_work)"]]  # noted before the autosave
     trump = s.import_image(TRUMP, "trump.png")
-    s.import_image(LINCOLN, "lincoln_again.png")  # the same picture before the agent heard: still one line
+    again = s.import_image(LINCOLN, "lincoln_again.png")
     assert s.take_changes() == [f"the user added image {short(work.id)} (lincoln_work)",
-                                f"the user added image {short(trump.id)} (trump_work)"]
-    s.import_image(LINCOLN, "lincoln")  # once the agent has heard, adding it again is news again
-    assert s.take_changes() == [f"the user added image {short(work.id)} (lincoln_work)"]
+                                f"the user added image {short(trump.id)} (trump_work)",
+                                f"the user added image {short(again.id)} (lincoln_again_work)"]
+    latest = s.import_image(LINCOLN, "lincoln")
+    assert s.take_changes() == [f"the user added image {short(latest.id)} (lincoln_work)"]
     agents = s.run_tool("fetch", {"query": "red"}, "agent:fake")
     assert agents.status == "done" and s.take_changes() == []  # its pictures are in the agent's tool result
     users = s.run_tool("fetch", {"query": "red"}, "user")
-    assert users.status == "done" and users.outputs == agents.outputs
+    assert users.status == "done" and users.outputs != agents.outputs
+    assert s.artifacts.data(users.outputs[0]) == s.artifacts.data(agents.outputs[0])
     assert [c.split(":")[0] for c in s.take_changes()] == ["the user ran step 2"]  # the run note, no "added"
 
 
@@ -468,5 +473,5 @@ def test_on_change_after_every_settled_change(tmp_path):
     s.run_tool("filter", {"image": work.id, "names": ["invert"]}, "user")
     s.reject(s.propose("filter", {"image": work.id, "names": ["sepia"]}, "user").id)
     s.add_message("user", [Part(type="text", text="hi")])
-    assert seen == [[], ["proposed"], ["done"], ["done", "proposed"], ["done", "rejected"],
-                    ["done", "rejected"]]  # an autosave never catches a step mid-run
+    assert seen == [[], ["proposed"], ["running"], ["done"], ["done", "proposed"], ["done", "rejected"],
+                    ["done", "rejected"]]  # running is durable before execution, normalized on recovery

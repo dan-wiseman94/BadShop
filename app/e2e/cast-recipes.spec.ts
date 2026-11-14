@@ -34,7 +34,9 @@ test("a saved character survives a new project and a visual recipe makes reusabl
   await page.getByRole("button", { name: "Run design rows" }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps.at(1)?.status).toBe("done");
   const after = await emptyCore.call("session.get") as Session;
-  expect(after.steps.at(-1)!.outputs).toEqual(saved.steps[0].outputs);
+  expect(after.steps.at(-1)!.outputs).not.toEqual(saved.steps[0].outputs);
+  expect((await emptyCore.call('artifacts.get', { id: after.steps.at(-1)!.outputs[0] }) as { data: string }).data)
+    .toBe((await emptyCore.call('artifacts.get', { id: saved.steps[0].outputs[0] }) as { data: string }).data);
   await emptyCore.call("session.save_as", { path: info.outputPath("cast-recipe.badshop") });
   await emptyCore.call("session.new", { discard_unsaved: true });
   await emptyCore.call("session.open", { path: info.outputPath("cast-recipe.badshop") });

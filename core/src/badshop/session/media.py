@@ -25,6 +25,8 @@ from badshop.session.models import Source
 
 MAX_BYTES = 200 * 2**20
 MAX_PIXELS = 32_000_000
+PREVIEW_BUDGET_BYTES = 256 * 2**20
+PREVIEW_TTL_SECONDS = 24 * 3600
 VIDEO_FORMATS = "mov,matroska,avi,mpegts,mpeg,ogg,asf,flv"
 
 
@@ -92,6 +94,29 @@ class MediaSources:
         folder = self._folder(id)
         if folder.is_dir() and not folder.is_symlink():
             shutil.rmtree(folder)
+
+    def collect(self, *, keep=None):
+        """Bound disposable previews by age, count and bytes; imported copies are independent."""
+        if not self.root.exists():
+            return
+        folders = sorted((path for path in self.root.iterdir() if path.is_dir() and not path.is_symlink()
+                          and len(path.name) == 32 and all(c in '0123456789abcdef' for c in path.name)),
+                         key=lambda path: path.stat().st_mtime, reverse=True)
+        used, retained = 0, 0
+        for folder in sorted(folders, key=lambda path: path.name != keep):
+            files = list(folder.iterdir())
+            if any(path.is_symlink() or not path.is_file() for path in files):
+                continue  # never follow an unexpected filesystem tree
+            size = sum(path.stat().st_size for path in files)
+            if folder.name == keep and size > PREVIEW_BUDGET_BYTES:
+                self.discard(keep)
+                raise EngineError('preview exceeds the temporary storage budget', hint='choose fewer pages or frames')
+            expired = time.time() - folder.stat().st_mtime > PREVIEW_TTL_SECONDS
+            if folder.name != keep and (expired or retained >= 16 or used + size > PREVIEW_BUDGET_BYTES):
+                self.discard(folder.name)
+            else:
+                used += size
+                retained += 1
 
     def preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1, *, _scratch=None):
         try:
@@ -199,12 +224,7 @@ class MediaSources:
         if not frames:
             raise EngineError("no frames could be extracted")
         self.root.mkdir(parents=True, exist_ok=True)
-        # Bounded persistent preview cache; selected imports have their own project copies.
-        old = sorted((p for p in self.root.iterdir() if p.is_dir() and not p.is_symlink()
-                      and len(p.name) == 32 and all(c in "0123456789abcdef" for c in p.name)),
-                     key=lambda p: p.stat().st_mtime)
-        for folder in old[:-15]:
-            shutil.rmtree(folder)
+        self.collect()
         id = uuid.uuid4().hex
         folder = self._folder(id)
         folder.mkdir()
@@ -225,6 +245,7 @@ class MediaSources:
         stored["candidates"] = [{k: v for k, v in item.items() if k != "thumbnail_data_url"}
                                 for item in candidates]
         (folder / "preview.json").write_text(json.dumps(stored))
+        self.collect(keep=id)
         return record
 
     def import_selected(self, session, preview_id, candidate_ids, crop=None, animate=False, delay=100):
