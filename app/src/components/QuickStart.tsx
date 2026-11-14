@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { action, imageUrl, importBlob, useArtifact, useCoreQuery, useSession } from "../data";
 import { useUI } from "../store";
 import { useOperation } from "../useOperation";
@@ -17,9 +17,10 @@ function TakePreview({ id }: { id: string }) {
   return <img src={imageUrl(data)} alt="" style={{ width: 110, height: 75, objectFit: "contain" }} />;
 }
 
-export function QuickStart({ onImport, onAdvanced, importedImage, importing = false }: {
+export function QuickStart({ onImport, onAdvanced, onResult, importedImage, importing = false }: {
   onImport: () => void;
   onAdvanced: () => void;
+  onResult?: () => void;
   importedImage?: { id: string } | null;
   importing?: boolean;
 }) {
@@ -28,6 +29,12 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
   const { data: branches } = useCoreQuery("branches.list");
   const { busy, error, perform } = useOperation();
   const [chosen, setChosen] = useState<(typeof starters)[number] | null>(null);
+  const headline = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!chosen || !headline.current) return;
+    headline.current.focus({ preventScroll: true });
+    headline.current.scrollIntoView({ block: "start" });
+  }, [chosen]);
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [second, setSecond] = useState("");
@@ -60,7 +67,16 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
       <details><summary>Your cast of characters</summary><Cast image={image} disabled={disabled} onUse={setImage} /></details>
       <div className="quick-cards">
         {starters.map(starter => <button key={starter.template} aria-pressed={chosen?.template === starter.template}
-          onClick={() => { setChosen(starter); setTitle(starter.title); setCaption(starter.caption); setSecond(starter.secondCaption ?? "Probably fine."); }}>
+          onClick={() => {
+            if (chosen === starter) {
+              headline.current?.focus();
+              return;
+            }
+            setChosen(starter);
+            setTitle(starter.title);
+            setCaption(starter.caption);
+            setSecond(starter.secondCaption ?? "Probably fine.");
+          }}>
           <IdeaPreview image={image} template={starter.template} title={starter.title}
             captions={[starter.caption, starter.secondCaption ?? ""]} slots={layouts.find(l => l.id === starter.template)?.slots.length ?? 0}
             revision={session?.document_revision ?? 0} enabled={!disabled} />
@@ -90,11 +106,12 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
           selectOutput(result.id);
           setImage(source);
           setChosen(null);
+          onResult?.();
           useUI.getState().set({ notice: "Ready to share. Change the punchline below, copy the image, or export it." });
         });
       }}>
         <h3>{chosen.name}</h3>
-        <InputField label="Headline" maxLength={300} bind={[title, setTitle]} />
+        <InputField ref={headline} label="Headline" maxLength={300} bind={[title, setTitle]} />
         <InputField label="Punchline" maxLength={1000} bind={[caption, setCaption]} />
         {(definitions?.slots.length ?? 0) > 1 && <InputField label="Second caption" maxLength={1000} bind={[second, setSecond]} />}
         <label>Picture<select value={image} onChange={e => setImage(e.target.value)}>

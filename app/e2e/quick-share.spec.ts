@@ -120,6 +120,7 @@ test("quick ideas and export remain usable at 200 percent text with keyboard foc
   await page.getByRole("button", { name: "Make this shitpost" }).click();
   await expect(page.locator(".canvas-image")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Ideas" }).click();
   await page.getByRole("button", { name: "Export", exact: true }).focus();
   await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Export image", exact: true });
@@ -135,6 +136,7 @@ test("quick ideas and export remain usable at 200 percent text with keyboard foc
   await expect(page.getByRole("button", { name: "Export", exact: true })).toBeFocused();
   // Wrapped pane headings must keep their controls above the scrolling cards.
   await page.evaluate(() => { document.documentElement.dataset.theme = "terminal"; });
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Ideas" }).click();
   await page.getByRole("button", { name: /^all tools$/i }).click();
-  await expect(page.getByRole("region", { name: "Chat", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run tool", exact: true })).toBeVisible();
 });

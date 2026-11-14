@@ -29,6 +29,7 @@ export interface Session {
   name: string;
   path: string | null;
   provider_profile_id: string | null;
+  scripted_provider?: boolean;
   approval_mode: ApprovalMode;
   messages: Message[];
   steps: Step[];
