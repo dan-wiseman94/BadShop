@@ -1,13 +1,14 @@
 """Real package-manager upgrade, recovery, and removal on a disposable Linux runner."""
+import asyncio
 import hashlib
 import json
 import os
 import subprocess
-import sys
 import shlex
 from pathlib import Path
 
 from smoke_desktop import smoke
+from smoke_core import smoke as core_smoke
 
 
 def run(*args):
@@ -55,11 +56,14 @@ def packages(candidate, root, output):
                            + '--command=' + shlex.quote(sandbox_core)
                            + ' io.github.danwiseman94.badshop "$@"\n')
         wrapper.chmod(0o755)
-        run(sys.executable, Path(__file__).with_name('smoke_core.py'), wrapper, '--keychain',
-            '--metrics', output / 'flatpak-keychain.json')
+        # The wrapper PID is Flatpak's launcher, not the frozen core. Exercise
+        # keychain and clean EOF here; crash the actual core through its native
+        # supervisor below instead of killing the launcher and orphaning its pipes.
+        asyncio.run(core_smoke(wrapper, keychain=True, metrics=output / 'flatpak-keychain.json'))
         summary['checks'].append('installed Flatpak core stored, retrieved and deleted synthetic keychain credential')
         installed = subprocess.check_output(['flatpak', 'info', '--user', 'io.github.danwiseman94.badshop'], text=True)
         (output / 'flatpak-installed.txt').write_text(installed)
+        smoke(command, output / 'flatpak-candidate-recovery.png', restart_core=True)
         smoke(command, output / 'flatpak-upgraded.png', project_to_open=saved)
         assert hashlib.sha256(saved.read_bytes()).hexdigest() == before
         run('flatpak', 'uninstall', '--user', '-y', 'io.github.danwiseman94.badshop')
