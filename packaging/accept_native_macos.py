@@ -26,14 +26,16 @@ def text(value):
     for char in value:
         for down in (True, False):
             event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+            Quartz.CGEventSetFlags(event, 0)
             Quartz.CGEventKeyboardSetUnicodeString(event, len(char), char)
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
     time.sleep(.2)
 
 
-def file_dialog(path, *, saving=False):
+def file_dialog(path, window, output, *, saving=False):
     import Quartz
-    time.sleep(1)
+    from accept_native_visual import NativeLabels
+    NativeLabels(window, output).wait('Save As' if saving else 'Cancel')
     if saving:
         key(0, Quartz.kCGEventFlagMaskCommand)
         text(path.name)
@@ -81,7 +83,7 @@ def editing(pid, window, close, output):
     wait_project_pixels(autosave, current['session_id'], pixels)
     saved = root / 'native-saved.badshop'
     key(1, Quartz.kCGEventFlagMaskCommand)  # Save
-    file_dialog(saved, saving=True)
+    file_dialog(saved, window, output, saving=True)
     state(unsaved=False)
     wait_project_pixels(saved, current['session_id'], pixels)
     reopened = root / 'native-open.badshop'
@@ -96,7 +98,7 @@ def editing(pid, window, close, output):
                 data = json.dumps(document).encode()
             target.writestr(member, data)
     key(31, Quartz.kCGEventFlagMaskCommand)  # Open
-    file_dialog(reopened)
+    file_dialog(reopened, window, output)
     state(session_id=identity, unsaved=False)
     wait_project_pixels(autosave, identity, pixels)
     from accept_native_visual import NativeLabels
@@ -123,7 +125,7 @@ def open_existing(pid, window, project, output, *, reject_future=False):
         key(36)
         time.sleep(1)
     key(31, Quartz.kCGEventFlagMaskCommand)
-    file_dialog(project)
+    file_dialog(project, window, output)
     if reject_future:
         NativeLabels(window, output).wait('newer badshop')
     else:

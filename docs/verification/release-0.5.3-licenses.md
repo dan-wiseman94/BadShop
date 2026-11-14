@@ -49,3 +49,29 @@ or additional restrictions on recipients' rights are introduced.
 
 The source remains available from the [versioned crate download](https://crates.io/api/v1/crates/selectors/0.38.0/download).
 Source inclusion in the installer avoids depending solely on that external link.
+
+## Exact candidate decision
+
+Approved for this candidate: source `6fef86133a944e09ef2406c0af2408c745ffdd14`,
+SHA256SUMS digest `aa87590d921e11f10b672322149ce2974f85dbe0fd9abb5d02b6ee461ac6bf96`.
+Codex performed this review and the inspections at dan-wiseman94's explicit
+direction to complete the license review and publish. This is not independent
+human or legal-counsel review.
+
+The installed inspections verified all 21 flagged components on each of four
+platforms (84 inventory decisions). Every installed notice hash matched the
+SBOM, each installed SBOM matched its release sidecar, all twenty binding
+packages contained the MIT and SDK notices, and all 22 files in the selectors
+registry archive matched the installed covered source byte for byte. The
+archive checksum also matched the committed Cargo lockfile.
+
+Retained `license-inspection.json` results:
+
+- [Windows x64](https://github.com/dan-wiseman94/BadShop/actions/runs/43567356024/artifacts/14102363237)
+- [macOS arm64](https://github.com/dan-wiseman94/BadShop/actions/runs/43567356024/artifacts/14102288386)
+- [macOS x64](https://github.com/dan-wiseman94/BadShop/actions/runs/43567356024/artifacts/14102578032)
+- [Linux x64](https://github.com/dan-wiseman94/BadShop/actions/runs/43567356024/artifacts/14102408149)
+
+Those runs subsequently failed in native UI test drivers. Their successful
+license inspections are retained separately; this license decision does not
+claim that those runs passed the full platform acceptance workflow.

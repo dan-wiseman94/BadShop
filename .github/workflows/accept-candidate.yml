@@ -6,6 +6,11 @@ on:
         description: Existing private candidate to verify without rebuilding
         required: true
         type: string
+      targets:
+        description: Native runner matrix JSON; narrow to failed platforms for follow-up checks
+        required: false
+        default: '[{"os":"ubuntu-22.04","label":"linux-x64"},{"os":"windows-latest","label":"windows-x64"},{"os":"macos-15","label":"macos-arm64"},{"os":"macos-15-intel","label":"macos-x64"}]'
+        type: string
 permissions:
   contents: read
 jobs:
@@ -16,15 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-22.04
-            label: linux-x64
-          - os: windows-latest
-            label: windows-x64
-          - os: macos-15
-            label: macos-arm64
-          - os: macos-15-intel
-            label: macos-x64
+        include: ${{ fromJSON(inputs.targets) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
