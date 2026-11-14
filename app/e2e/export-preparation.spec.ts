@@ -76,6 +76,7 @@ test("custom export prepares and saves exact dimensions within a readable size b
   await page.getByRole("button", { name: "Start with a quick idea" }).click();
   await page.getByRole("button", { name: /An error with no solution/ }).click();
   await page.getByRole("button", { name: "Make this shitpost" }).click();
+  await expect(page.getByRole("button", { name: "Change caption only", exact: true })).toBeEnabled();
   await expect(page.locator(".canvas-image")).toBeVisible();
   const before = await emptyCore.call("session.get") as Session;
   await page.getByRole("button", { name: "Export", exact: true }).click();
