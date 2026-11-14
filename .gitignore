@@ -35,3 +35,6 @@ artifacts/verification/
 .tooling/
 # Hypothesis failures include reproduction blobs in retained pytest logs.
 .hypothesis/
+
+# Mutation testing scratch checkout
+/core/mutants/
