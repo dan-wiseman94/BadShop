@@ -24,6 +24,10 @@ def digest(path):
 
 def upgrade(executable, candidate, root, output, fixture):
     expected_executable = digest(executable)
+    core_executable, = executable.parent.rglob('badshop-core.exe')
+    expected_core = digest(core_executable)
+    candidate_installer, = candidate.glob('*.exe')
+    expected_installer = digest(candidate_installer)
     baseline = root / 'baseline'
     baseline.mkdir()
     subprocess.run(['gh', 'release', 'download', 'v0.4.3', '--pattern', '*x64-setup.exe',
@@ -78,6 +82,9 @@ def upgrade(executable, candidate, root, output, fixture):
                 assert viewer_hash(page) == image_hash
                 page.get_by_role('button', name='Settings', exact=True).click()
                 page.get_by_role('button', name='Updates', exact=True).click()
+                # Isolate manual fault/retry checks from the baseline's startup
+                # timer, which can clear an error by checking again five seconds in.
+                page.get_by_role('checkbox', name='Automatically check for updates').uncheck()
                 page.get_by_role('button', name='Check for updates', exact=True).click()
                 expect(page.get_by_text('Installed version: 0.4.3', exact=True)).to_be_visible()
                 version = json.loads((candidate / 'latest.json').read_text())['version']
@@ -96,6 +103,7 @@ def upgrade(executable, candidate, root, output, fixture):
                 summary['checks'].append('tampered payload rejected by installed signature verification')
                 server.mode = 'authentic'
                 children = psutil.Process(pid).children(recursive=True)
+                install_started = time.time()
                 button.click()
                 page.wait_for_event('close', timeout=180000)
                 deadline = time.monotonic() + 120
@@ -106,6 +114,14 @@ def upgrade(executable, candidate, root, output, fixture):
                     time.sleep(.5)
                 else:
                     raise AssertionError('Authentic update did not install the expected executable')
+                # NSIS replaces the shell before extracting the much larger core.
+                # Do not launch or close the new app while extraction is in flight.
+                for process in psutil.process_iter(['name', 'exe', 'create_time']):
+                    if (process.info['name'] == f'badshop-{version}-installer.exe'
+                            and process.info['create_time'] >= install_started - 1):
+                        assert digest(Path(process.info['exe'])) == expected_installer
+                        assert process.wait(timeout=180) == 0, 'Updater installer failed'
+                assert digest(core_executable) == expected_core, 'Updated core differs from candidate'
                 _, alive = psutil.wait_procs(children, timeout=30)
                 assert not alive, f'Old app children survived: {alive}'
                 summary['checks'].append('authentic signed update installed exact candidate executable; old children exited')
@@ -153,7 +169,6 @@ def upgrade(executable, candidate, root, output, fixture):
         assert digest(future) == future_hash
         assert digest(backup) == project_bytes
         summary['checks'].append('rollback reopened backup pixels and refused to modify a newer schema')
-        candidate_installer, = candidate.glob('*.exe')
         subprocess.run([str(candidate_installer), '/S', '/D=' + str(executable.parent)], check=True, timeout=180)
         assert digest(executable) == expected_executable
         summary['status'] = 'passed'

@@ -1,0 +1,573 @@
+{
+  "schema": 1,
+  "tag": "v0.5.4",
+  "source_sha": "837ab8c71aceefc33b01f69625023fe6c89ccd00",
+  "sha256sums": "c76d426930ddfad3dd6361c5702a95e1bcaacd8d96d5e88bda302b3abe3f91b5",
+  "reviewed_by": "dan-wiseman94",
+  "platforms": {
+    "windows-x64": {
+      "install_uninstall": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "native_files": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "clipboard": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "keychain": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "os_trust": {
+        "result": "unsigned-disclosed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "signed_upgrade": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "tampered_update": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "download_retry": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "process_cleanup": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "project_recovery": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "rollback": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      }
+    },
+    "macos-arm64": {
+      "install_uninstall": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "native_files": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "clipboard": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "keychain": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "os_trust": {
+        "result": "unsigned-disclosed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "signed_upgrade": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "tampered_update": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "download_retry": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "process_cleanup": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "project_recovery": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "rollback": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      }
+    },
+    "macos-x64": {
+      "install_uninstall": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "native_files": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "clipboard": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "keychain": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "os_trust": {
+        "result": "unsigned-disclosed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "signed_upgrade": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "tampered_update": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "download_retry": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "process_cleanup": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "project_recovery": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "rollback": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      }
+    },
+    "linux-appimage": {
+      "runtime": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "clipboard": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "signed_upgrade": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "tampered_update": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "download_retry": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "process_cleanup": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "project_recovery": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "rollback": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      }
+    },
+    "linux-deb": {
+      "install_uninstall": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "native_files": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "keychain": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "project_recovery": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "package_update": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      }
+    },
+    "linux-flatpak": {
+      "install_uninstall": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "native_files": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "keychain": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "project_recovery": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "package_update": {
+        "result": "passed",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      }
+    }
+  },
+  "licenses": {
+    "linux-x64": {
+      "pkg:cargo/block2@0.6.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/dispatch2@0.3.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2@0.6.5": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-app-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-cloud-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-core-data@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-core-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-core-graphics@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-core-image@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-core-location@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-core-text@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-encode@4.1.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-exception-helper@0.1.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-io-surface@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-osa-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-quartz-core@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-ui-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-user-notifications@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/objc2-web-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      },
+      "pkg:cargo/selectors@0.38.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575996224/artifacts/14106605315"
+      }
+    },
+    "windows-x64": {
+      "pkg:cargo/block2@0.6.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/dispatch2@0.3.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2@0.6.5": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-app-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-cloud-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-core-data@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-core-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-core-graphics@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-core-image@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-core-location@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-core-text@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-encode@4.1.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-exception-helper@0.1.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-io-surface@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-osa-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-quartz-core@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-ui-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-user-notifications@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/objc2-web-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      },
+      "pkg:cargo/selectors@0.38.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43576477712/artifacts/14106716363"
+      }
+    },
+    "macos-arm64": {
+      "pkg:cargo/block2@0.6.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/dispatch2@0.3.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2@0.6.5": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-app-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-cloud-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-core-data@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-core-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-core-graphics@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-core-image@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-core-location@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-core-text@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-encode@4.1.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-exception-helper@0.1.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-io-surface@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-osa-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-quartz-core@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-ui-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-user-notifications@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/objc2-web-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      },
+      "pkg:cargo/selectors@0.38.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105848948"
+      }
+    },
+    "macos-x64": {
+      "pkg:cargo/block2@0.6.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/dispatch2@0.3.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2@0.6.5": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-app-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-cloud-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-core-data@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-core-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-core-graphics@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-core-image@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-core-location@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-core-text@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-encode@4.1.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-exception-helper@0.1.1": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-foundation@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-io-surface@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-osa-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-quartz-core@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-ui-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-user-notifications@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/objc2-web-kit@0.3.2": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      },
+      "pkg:cargo/selectors@0.38.0": {
+        "result": "approved",
+        "evidence": "https://github.com/dan-wiseman94/BadShop/actions/runs/43575254527/artifacts/14105474214"
+      }
+    }
+  },
+  "review_method": "Codex performed checks and license review under the maintainer explicit instruction to complete and publish; not independent human or legal-counsel review.",
+  "license_review": "https://github.com/dan-wiseman94/BadShop/blob/main/docs/verification/release-0.5.4-licenses.md"
+}
