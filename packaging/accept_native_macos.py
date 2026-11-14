@@ -33,14 +33,12 @@ def activate(pid):
 
 
 def text(value):
+    import AppKit
     import Quartz
-    for char in value:
-        for down in (True, False):
-            event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
-            Quartz.CGEventSetFlags(event, 0)
-            Quartz.CGEventKeyboardSetUnicodeString(event, len(char), char)
-            Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
-    time.sleep(.2)
+    clipboard = AppKit.NSPasteboard.generalPasteboard()
+    clipboard.clearContents()
+    assert clipboard.setString_forType_(value, AppKit.NSPasteboardTypeString)
+    key(9, Quartz.kCGEventFlagMaskCommand)
 
 
 def file_dialog(path, window, output, *, saving=False):
@@ -51,7 +49,13 @@ def file_dialog(path, window, output, *, saving=False):
         key(0, Quartz.kCGEventFlagMaskCommand)
         text(path.name)
     key(5, Quartz.kCGEventFlagMaskCommand | Quartz.kCGEventFlagMaskShift)  # Go to folder
+    # The Go-to-folder sheet animates after the keyboard shortcut. Pasting a
+    # complete string avoids losing the prefix to that animation on Intel Macs.
+    time.sleep(1)
+    key(0, Quartz.kCGEventFlagMaskCommand)
     text(str(path.parent if saving else path))
+    time.sleep(.5)
+    screenshot(window, output / 'mac-path-entered.png')
     key(36)
     time.sleep(1)
     key(36)
