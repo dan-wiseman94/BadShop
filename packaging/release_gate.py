@@ -228,7 +228,12 @@ def verify_github(root, repository, value):
     subprocess.run(["gh", "attestation", "verify", str(root / "SHA256SUMS"), "--repo", repository,
                     "--signer-workflow", f"{repository}/.github/workflows/{workflow}",
                     "--source-digest", source, "--deny-self-hosted-runners"], check=True)
-    release = gh_json("api", f"repos/{repository}/releases/tags/{quote(tag, safe='')}")
+    # Drafts are visible to authenticated release listing, but not the tag endpoint.
+    pages = gh_json("api", f"repos/{repository}/releases", "--paginate", "--slurp")
+    matches = [release for page in pages for release in page if release["tag_name"] == tag]
+    if len(matches) != 1:
+        raise ValueError(f"Expected one release for {tag}, found {len(matches)}")
+    release = matches[0]
     if release["prerelease"] != (value["track"] == "nightly"):
         raise ValueError("Release track differs from the accepted candidate")
     if release["target_commitish"] != source:
