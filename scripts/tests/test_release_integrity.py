@@ -15,6 +15,15 @@ from update_manifest import can_promote_nightly, manifest, nightly_version
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
+    def test_candidate_draft_access_does_not_raise_reusable_builder_permissions(self):
+        root = Path(__file__).resolve().parents[2]
+        native = (root / '.github/workflows/native-desktop.yml').read_text()
+        candidate = (root / '.github/workflows/accept-candidate.yml').read_text()
+        self.assertNotIn('contents: write', native)
+        self.assertIn('contents: write', candidate)
+        self.assertNotIn('workflow_call:', candidate)
+        self.assertIn('packaging/accept_candidate.py', candidate)
+
     def test_inventory_decodes_utf8_package_metadata_on_every_host(self):
         value = command(sys.executable, "-c", "import sys; sys.stdout.buffer.write(bytes.fromhex('7b226e616d65223a2022e69687e5ad97227d'))")
         self.assertEqual(value, {"name": "\u6587\u5b57"})
