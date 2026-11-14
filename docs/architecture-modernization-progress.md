@@ -574,8 +574,22 @@ files independently of its baseline HEAD.
   395.56 MB, with 49,152 additional retained bytes between the first and fifth
   cycles. These measured workloads do not establish a universal memory ceiling.
 
+Final CI follow-up found two remaining defects in the verification path:
+
+- A managed CLI grant token beginning with `-` was parsed as an option by the MCP
+  subprocess. Passing `--token=value` fixes the real launch failure. The existing
+  subprocess/MCP approval and budget workflows now force that token boundary;
+  `cli-dash-token-broken.log` records failure before the fix, and
+  `20261114T173115Z-6831` passes 37 CLI/MCP checks (two platform/opt-in skips).
+  The fake CLI also refuses a failed initial tool response instead of reporting
+  a successful answer. No paid provider was invoked.
+- The saved-library browser check read through a separate connection before the
+  UI's asynchronous import committed. It now polls the persisted artifact before
+  retaining all library/message assertions. `20261114T172842Z-1098` passes all
+  three long-history workflows. No timeout or assertion was weakened.
+
 Implementation changes and consequential review fixes are complete in this PR.
-The final PR checks and merge receipt are attached to PR #58. The original plan's
+Final PR checks must pass before merging PR #58. The original plan's
 live-provider, installed cross-platform, signing/rollback, assistive-technology and
 consenting-user field gates remain explicitly unclaimed; paid model checks belong
 to the user. No failing or skipped run above has been rewritten as a pass.

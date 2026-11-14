@@ -33,6 +33,12 @@ s.artifacts.close()
   await page.getByLabel('Find material', { exact: true }).fill('Character 000');
   await expect(library.locator('.artifact-list > button')).toHaveCount(1);
   await library.getByRole('button', { name: 'Character 000', exact: true }).click();
+  // The click starts an asynchronous import on the UI connection. The fixture's
+  // separate connection can read the session before that command has committed.
+  await expect.poll(async () => {
+    const session = await emptyCore.call('session.get') as Session;
+    return Object.keys(session.artifacts).length;
+  }).toBe(1);
   const saved = await emptyCore.call('library.list') as unknown[];
   expect(saved).toHaveLength(55);
   const session = await emptyCore.call('session.get') as Session;

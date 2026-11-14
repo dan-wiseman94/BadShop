@@ -34,6 +34,7 @@ async def mcp_view(prompt):
         async with ClientSession(read, write) as client:
             await client.initialize()
             response = await client.call_tool("view", {"image": aid})
+            assert not response.is_error, response
             if mode == "budget":
                 response = await client.call_tool("view", {"image": aid})
                 assert response.is_error
