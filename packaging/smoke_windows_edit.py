@@ -133,7 +133,8 @@ def runner_webview_policy(executable: Path, profile: Path):
         yield
 
 
-def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path) -> None:
+def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
+                  *, clipboard_output: Path | None = None, material_panel: bool = True) -> None:
     root = root.resolve()
     project = root / 'native-edit.badshop'
     summary = {'status': 'failed', 'stages': []}
@@ -171,8 +172,11 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path)
     def edit(page: Page, pid: int, window: int, close: Callable[[], None], trace: Path) -> None:
         nonlocal output_hash
         page.get_by_role('button', name='Attach images', exact=True).click()
-        page.get_by_role('dialog', name='Add material', exact=True).get_by_role(
-            'button', name='Choose files', exact=True).click()
+        # v0.4.3 is the public upgrade baseline and opens the picker directly.
+        # Remove this harness branch when that upgrade baseline is retired.
+        if material_panel:
+            page.get_by_role('dialog', name='Add material', exact=True).get_by_role(
+                'button', name='Choose files', exact=True).click()
         choose_file(pid, window, fixture)
         imported_hash = viewer_hash(page)
         page.get_by_role('button', name='Run tool', exact=True).click()
@@ -220,6 +224,11 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path)
         step.click()
         expect(page.locator('.canvas-image')).to_have_attribute('alt', re.compile(r'_deepfried$'))
         assert viewer_hash(page) == output_hash, 'Reopened viewer did not show the saved image'
+        if clipboard_output:
+            from accept_clipboard import paste_into_browser
+            page.get_by_role('button', name='Copy image', exact=True).click()
+            expect(page.get_by_text('Image copied. Paste it into your chat.', exact=True)).to_be_visible()
+            paste_into_browser(saved.artifacts.data(output_hash), clipboard_output)
         capture_window(window, screenshot.with_name('native-reopened.png').resolve())
         page.context.tracing.stop(path=trace)
         close()

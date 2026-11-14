@@ -4,6 +4,7 @@ This does not generate an acceptance approval: it retains measured results for r
 It deliberately refuses the developer's workstation because it installs/uninstalls packages.
 """
 import hashlib
+import io
 import json
 import os
 import plistlib
@@ -11,7 +12,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import tarfile
+import tomllib
 from pathlib import Path
+from urllib.request import urlopen
 
 from release_gate import track
 from smoke_desktop import smoke
@@ -55,6 +60,21 @@ def inspect_legal(root, candidate, label):
             source = legal / properties['badshop:covered-source']
             assert (source / 'Cargo.toml').is_file() and (source / 'lib.rs').is_file()
             assert any('Mozilla Public License' in text for text in texts)
+            url = f"https://crates.io/api/v1/crates/selectors/{component['version']}/download"
+            with urlopen(url, timeout=60) as response:
+                archive = response.read()
+            lock = tomllib.loads((ROOT / 'app/src-tauri/Cargo.lock').read_text())
+            entry, = [p for p in lock['package'] if p['name'] == 'selectors' and p['version'] == component['version']]
+            assert hashlib.sha256(archive).hexdigest() == entry['checksum']
+            count = 0
+            with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as tar:
+                for member in tar.getmembers():
+                    if member.isfile():
+                        relative = Path(*Path(member.name).parts[1:])
+                        assert '..' not in relative.parts
+                        assert (source / relative).read_bytes() == tar.extractfile(member).read(), relative
+                        count += 1
+            row['registry_source'] = {'url': url, 'sha256': entry['checksum'], 'files_matched': count}
             row['covered_source_files'] = {p.relative_to(source).as_posix(): digest(p)
                                            for p in sorted(source.rglob('*')) if p.is_file()}
             row['source_included'] = True
@@ -65,6 +85,14 @@ def inspect_legal(root, candidate, label):
         report.append(row)
     assert {row['package'] for row in report} == required
     (OUT / 'license-inspection.json').write_text(json.dumps(report, indent=2) + '\n')
+    return legal
+
+
+def installed_keychain(legal):
+    executable = legal.parent / ('badshop-core.exe' if sys.platform == 'win32' else 'badshop-core')
+    assert executable.is_file()
+    run(sys.executable, ROOT / 'packaging/smoke_core.py', executable, '--keychain',
+        '--metrics', OUT / 'installed-core.json')
 
 
 def main():
@@ -100,17 +128,34 @@ def main():
                 run(installer, '/S', '/D=' + str(target))
                 executable = target / 'badshop-desktop.exe'
                 assert executable.is_file()
-                inspect_legal(target, candidate, label)
+                installed_keychain(inspect_legal(target, candidate, label))
+                summary['checks']['keychain'] = 'passed'
                 run('powershell', '-NoProfile', '-Command',
                     f"Get-AuthenticodeSignature -LiteralPath '{installer}' | Select-Object Status,StatusMessage | ConvertTo-Json",
                     stdout=(OUT / 'os-trust.json').open('w'))
                 from smoke_windows_edit import smoke_editing
-                smoke_editing(executable, OUT / 'native.png', ROOT / 'core/tests/fixtures/lincoln.png', root)
+                smoke_editing(executable, OUT / 'native.png', ROOT / 'core/tests/fixtures/lincoln.png', root,
+                              clipboard_output=OUT)
                 summary['checks']['native_files'] = 'passed'
+                summary['checks']['clipboard'] = 'passed'
+                from accept_windows_update import upgrade
+                upgrade(executable, candidate, root, OUT, ROOT / 'core/tests/fixtures/lincoln.png')
+                summary['checks']['update_faults_and_install'] = 'passed'
                 uninstallers = list(target.glob('*uninstall*.exe'))
                 assert len(uninstallers) == 1
                 run(uninstallers[0], '/S', '_?=' + str(target))
                 assert not executable.exists(), 'Uninstaller left the application installed'
+                # NSIS can return before its self-cleanup helper releases the
+                # installation directory. Require removal, allowing that helper
+                # a bounded interval to finish rather than masking cleanup errors.
+                deadline = time.monotonic() + 30
+                while target.exists():
+                    try:
+                        shutil.rmtree(target)
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(.5)
                 summary['checks']['install_uninstall'] = 'passed'
             elif sys.platform == 'darwin':
                 installer, = candidate.glob('*.dmg')
@@ -125,12 +170,20 @@ def main():
                     run('hdiutil', 'detach', mount)
                 info = plistlib.loads((target / 'Contents/Info.plist').read_bytes())
                 executable = target / 'Contents/MacOS' / info['CFBundleExecutable']
-                inspect_legal(target, candidate, label)
+                installed_keychain(inspect_legal(target, candidate, label))
+                summary['checks']['keychain'] = 'passed'
                 trust = subprocess.run(['spctl', '--assess', '--type', 'execute', '--verbose=4', str(target)],
-                                       capture_output=True, text=True, timeout=60)
+                                       capture_output=True, text=True, timeout=60, check=False)
                 (OUT / 'os-trust.json').write_text(json.dumps({'exit_code': trust.returncode,
                     'stdout': trust.stdout, 'stderr': trust.stderr}, indent=2))
-                smoke([str(executable)], OUT / 'native.png')
+                from accept_native_macos import editing
+                smoke([str(executable)], OUT / 'native.png',
+                      exercise=lambda pid, window, close: editing(pid, window, close, OUT))
+                summary['checks']['native_files'] = 'passed'
+                summary['checks']['mac_project_reopen'] = 'passed'
+                from accept_posix_update import upgrade
+                upgrade(candidate, root, OUT, label, installed_app=target)
+                summary['checks']['update_faults_install_recovery_rollback'] = 'passed'
                 shutil.rmtree(target)
                 assert not target.exists()
                 summary['checks']['install_uninstall'] = 'passed'
@@ -139,7 +192,8 @@ def main():
                 run('sudo', 'apt-get', 'install', '-y', str(installer))
                 executable = Path('/usr/bin/badshop-desktop')
                 assert executable.is_file()
-                inspect_legal(Path('/usr/lib'), candidate, label)
+                installed_keychain(inspect_legal(Path('/usr/lib'), candidate, label))
+                summary['checks']['deb_keychain'] = 'passed'
                 smoke([str(executable)], OUT / 'deb.png', restart_core=True)
                 summary['checks']['deb_native_files'] = 'passed'
                 summary['checks']['deb_project_recovery'] = 'passed'
@@ -149,9 +203,16 @@ def main():
                 summary['checks']['deb_install_uninstall'] = 'passed'
                 appimage, = candidate.glob('*.AppImage')
                 appimage.chmod(0o755)
-                smoke([str(appimage)], OUT / 'appimage.png', restart_core=True)
+                smoke([str(appimage)], OUT / 'appimage.png', restart_core=True, clipboard_output=OUT)
                 summary['checks']['appimage_runtime'] = 'passed'
-            summary['status'] = 'passed'
+                summary['checks']['appimage_clipboard'] = 'passed'
+                from accept_posix_update import upgrade
+                upgrade(candidate, root, OUT, label)
+                summary['checks']['update_faults_install_recovery_rollback'] = 'passed'
+                from accept_linux_packages import packages
+                packages(candidate, root, OUT)
+                summary['checks']['package_upgrade_recovery_uninstall'] = 'passed'
+        summary['status'] = 'passed'
     finally:
         (OUT / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
 

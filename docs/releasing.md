@@ -312,6 +312,19 @@ file-access change. This package must not be marketed as a restrictive filesyste
 
 ## Release checks needing actual environments
 
+The **candidate acceptance** workflow downloads an existing candidate without
+rebuilding it. Its disposable Windows, Mac and Linux runners retain installed
+license/source inspections, native file and Chromium clipboard-paste evidence,
+package-manager lifecycle checks, and updater interruption/tamper/retry/rollback
+results under `candidate-acceptance-*`. The public v0.4.3 installers are the
+upgrade baseline. The updater fault server stays on loopback; only these disposable
+runners temporarily trust its certificate. Application signatures and updater
+verification remain enabled. The script refuses ordinary developer workstations.
+
+Dispatch with `candidate_tag`; inspect the retained results before filling the
+acceptance record. A successful workflow is evidence for the named checks, not an
+automatic legal approval or permission to skip the protected promotion workflow.
+
 Run the opt-in `test_live_provider.py` smoke against the intended provider and model; cloud
 calls require an explicit environment opt-in. Authenticate each supported subscription CLI
 outside badshop and test a real image/approval turn.

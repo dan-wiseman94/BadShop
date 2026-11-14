@@ -144,6 +144,15 @@ def native_keys(window: int, *keys: str) -> None:
                    check=True, timeout=5)
 
 
+def recovery_file(path: Path) -> Path:
+    # v0.4.3 uses ZIP autosaves; schema-5 candidates use SQLite plus disk blobs.
+    # Retire the ZIP selection when the public upgrade baseline is replaced.
+    if path.parent.name == 'autosave':
+        sqlite = path.with_suffix('.sqlite')
+        return sqlite if sqlite.is_file() else path.with_suffix('.badshop')
+    return path
+
+
 def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
     """Require durable pixels, not merely a renderer's recovery notification."""
     from badshop.engine.errors import EngineError
@@ -153,19 +162,23 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         try:
-            if path.suffix == '.sqlite':
+            actual = recovery_file(path)
+            if actual.suffix == '.sqlite':
                 from badshop.session.recovery import load
-                recovered = load(path)
-                if recovered.data.id == session_id:
-                    for digest, meta in recovered.artifacts.meta.items():
-                        if meta.format != 'PNG' or (meta.width, meta.height) != expected_size:
-                            continue
-                        with Image.open(io.BytesIO(recovered.artifacts.data(digest))) as restored:
-                            if restored.convert('RGBA').tobytes() == expected_pixels:
-                                return recovered.data.model_dump(mode='json', by_alias=True)
+                recovered = load(actual)
+                try:
+                    if recovered.data.id == session_id:
+                        for digest, meta in recovered.artifacts.meta.items():
+                            if meta.format != 'PNG' or (meta.width, meta.height) != expected_size:
+                                continue
+                            with Image.open(io.BytesIO(recovered.artifacts.data(digest))) as restored:
+                                if restored.convert('RGBA').tobytes() == expected_pixels:
+                                    return recovered.data.model_dump(mode='json', by_alias=True)
+                finally:
+                    recovered.artifacts.close()
                 time.sleep(.1)
                 continue
-            with zipfile.ZipFile(path) as archive:
+            with zipfile.ZipFile(actual) as archive:
                 session = json.loads(archive.read('session.json'))
                 if session['id'] == session_id:
                     for digest, meta in session['artifacts'].items():
@@ -183,11 +196,47 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
                          f'files: {[str(p.relative_to(path.parent)) for p in path.parent.rglob("*.badshop*")]}')
 
 
+def wait_saved_project(path: Path, saved: Path) -> None:
+    """Require the reopened identity and every original/working artifact byte."""
+    from badshop.engine.errors import EngineError
+    with zipfile.ZipFile(saved) as source:
+        original = json.loads(source.read('session.json'))
+        expected = {name: source.read(name) for name in source.namelist() if name.startswith('artifacts/')}
+    assert expected, 'Acceptance project has no artifacts'
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        try:
+            actual = recovery_file(path)
+            if actual.suffix == '.sqlite':
+                from badshop.session.recovery import load
+                recovered = load(actual)
+                try:
+                    if (recovered.data.id == original['id']
+                            and set(recovered.data.artifacts) == set(original['artifacts'])
+                            and all(recovered.artifacts.data(Path(name).stem) == data
+                                    for name, data in expected.items())):
+                        return
+                finally:
+                    recovered.artifacts.close()
+                time.sleep(.1)
+                continue
+            with zipfile.ZipFile(actual) as target:
+                document = json.loads(target.read('session.json'))
+                if document['id'] == original['id'] and set(document['artifacts']) == set(original['artifacts']):
+                    if all(target.read(name) == data for name, data in expected.items()):
+                        return
+        except (OSError, zipfile.BadZipFile, KeyError, EngineError):
+            pass  # Wait only for this run's atomic autosave to arrive.
+        time.sleep(.1)
+    raise AssertionError('Reopened project did not retain its identity and all artifact bytes')
+
+
 def linux_file_dialog(pid: int, window: int, path: Path, *, saving: bool = False) -> None:
     """Drive the owned GTK picker on the harness's private display."""
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        found = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(pid), '--name', '.'],
+        owner = ['--pid', str(pid)] if pid else []  # Flatpak omits _NET_WM_PID on this private display.
+        found = subprocess.run(['xdotool', 'search', '--onlyvisible', *owner, '--name', '.'],
                                capture_output=True, text=True, timeout=5)
         dialogs = [int(value) for value in found.stdout.split() if int(value) != window]
         if len(dialogs) == 1:
@@ -204,7 +253,7 @@ def linux_file_dialog(pid: int, window: int, path: Path, *, saving: bool = False
                 accepted_by = time.monotonic() + 5
                 while time.monotonic() < accepted_by:
                     time.sleep(.25)
-                    visible = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(pid), '--name', '.'],
+                    visible = subprocess.run(['xdotool', 'search', '--onlyvisible', *owner, '--name', '.'],
                                              capture_output=True, text=True, timeout=5)
                     if str(dialog) not in visible.stdout.split():
                         return
@@ -227,6 +276,9 @@ def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
 def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90,
           restart_core: bool = False, *, capture: bool = False,
           webview_profile: Path | None = None,
+          project_to_open: Path | None = None,
+          clipboard_output: Path | None = None,
+          exit_via_update: bool = False,
           exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
         root = Path(folder)
@@ -297,6 +349,22 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 metrics['measurements']['renderer_ready_seconds'] = time.perf_counter() - started
                 metrics['measurements']['ready_process_tree_rss_bytes'] = sum(
                     p.memory_info().rss for p in [psutil.Process(proc.pid), *children])
+                if sys.platform == 'linux' and Path(command[0]).name == 'flatpak':
+                    # Flatpak omits _NET_WM_PID. This display contains only our app.
+                    window_pid = 0
+                if project_to_open:
+                    assert sys.platform == 'linux', 'Use the platform-specific file-dialog driver'
+                    state = wait_renderer(proc, ready_path, ports, nonce)
+                    if state['welcome']:
+                        native_keys(window, 'Return')
+                        wait_renderer(proc, ready_path, ports, nonce, welcome=False)
+                    with zipfile.ZipFile(project_to_open) as source:
+                        identity = json.loads(source.read('session.json'))['id']
+                    native_keys(window, 'ctrl+o')
+                    linux_file_dialog(window_pid, window, project_to_open)
+                    wait_renderer(proc, ready_path, ports, nonce, session_id=identity, unsaved=False)
+                    wait_saved_project(root / 'core-data/autosave/session.badshop', project_to_open)
+                    metrics['project_reopened'] = {'session_id': identity, 'all_artifact_bytes_verified': True}
                 exercise_close = restart_core and sys.platform == 'linux'
                 session_id = None
                 if exercise_close:
@@ -389,6 +457,13 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                             clipboard.terminate()
                             clipboard.wait(timeout=5)
                         print('Native autosave pixels, Save/Open dialogs and reopened pixels verified', flush=True)
+                if clipboard_output:
+                    assert restart_core and sys.platform == 'linux'
+                    from accept_native_visual import NativeLabels
+                    from accept_clipboard import paste_into_browser
+                    NativeLabels(window, clipboard_output).click('Copy image')
+                    time.sleep(.5)
+                    paste_into_browser(expected_pixels, clipboard_output)
                 shot = screenshot or root / 'window.png'
                 shot.parent.mkdir(parents=True, exist_ok=True)
                 paint_deadline = time.monotonic() + 30
@@ -433,7 +508,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                         pass
                 assert not survivors, f'Children survived native close: {survivors}'
                 check_native_log(log_path.read_text(errors='replace'))
-                if sys.platform == 'darwin':
+                if sys.platform == 'darwin' and not exit_via_update:
                     assert 'native Quit routed through project close guard' in log_path.read_text(), \
                         'Native Quit bypassed the unsaved-project close guard'
                 metrics['status'] = 'passed'
@@ -467,6 +542,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                     screenshot.with_suffix('.log').write_bytes(log_path.read_bytes())
                     if ready_path.exists():
                         screenshot.with_suffix('.ready.json').write_bytes(ready_path.read_bytes())
+                    for name in ('native-recovered.badshop', 'native-reopen.badshop'):
+                        if (root / name).is_file():
+                            screenshot.with_name(screenshot.stem + '-' + name).write_bytes((root / name).read_bytes())
                 print(log_path.read_text(encoding='utf-8', errors='replace')[-5000:])
 
 
