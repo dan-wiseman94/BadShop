@@ -60,18 +60,14 @@ def add_tool_parser(sub: argparse._SubParsersAction, spec: ToolSpec) -> None:
             details.extend(f"{key} {value}" for key, value in bounds.items())
         help_text = (f.description or "") + (" (" + "; ".join(details) + ")" if details else "")
         kw: dict[str, Any] = {"help": help_text.replace("%", "%%"), "default": argparse.SUPPRESS}
-        if kind == "choice":
+        if kind in ("choice", "list_choice"):
             kw.update(choices=inner, type=type(inner[0]))
-        elif kind == "list_choice":
-            kw.update(choices=inner, type=type(inner[0]))
-        elif kind == "tuple":
+        elif kind in ("tuple", "list_tuple"):
             kw.update(type=int, nargs=inner, metavar=METAVARS[inner])
-        elif kind == "list_tuple":
-            kw.update(type=int, nargs=inner, metavar=METAVARS[inner], action="append")
-        elif kind == "list_scalar":
+        elif kind in ("scalar", "list_scalar"):
             kw.update(type=inner)
-        elif kind == "scalar":
-            kw.update(type=inner)
+        if kind.startswith("list_"):
+            kw["action"] = "append"
         if name in model.POSITIONAL:
             if kind.startswith("list_"):
                 kw["nargs"] = "+" if f.is_required() else "*"
@@ -88,8 +84,6 @@ def add_tool_parser(sub: argparse._SubParsersAction, spec: ToolSpec) -> None:
             boolean_action = argparse.BooleanOptionalAction if f.get_default(call_default_factory=True) is True else "store_true"
             s.add_argument(flag, dest=name, action=boolean_action, help=kw["help"], default=argparse.SUPPRESS)
         else:
-            if kind in ("list_scalar", "list_choice"):
-                kw["action"] = "append"
             s.add_argument(flag, dest=name, required=f.is_required(), **kw)
     if spec.mutates:
         s.add_argument("-o", "--out", dest="_out", default=None, metavar="OUT",

@@ -756,16 +756,16 @@ def test_the_next_launch_offers_the_last_autosave(env):
         assert e.value.message == "there is no autosaved session to restore"
         lincoln = await imported(c)
         await c.call("tools.run", tool="cutout", params={"image": lincoln, "box": HEAD, "no_ai": True})
-        assert project.find_autosave() == project.autosave_path()  # saved after the step, not at close
+        assert project.autosave_path().is_file()  # saved after the step, not at close
 
     async def next_run(app):
         c = Client(app)
         snap = await c.call("session.get")
         assert snap["steps"] == [] and snap["restorable"] is not None
         offered = Path(snap["restorable"])
-        assert offered.read_bytes() == last_run and project.find_autosave() is None  # moved aside
+        assert offered.read_bytes() == last_run and not project.autosave_path().is_file()  # moved aside
         await imported(c, TRUMP.read_bytes(), "trump.png")  # this run's first change autosaves...
-        assert project.find_autosave() is not None
+        assert project.autosave_path().is_file()
         assert offered.read_bytes() == last_run  # ...and the offer survives it
         assert (await c.call("session.get"))["restorable"] == str(offered)
 
@@ -1308,7 +1308,7 @@ def test_close_stops_a_waiting_turn(env):
         await app.close()  # idempotent
         assert app.session.step(sid).status == "rejected"
         assert "turn.finished" in c.methods()
-        assert project.find_autosave() is not None
+        assert project.autosave_path().is_file()
 
     asyncio.run(main())
 

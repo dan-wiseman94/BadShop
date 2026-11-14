@@ -2,12 +2,11 @@
 
 import hashlib
 import json
-import os
 import re
-import uuid
 from pathlib import Path
 from typing import Literal
 
+from badshop.atomic import write_text
 from badshop.engine import assets
 from badshop.engine.errors import EngineError
 from badshop.tools.registry import REGISTRY, image_fields
@@ -97,13 +96,7 @@ class NoveltyMemory:
         self._write(data)
 
     def _write(self, data):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-        try:
-            temporary.write_text(json.dumps(data, ensure_ascii=True))
-            os.replace(temporary, self.path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        write_text(self.path, json.dumps(data, ensure_ascii=True))
 
     def recent(self, session=None):
         rows = [row for item in self.read()["sessions"] for row in item["choices"]]
