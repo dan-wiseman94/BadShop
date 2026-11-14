@@ -90,8 +90,13 @@ def upgrade(candidate, root, output, label, installed_app=None):
         executable = root / 'updatable.AppImage'
 
         def install_baseline():
-            shutil.copyfile(old, executable)
-            executable.chmod(0o755)
+            # FUSE can retain the executed inode after its window closes. Replace
+            # the path atomically, as AppImage installation does, rather than
+            # truncating an executable inode (ETXTBSY on Linux).
+            staged = executable.with_suffix('.replacement')
+            shutil.copyfile(old, staged)
+            staged.chmod(0o755)
+            staged.replace(executable)
 
         install_baseline()
         expected_hash, old_hash = digest(original), digest(executable)
