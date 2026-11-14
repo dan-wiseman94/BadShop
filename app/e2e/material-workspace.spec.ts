@@ -168,6 +168,8 @@ test("manual undo redo restores dependent output across project reopening", asyn
   await details.getByLabel("Seed", { exact: false }).fill("19");
   await details.getByRole("button", { name: "Apply & replay" }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[1].outputs[0]).not.toBe(before.steps[1].outputs[0]);
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[1].status).toBe("done");
+  await expect(details.getByRole("button", { name: "Apply & replay" })).toBeEnabled();
   const after = await emptyCore.call("session.get") as Session;
   const viewer = page.getByRole("region", { name: "Image viewer" });
   await viewer.getByRole("button", { name: "Undo", exact: true }).click();
@@ -180,6 +182,7 @@ test("manual undo redo restores dependent output across project reopening", asyn
   await viewer.getByRole("button", { name: "Redo", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[1].outputs).toEqual(after.steps[1].outputs);
   await viewer.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[1].outputs).toEqual(before.steps[1].outputs);
   await emptyCore.call("tools.run", { tool: "transform", params: { image: imported.working.id, width: 32 } });
   await expect(viewer.getByRole("button", { name: "Redo", exact: true })).toBeDisabled();
 });
