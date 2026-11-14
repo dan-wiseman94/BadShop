@@ -33,7 +33,8 @@ This closes the implementation work, not every release or field-validation gate:
 
 - Paid/live provider checks remain user-owned; no paid model calls were made.
 - Installed cross-platform acceptance and signing/update rollback validation
-  remain release gates in the [release guide](releasing.md).
+  passed for the v0.6.1 candidate as recorded below; these remain per-candidate
+  release gates in the [release guide](releasing.md).
 - Assistive-technology observation and consenting-user field studies remain
   unverified; see the [product study kit](product-study.md).
 - ACP adoption, shared-memory transport and replacing the materialized active
@@ -41,6 +42,25 @@ This closes the implementation work, not every release or field-validation gate:
 
 No release was published by this merge. Measured resource results below describe
 their workloads and do not establish universal performance or memory guarantees.
+
+### Release candidate follow-up — v0.6.1
+
+The [release build](https://github.com/dan-wiseman94/BadShop/actions/runs/43626942321)
+passed for source `c5fe4977ce5db62c918cb1ffca116aabfe8fbdb6`. Exact downloaded
+candidate acceptance passed on Windows x64, both macOS architectures, Linux
+AppImage, Debian and Flatpak. The [acceptance record](../packaging/release-acceptance/v0.6.1.json)
+binds the results to the candidate checksums and links the retained native-file,
+clipboard, keychain, upgrade, recovery, rollback and cleanup evidence. The
+[license review](verification/release-0.6.1-licenses.md) records installed notices
+and covered-source checks.
+
+The v0.6.0 build was not published after a Windows test-harness failure. The
+v0.6.1 candidate fixes that harness; later native acceptance fixes were verified
+against the same immutable candidate bytes. OS publisher signing/notarization
+remains unavailable and disclosed; authenticated updater verification passed.
+Paid/live provider checks and field/accessibility observation remain user-owned
+or unverified as described above. Candidate acceptance is distinct from public
+publication, which requires the protected promotion workflow.
 
 ## Implemented
 
