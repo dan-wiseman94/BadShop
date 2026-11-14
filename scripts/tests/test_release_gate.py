@@ -133,7 +133,7 @@ class AcceptanceTests(unittest.TestCase):
 
     def github_fixture(self):
         value = self.check()
-        release = {"id": 5, "draft": True, "prerelease": False, "target_commitish": SHA, "assets": [
+        release = {"id": 5, "tag_name": TAG, "draft": True, "prerelease": False, "target_commitish": SHA, "assets": [
             {"name": name, "state": "uploaded", "digest": "sha256:" + gate.sha256(path)}
             for name, path in gate.assets(self.root).items()]}
         def api(*args):
@@ -147,8 +147,22 @@ class AcceptanceTests(unittest.TestCase):
                         "conclusion": "success", "run_attempt": 1, "head_branch": TAG, "event": "push"}
             if "/matching-refs/" in endpoint:
                 return [{"ref": f"refs/tags/{TAG}", "object": {"type": "commit", "sha": SHA}}]
+            if endpoint == f"repos/{REPO}/releases":
+                return [[{"tag_name": TAG + "-other"}], [copy.deepcopy(release)]]
+            if "/releases/tags/" in endpoint:
+                raise subprocess.CalledProcessError(1, args, stderr="HTTP 404: draft not visible by tag")
             return copy.deepcopy(release)
         return value, release, api
+
+    def test_missing_or_ambiguous_draft_is_refused(self):
+        value, release, api = self.github_fixture()
+        for pages in ([[]], [[release], [release]]):
+            def listed_api(*args):
+                return pages if args[1] == f"repos/{REPO}/releases" else api(*args)
+            with self.subTest(pages=pages), patch.object(gate, "gh_json", side_effect=listed_api), patch.object(
+                    gate.subprocess, "run"):
+                with self.assertRaisesRegex(ValueError, "Expected one release"):
+                    gate.verify_github(self.root, REPO, value)
 
     def test_github_requires_passing_main_checks_provenance_and_current_asset_digests(self):
         value, release, api = self.github_fixture()
