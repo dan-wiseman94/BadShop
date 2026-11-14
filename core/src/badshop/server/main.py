@@ -11,6 +11,7 @@ import socket
 import sys
 import threading
 import time
+from pathlib import Path
 from collections.abc import Callable
 
 from badshop import __version__
@@ -37,7 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=_port, default=0, help="port on 127.0.0.1 (default: a free one)")
     m = sub.add_parser("mcp", help="serve CLI-scoped MCP tools over stdio")
     m.add_argument("--connect", required=True)
-    m.add_argument("--token", required=True)
+    credential = m.add_mutually_exclusive_group()
+    credential.add_argument("--token", help="legacy alternative to the BADSHOP_MCP_TOKEN environment variable")
+    credential.add_argument("--credential-file", type=Path, help=argparse.SUPPRESS)
     m.add_argument("--actor", choices=("cli:claude", "cli:codex", "cli:gemini"), required=True)
     m.add_argument("--heartbeat-seconds", type=float, default=60, help=argparse.SUPPRESS)
     return p
@@ -170,12 +173,16 @@ async def _serve(port: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    a = build_parser().parse_args(argv)
+    parser = build_parser()
+    a = parser.parse_args(argv)
     from badshop.diagnostics import configure_logging
     configure_logging()
     if a.cmd == "mcp":
         from badshop.mcp.proxy import run_stdio
-        asyncio.run(run_stdio(a.connect, a.token, a.actor, heartbeat_s=a.heartbeat_seconds))
+        credential = a.credential_file or a.token or os.environ.get("BADSHOP_MCP_TOKEN")
+        if credential is None:
+            parser.error("the MCP bridge requires BADSHOP_MCP_TOKEN or an explicit credential")
+        asyncio.run(run_stdio(a.connect, credential, a.actor, heartbeat_s=a.heartbeat_seconds))
         return 0
     try:
         # Acquire before CoreApp claims recovery or loads mutable settings. Hold until

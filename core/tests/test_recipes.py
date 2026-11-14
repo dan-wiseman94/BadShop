@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 
 import pytest
@@ -136,3 +137,50 @@ def test_recipe_reports_damaged_history(here, capsys, line):
     assert cli.main(["recipe"]) == 1
     err = capsys.readouterr().err
     assert "history.jsonl line 2 is damaged" in err and "recipe --clear" in err and "Traceback" not in err
+
+def test_run_checks_resolved_output_paths(here, capsys):
+    outside = here.parent / "outside"
+    outside.mkdir()
+    target = outside / "image.png"
+    target.write_bytes(b"keep")
+    link = here / "linked"
+    try:
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(outside), str(link))
+        else:
+            link.symlink_to(outside, target_is_directory=True)
+    except PermissionError as error:
+        pytest.skip(f"host does not allow creating directory links: {error}")
+
+    step = ["draw", "lincoln.png", "--circle", "10", "10", "5", "-o", "linked/image.png"]
+    assert _run(here, [FIRST, step]) == 1
+    assert "writes outside this folder" in capsys.readouterr().err
+    assert not (here / "first.png").exists()
+    assert target.read_bytes() == b"keep"
+
+    assert _run(here, [step], "--allow-outside") == 0
+    assert target.read_bytes().startswith(b"\x89PNG")
+
+def test_restricted_recipe_replaces_local_hardlink_without_overwriting_original(here):
+    outside = here.parent / "linked-original.png"
+    outside.write_bytes(b"keep")
+    try:
+        os.link(outside, here / "output.png")
+    except PermissionError as error:
+        pytest.skip(f"host does not allow creating hardlinks: {error}")
+    step = ["draw", "lincoln.png", "--circle", "10", "10", "5", "-o", "output.png"]
+    assert _run(here, [step]) == 0
+    assert outside.read_bytes() == b"keep"
+    assert (here / "output.png").read_bytes().startswith(b"\x89PNG")
+    assert not list(here.glob(".badshop-*"))
+
+def test_restricted_recipe_checks_implicit_export_destination(here, monkeypatch, capsys):
+    outside = here.parent / "outside"
+    monkeypatch.setenv("BADSHOP_OUT", str(outside))
+    step = ["export", "lincoln.png", "--name", "untrusted"]
+    assert _run(here, [step]) == 1
+    assert "writes outside this folder" in capsys.readouterr().err
+    assert not outside.exists()
+    assert _run(here, [step], "--allow-outside") == 0
+    assert (outside / "untrusted.png").read_bytes() == (here / "lincoln.png").read_bytes()

@@ -27,7 +27,6 @@ jobs:
   bundle:
     needs: source
     uses: ./.github/workflows/native-desktop.yml
-    secrets: inherit
   stage-installers:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [source, core, frontend, bundle, security]

@@ -20,6 +20,7 @@ from badshop.build_identity import build_identity
 from badshop.engine.common import load_image
 from badshop.engine.errors import EngineError
 from badshop.engine.result import Output
+from badshop.engine.text import catalogue_fonts_only
 from badshop.session import netpolicy
 from badshop.session.artifacts import IMPORT_FORMATS, MAX_IMPORT_PIXELS, REF_HINT, _decode, _frames, _refused
 from badshop.tools import runner
@@ -38,6 +39,7 @@ class ToolCall:
     trusted_urls: frozenset[str] = frozenset()  # links the user typed (netpolicy.typed_urls)
     guard_network: bool = True  # run under netpolicy.guarded(trusted_urls)
     no_remote: bool = False
+    catalogue_font: bool = False
 
 
 @dataclass(frozen=True)
@@ -173,7 +175,9 @@ def execute_call(call: ToolCall) -> ToolOutcome:
     store = BytesStore(call.inputs)
     try:
         params = runner.validate(call.tool, call.params)  # as "user": the session already checked the actor
-        with netpolicy.guarded(call.trusted_urls, call.no_remote) if call.guard_network or call.no_remote else nullcontext():
+        network = (netpolicy.guarded(call.trusted_urls, call.no_remote)
+                   if call.guard_network or call.no_remote else nullcontext())
+        with network, catalogue_fonts_only(call.catalogue_font):
             run = runner.execute(call.tool, params, store, stem=call.stem)
         data = json_safe(run.result.data)
         return ToolOutcome(ok=True, outputs=store.outputs, lines=list(run.result.lines), data=data)

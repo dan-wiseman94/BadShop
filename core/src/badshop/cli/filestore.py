@@ -1,7 +1,10 @@
 """Store implementation for the CLI: refs are file paths."""
 
+import os
 import re
 import shutil
+import stat
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -48,8 +51,10 @@ def _save_as_suffix(output: Output, path: Path) -> None:
 
 
 class FileStore:
-    def __init__(self, work_dir: Path, final_dir: Path, out: str | None = None):
+    def __init__(self, work_dir: Path, final_dir: Path, out: str | None = None, *,
+                 output_root: Path | None = None):
         self.work_dir, self.final_dir, self.out = work_dir, final_dir, out
+        self.output_root = output_root
         self._count = 0
         self._written: set[Path] = set()  # one store serves one run
 
@@ -61,6 +66,39 @@ class FileStore:
             p, i = path.with_name(f"{path.stem}_{i}{path.suffix}"), i + 1
         self._written.add(p)
         return p
+
+    def _destination(self, path: Path) -> Path:
+        if self.output_root is None:
+            return path
+        try:
+            resolved = path.resolve()
+        except (OSError, RuntimeError) as error:
+            raise EngineError(f"can't resolve recipe output {path}: {error}") from None
+        if not resolved.is_relative_to(self.output_root):
+            raise EngineError(f"recipe writes outside this folder: {path}",
+                              hint="if you trust this recipe, run it with --allow-outside")
+        return resolved
+
+    @contextmanager
+    def _output_file(self, path: Path) -> Iterator[Path]:
+        destination = self._destination(path)
+        with _writing(destination):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if self.output_root is None:
+                yield destination
+                return
+            # Preserve the requested format and replace the local inode instead of
+            # truncating an existing inode that could also be linked outside the recipe.
+            fd, name = tempfile.mkstemp(prefix=".badshop-", suffix=path.suffix, dir=destination.parent)
+            temporary = Path(name)
+            try:
+                os.close(fd)
+                yield temporary
+                if destination.exists():
+                    temporary.chmod(stat.S_IMODE(destination.stat().st_mode))
+                os.replace(temporary, destination)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def load(self, ref: str) -> Image.Image:
         path = Path(ref)
@@ -83,24 +121,27 @@ class FileStore:
             o = Path(self.out)
             path = o.with_name(f"{o.stem}_{output.key}{output.ext()}")
         elif output.name_hint.startswith("final:"):
-            with _writing(self.final_dir):
-                path = final_path(self.final_dir, output.name_hint[6:].replace("{stem}", clean_stem(stem)), output.ext())
+            directory = self._destination(self.final_dir)
+            with _writing(directory):
+                path = final_path(directory, output.name_hint[6:].replace("{stem}", clean_stem(stem)), output.ext())
+            path = self.final_dir / path.name
         else:
             path = self.work_dir / output.name_hint.replace("{stem}", stem)
         path = self._unused(path)
-        with _writing(path):
-            path.parent.mkdir(parents=True, exist_ok=True)
+        with self._output_file(path) as destination:
             if self.out and first:
-                _save_as_suffix(output, path)
+                _save_as_suffix(output, destination)
             else:
-                path.write_bytes(output.encode())
+                destination.write_bytes(output.encode())
         return str(path)
 
     def export(self, ref: str, name: str | None) -> str:
         src = Path(ref)
         self.load(ref).close()  # only images are exported: anything else is the load's clean error
-        with _writing(self.final_dir):
-            dest = final_path(self.final_dir, name or clean_stem(src.stem), src.suffix)
-        with _writing(dest):
-            shutil.copyfile(src, dest)
-        return str(dest)
+        directory = self._destination(self.final_dir)
+        with _writing(directory):
+            dest = final_path(directory, name or clean_stem(src.stem), src.suffix)
+        path = self.final_dir / dest.name
+        with self._output_file(path) as target:
+            shutil.copyfile(src, target)
+        return str(path)

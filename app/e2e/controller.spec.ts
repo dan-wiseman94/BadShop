@@ -3,6 +3,51 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "../src/types";
 
+test("streamed provider Markdown never requests an embedded image", async ({ page, emptyCore }) => {
+  const probe = "/markdown-image-probe.png";
+  const reply = `![probe](${probe}) **Live reply** [source](https://example.test/source)`;
+  await writeFile(path.join(emptyCore.folder, "script.json"), JSON.stringify([{ text: reply }]));
+  const withheld: string[] = [];
+  let release = () => {};
+  await page.routeWebSocket(`ws://127.0.0.1:${emptyCore.port}/`, client => {
+    const server = client.connectToServer();
+    let holding = true;
+    release = () => {
+      holding = false;
+      withheld.splice(0).forEach(frame => client.send(frame));
+    };
+    server.onMessage(frame => {
+      if (holding && typeof frame === "string") {
+        const { method, params } = JSON.parse(frame);
+        if (method === "turn.finished" || (method === "message.done" && params?.message?.role === "assistant")) {
+          withheld.push(frame);
+          return;
+        }
+      }
+      client.send(frame);
+    });
+  });
+  const imageRequests: string[] = [];
+  await page.route(`**${probe}`, route => {
+    imageRequests.push(route.request().url());
+    return route.abort();
+  });
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message your agent" }).fill("Show a brief reply.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  const live = page.locator("article.streaming");
+  await expect(live.getByRole("link", { name: "source" })).toHaveAttribute("href", "https://example.test/source");
+  await expect(live.locator("strong")).toHaveText("Live reply");
+  await expect(live.locator("img")).toHaveCount(0);
+  release();
+  const completed = page.locator("article.assistant:not(.streaming)");
+  await expect(completed.locator("strong")).toHaveText("Live reply");
+  await expect(completed.locator("img")).toHaveCount(0);
+  expect(imageRequests).toEqual([]);
+});
+
 test("oversized image paste keeps the socket and waiting approval usable", async ({ page, core }) => {
   await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
   let coreSockets = 0;
@@ -383,8 +428,11 @@ test("manual coordinate picking reaches the viewer and restores the form", async
       .filter({ hasText: "cutout" })
       .first(),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Copy CLI command" }).click();
-  await expect(page.getByRole("status")).toContainText("CLI command copied");
+  const copyArgv = await page.evaluate(() => /Win/i.test(navigator.platform));
+  await page.getByRole("button", {
+    name: copyArgv ? "Copy CLI arguments (JSON)" : "Copy CLI command (POSIX sh)",
+  }).click();
+  await expect(page.getByRole("status")).toContainText(copyArgv ? "CLI arguments copied as JSON" : "CLI command copied for POSIX sh");
   const command = await page.evaluate(() => navigator.clipboard.readText());
   const { execFileSync } = await import("node:child_process");
   const parsed = JSON.parse(
@@ -392,14 +440,19 @@ test("manual coordinate picking reaches the viewer and restores the form", async
       python,
       [
         "-c",
-        "import sys,shlex,json; from badshop.cli.main import build_parser; print(json.dumps(vars(build_parser().parse_args(shlex.split(sys.argv[1])[1:])),default=str))",
+        "import sys,shlex,json; from badshop.cli.main import build_parser; args = json.loads(sys.argv[1]) if sys.argv[2] == 'argv' else shlex.split(sys.argv[1]); print(json.dumps(vars(build_parser().parse_args(args[1:])),default=str))",
         command,
+        copyArgv ? "argv" : "posix",
       ],
       { env: { ...process.env, PYTHONPATH: path.join(root, "core/src") } },
     ).toString(),
-  ) as { box: number[] };
+  ) as { box: number[]; image: string };
   expect(parsed.box[0]).toBe(x1);
   expect(parsed.box[2]).toBe(x2);
+  const session = await core.call("session.get") as Session;
+  const inputId = session.steps.find(step => step.tool === "cutout")!.params.image;
+  const input = await core.call("artifacts.get", { id: inputId }) as { data: string };
+  expect((await readFile(parsed.image)).toString("base64")).toBe(input.data);
 });
 
 test("exports the output of an older selected step", async ({ page, core }) => {

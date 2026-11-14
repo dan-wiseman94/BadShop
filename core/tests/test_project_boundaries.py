@@ -146,3 +146,85 @@ def test_imported_step_metadata_never_becomes_system_instructions(tmp_path):
     messages = build_messages(project.open_project(tmp_path / "state.badshop"))
     assert [m for m in messages if m["role"] in {"system", "developer"}] == [{"role": "system", "content": SYSTEM_PROMPT}]
     assert "IMPORTED_ERROR_INSTRUCTION" in json.dumps([m for m in messages if m["role"] == "user"])
+
+@pytest.mark.parametrize("params", [{"query": "http://127.0.0.1:9/picture.png"}, {"clipboard": True}])
+def test_project_replay_requires_live_authorization_for_private_inputs(tmp_path, monkeypatch, params):
+    from badshop.engine import sources
+    from badshop.session.models import Step
+
+    session = Session.new()
+    session.data.steps = [Step(id="s1", index=1, tool="fetch", actor="user", params=params, status="stale")]
+    archive = project.save(session, tmp_path / "shared.badshop")
+    attempted = []
+
+    def clipboard():
+        attempted.append("clipboard")
+        return None, None
+
+    def connect(*args):
+        attempted.append("network")
+        raise OSError("test refused connection")
+
+    monkeypatch.setattr(sources, "read_clipboard", clipboard)
+    monkeypatch.setattr("socket.socket.connect", connect)
+    opened = project.open_project(archive)
+    assert opened.data.steps[0].actor == "user"
+    assert opened.replay_from("s1", use_cache=False)[0].status == "error"
+    assert attempted == []
+
+@pytest.mark.parametrize("use_named_font", [False, True])
+def test_reopened_project_uses_catalogue_fonts_instead_of_working_directory(tmp_path, monkeypatch, use_named_font):
+    from PIL import ImageFont
+    from badshop.engine import text
+
+    name = "Example.ttf"
+    trusted = tmp_path / "font-catalogue"
+    trusted.mkdir()
+    (trusted / name).write_bytes(b"catalogue sentinel")
+    (tmp_path / name).write_bytes(b"working-directory sentinel")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(text, "SYSTEM_FONT_DIRS", [trusted])
+    monkeypatch.setitem(text.FONT_CANDIDATES, "impact", [name])
+    fixture_font = ImageFont.load_default()
+    loaded_paths = []
+
+    def record_font(path, *args, **kwargs):
+        loaded_paths.append(path)
+        return fixture_font
+
+    monkeypatch.setattr(ImageFont, "truetype", record_font)
+    session = Session.new()
+    picture = io.BytesIO()
+    Image.new("RGB", (100, 100), "red").save(picture, "PNG")
+    artifact = session.import_image(picture.getvalue(), "poster")
+    params = {"image": artifact.id, "text": "Caption", "size": 10}
+    if use_named_font:
+        params["font"] = name
+    step = session.run_tool("text", params, "user")
+    assert step.status == "done" and loaded_paths == [name]  # direct CLI-style input remains available
+    loaded_paths.clear()
+
+    path = project.save(session, tmp_path / "shared.badshop")
+    opened = project.open_project(path)
+    replayed = opened.replay_from(step.id, use_cache=False)[0]
+    assert replayed.status == "done"
+    assert loaded_paths == [str(trusted / name)]
+    assert opened.artifacts.data(replayed.outputs[0])
+
+@pytest.mark.parametrize("archived, configured, effective", [
+    ("auto", "ask_all", "ask_all"),
+    ("ask_all", "ask_changes", "ask_all"),
+])
+def test_opened_archive_cannot_weaken_local_approval_policy(tmp_path, archived, configured, effective):
+    from types import SimpleNamespace
+    from badshop.server.app import CoreApp
+    from badshop.server.settings import Settings
+
+    original = Session.new()
+    original.data.approval_mode = archived
+    path = project.save(original, tmp_path / "settings.badshop")
+    app = SimpleNamespace(settings=Settings(approval_mode=configured), _session_kw=dict)
+    opened = CoreApp._open_project(app, path)
+    assert opened.data.approval_mode == effective
+    assert project.open_project(path).data.approval_mode == archived

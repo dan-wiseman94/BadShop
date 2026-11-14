@@ -177,7 +177,7 @@ def save(session: Session, path: Path) -> Path:
             os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
         with tmp.open("rb") as file:
             _preflight(path, file)
-        _preserve_legacy(path)
+        _preserve_legacy(path, decoder=session.artifacts.decoder)
         os.replace(tmp, path)
         sync_directory(path.parent)
     except BaseException as e:
@@ -461,7 +461,7 @@ def _finish_interrupted(data: SessionData, artifacts: ArtifactStore) -> None:
             step.result_text = result_text(step, artifacts)
 
 
-def _preserve_legacy(path: Path) -> None:
+def _preserve_legacy(path: Path, *, decoder=None) -> None:
     """Keep a verified, byte-identical pre-v6 archive before format replacement.
 
     Never replace an earlier backup. Publication is exclusive and only happens
@@ -489,7 +489,7 @@ def _preserve_legacy(path: Path) -> None:
                 target.write(chunk)
             target.flush()
             os.fsync(target.fileno())
-        verified = open_project(temporary)
+        verified = open_project(temporary, decoder=decoder)
         verified.artifacts.close()
         index = 0
         while True:

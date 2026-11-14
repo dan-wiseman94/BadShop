@@ -112,7 +112,7 @@ network access; installation still requires an explicit click and the existing
 save/discard/cancel flow after signature verification.
 
 Nightly builds use the same durable updater signing key as stable releases and
-require the same repository signing configuration. Desktop bundle versions are
+retrieve it from the nightly signing environment. Desktop bundle versions are
 `BASE-nightly.RUN_ID`; Python/Cargo source package versions retain the base version.
 The native build stamps Tauri configuration after validating the source versions.
 The unique prerelease includes its signed `latest.json`; only after acceptance and
@@ -143,8 +143,29 @@ Development builds do not self-update.
 Before tagging the first updater-enabled release, generate a durable signing key
 with `pnpm --dir app tauri signer generate -w <private-key-path>` outside the checkout.
 Keep a secure backup. Set repository variable `BADSHOP_UPDATER_PUBLIC_KEY` to the
-public key file contents and repository secret `TAURI_SIGNING_PRIVATE_KEY` to the
-private key contents; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if encrypted.
+public key file contents. Create two GitHub environments with **Selected branches
+and tags** before adding signing secrets.
+
+| Environment | Allowed ref | Deployment protection |
+| --- | --- | --- |
+| `updater-signing-nightly` | Branch `main` only | Protect `main`. Scheduled runs require no reviewer. |
+| `updater-signing-stable` | Tags `v*` only | Require an independent reviewer, enable **Prevent self-review**, and disable administrator bypass where GitHub supports it. |
+
+Restrict creation of `v*` tags to release maintainers and keep the separate ruleset
+preventing their update and deletion. Before approving a stable signing deployment,
+the reviewer must independently verify that the run's source SHA is the commit
+the immutable tag resolves to and that it is an ancestor of protected `main`.
+Check ancestry against freshly fetched `main`, for example with
+`git merge-base --is-ancestor <run-sha> FETCH_HEAD` after `git fetch origin refs/heads/main`.
+A tag can run its own workflow, so a check reported by that workflow alone cannot
+authorize key access. This signing approval is separate from release publication
+approval. The stable signing environment needs a second eligible person whenever
+the only maintainer initiates the deployment.
+
+Set `TAURI_SIGNING_PRIVATE_KEY` and, if encrypted, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+only in the two signing environments. Remove any copies available as repository or
+organization secrets. Add credentials to each environment only after its ref
+restriction and any required reviewer controls are configured.
 These are updater signatures, separate from OS code signing. Never commit the private key.
 The public key is embedded at compile time; unsigned development/local builds report
 that updates are unavailable. Tag builds fail when signing configuration is absent.
@@ -163,11 +184,11 @@ Component tests mock the native boundary and do not substitute for this release 
 
 macOS packaging must select both `app,dmg`: the DMG alone does not produce the
 updater archive. The matrix rejects a missing or ambiguous `.app.tar.gz` before
-uploading its release artifacts. To recover packaging for an existing release tag
-without moving the tag, manually run `native-desktop.yml` with `source_ref` set to
-the full `refs/tags/vX.Y.Z`. This checks out that exact source and reruns the native
-matrix with the current packaging workflow. Only use its artifacts after every
-selected installer check passes; generate the feed from that run's complete set.
+uploading its release artifacts. For a tag whose workflow uses `updater-signing-stable`,
+recover a transient packaging failure by rerunning the original release workflow.
+It builds the event's commit. A packaging fix that changes source requires a new
+release tag from main. Only use artifacts after all installer checks pass and
+generate the feed from that run's complete set.
 
 Pushing a `v*` tag starts `release.yml`, which calls `native-desktop.yml` to build
 and test each supported installer before attaching it to a draft GitHub release.
@@ -284,8 +305,8 @@ evidence, but cannot constrain an administrator who deliberately changes reposit
 
 ### Signing and acceptance handoff
 
-The maintainer must provision the signing identities and repository secrets; none are
-generated, purchased or replaced by an ordinary source task. Follow the current official
+The maintainer must provision the signing identities and configure the signing
+environments. Follow the current official
 [Windows signing guide](https://v2.tauri.app/distribute/sign/windows/) for the chosen
 certificate/key service and [macOS signing guide](https://v2.tauri.app/distribute/sign/macos/)
 for Developer ID and notarization. Record the signing identity, certificate expiry,

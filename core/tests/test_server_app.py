@@ -684,7 +684,7 @@ def test_an_edit_the_session_refuses_rejects_the_cli_step(env):
 def test_cli_calls_follow_the_sessions_approval_mode(env):
     """Spec 7, "the same gate applies to CLI agents": whether a CLI agent's call waits is decided by the open
     session's mode (session.data.approval_mode) when the call is made, not by the settings' mode for new
-    sessions. A switch applies from the next call, and an opened project brings its own mode."""
+    sessions. A live switch applies from the next call. A loaded project cannot lower the local default."""
     async def body(app):
         user, cli = Client(app), Client(app, "cli:gemini")
         lincoln = await imported(user)
@@ -710,13 +710,17 @@ def test_cli_calls_follow_the_sessions_approval_mode(env):
         assert (await filtered)["status"] == "rejected"
 
         opened = await user.call("session.open", path=saved["path"])  # saved while the mode was auto
-        assert opened["approval_mode"] == "auto"
-        again = await asyncio.wait_for(cli.call("tools.run", tool="filter", params={
-            "image": lincoln, "names": ["invert"]}), 10)
-        assert again["status"] == "done" and again["actor"] == "cli:gemini"
-        # only the two calls their session's mode held back ever waited
+        assert opened["approval_mode"] == "ask_all"
+        again = asyncio.create_task(cli.call("tools.run", tool="filter", params={
+            "image": lincoln, "names": ["invert"]}))
+        await user.count("approval.needed", 3)
+        sid = [e["params"]["step"]["id"] for e in user.events if e["method"] == "approval.needed"][-1]
+        assert not again.done()
+        await user.call("approval.respond", step_id=sid, decision="approve")
+        finished = await again
+        assert finished["status"] == "done" and finished["actor"] == "cli:gemini"
         assert [e["params"]["step"]["tool"] for e in user.events if e["method"] == "approval.needed"] == [
-            "info", "filter"]
+            "info", "filter", "filter"]
 
     run(body, Settings(approval_mode="ask_all"))
 

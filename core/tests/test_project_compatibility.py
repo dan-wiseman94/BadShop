@@ -66,3 +66,22 @@ def test_historical_project_keeps_references_bytes_and_replay(name, schema, tmp_
     for step, historical_id in zip(replay, (INVERT, SEPIA), strict=True):
         assert pixels(reopened.artifacts.data(step.outputs[0])) == pixels(opened.artifacts.data(historical_id))
     assert replay[1].params["image"] == replay[0].outputs[0]
+
+def test_saving_over_legacy_uses_existing_decoder_to_verify_backup(tmp_path):
+    from badshop.session.artifacts import _decode
+
+    data = (FIXTURES / "projects" / "schema-1.badshop").read_bytes()
+    path = tmp_path / "legacy.badshop"
+    path.write_bytes(data)
+    verified = []
+
+    def decoder(raw, name, frame):
+        verified.append(name)
+        return _decode(raw, name)
+
+    with_source = project.open_project(path, decoder=decoder)
+    expected_calls = len(verified)
+    assert expected_calls > 0
+    project.save(with_source, path)
+    assert len(verified) == expected_calls * 2
+    assert (tmp_path / f"legacy.pre-v{SCHEMA}.badshop").read_bytes() == data

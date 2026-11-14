@@ -315,7 +315,8 @@ class Session:
 
     # the step lifecycle: propose -> run (done | error) or reject
 
-    def propose(self, tool: str, raw: dict, actor: str, reason: str | None = None) -> Step:
+    def propose(self, tool: str, raw: dict, actor: str, reason: str | None = None, *,
+                visible_only: bool = False) -> Step:
         """Validate a call for `actor` and add it as a proposed step. Image refs must name artifacts of
         this session (never paths, whoever asks); they are stored as full ids."""
         if reason_read_only := self.read_only_reason():
@@ -330,7 +331,12 @@ class Session:
             allowed = self.source_defaults.get('allow_sources', [])
             if allowed:
                 raw['allow_sources'] = allowed
-        params = self._resolved(runner.validate(tool, raw, actor))
+        checked = runner.validate(tool, raw, actor)
+        params = self._resolved(checked)
+        if visible_only:
+            refs = registry.image_refs(type(checked), params)
+            if refs and not self.visible_artifact_ids().issuperset(refs):
+                raise EngineError("this tool input is outside the CLI direction")
         if not runner.is_trusted(actor):
             self.data.manual_undo.clear()
             self.data.manual_redo.clear()
@@ -354,7 +360,7 @@ class Session:
         return step
 
     def run(self, step_id: str, raw: dict | None = None, *, cancel: threading.Event | None = None,
-            budget: ExecutionBudget | None = None) -> Step:
+            budget: ExecutionBudget | None = None, portable: bool = False) -> Step:
         """Run a proposed step, with the user's edited params when given (validated as the user's).
         `cancel` is the caller's stop signal for this one run (the agent's Stop): it goes to the executor
         with the call, and a stopped run is a failed step with the executor's "stopped by the user"."""
@@ -373,7 +379,7 @@ class Session:
                 self._bind_inputs(step)
         if budget is not None:
             budget.record_execution()
-        self._execute(step, cancel)
+        self._execute(step, cancel, replay=portable, user_edited=raw is not None)
         if step.actor == "user":
             self.changes.append(self._change_note(step))
         return step
@@ -406,7 +412,8 @@ class Session:
         self._changed()
         return step
 
-    def _execute(self, step: Step, cancel: threading.Event | None = None) -> Step:
+    def _execute(self, step: Step, cancel: threading.Event | None = None, *,
+                 replay: bool = False, user_edited: bool = False) -> Step:
         """Run a step's tool on its stored params and record the outcome. Never raises for a tool's
         failure: an EngineError, a crash, a killed worker or a stop (`cancel`, set by the caller) is a
         failed step with a clean error."""
@@ -431,10 +438,16 @@ class Session:
             elif registry.get(step.tool).writes_files:
                 outcome = self._run_here(step, stem, cancel)
             else:
+                # An archive, recovery snapshot or history revision can supply any recorded actor.
+                # A replay may reuse existing output, but cannot recreate a privileged input.
+                actor = "replay" if replay else step.actor
+                if replay:
+                    runner.validate(step.tool, step.params, actor)
                 inputs = self._inputs(step)
-                trusted = netpolicy.typed_urls(step.tool, step.params, step.actor)  # a user's own link
+                trusted = netpolicy.typed_urls(step.tool, step.params, actor)
                 call = ToolCall(step.tool, step.params, inputs, stem, trusted_urls=trusted,
-                                guard_network=True, no_remote=getattr(self, 'no_remote', False))
+                                guard_network=True, no_remote=getattr(self, 'no_remote', False),
+                                catalogue_font=replay or (not user_edited and not runner.is_trusted(actor)))
                 outcome = self.executor.run(call, cancel=cancel)  # the caller's stop goes with its call
             if outcome.ok and len(set(_output_keys(outcome))) != len(outcome.outputs):
                 raise EngineError('tool returned duplicate output names')
@@ -652,19 +665,20 @@ class Session:
                         for aid in (last.outputs if last else [])]
             finally:
                 store.close()
-        return self.preview_tool(step.tool, params)
+        # This form also carries stored step parameters, including from shared projects.
+        return self.preview_tool(step.tool, params, portable=True)
 
-    def preview_tool(self, tool: str, raw: dict) -> list[OutputRecord]:
+    def preview_tool(self, tool: str, raw: dict, *, portable: bool = False) -> list[OutputRecord]:
         """Use the existing executor for a disposable preview; never publish project state."""
         self._refuse_busy(self.data.steps)
         spec = registry.get(tool)
         if spec.network or spec.writes_files:
             raise EngineError("preview requires a local image tool")
-        params = self._resolved(runner.validate(tool, raw, "user"))
+        params = self._resolved(runner.validate(tool, raw, "replay" if portable else "user"))
         draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
         inputs = self._inputs(draft)
         outcome = self.executor.run(ToolCall(
-            tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True,
+            tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True, catalogue_font=portable,
         ))
         if not outcome.ok:
             raise EngineError(outcome.error_message or "preview failed", hint=outcome.error_hint)
@@ -751,7 +765,7 @@ class Session:
                 if hit is not None and all(id in self.artifacts for id in hit.outputs):
                     self._reuse(step, hit, key)
                 else:
-                    self._execute(step)
+                    self._execute(step, replay=True)
             except EngineError as error:
                 step.status, step.error = 'error', StepError(message=error.message, hint=error.hint)
                 step.finished_at = time.time()

@@ -323,7 +323,7 @@ def test_listens_on_loopback_and_answers_with_the_connection_actor():
             async with client(port, TOKEN, "user") as ui, client(port, TOKEN, "cli:codex") as cli:
                 assert await ui.call("who") == {"method": "who", "actor": "user"}
                 assert await cli.call("who") == {"method": "who", "actor": "cli:codex"}
-                assert len(app.subscribers) == 2
+                assert len(app.subscribers) == 1
 
     asyncio.run(scenario())
 
@@ -452,12 +452,12 @@ def test_only_the_last_user_leaving_counts_as_the_ui_gone():
             async with client(port, TOKEN, "cli:claude"):
                 async with client(port, TOKEN) as first:
                     async with client(port, TOKEN):
-                        await until(lambda: len(app.subscribers) == 3)
-                    await until(lambda: len(app.subscribers) == 2)
+                        await until(lambda: len(app.subscribers) == 2)
+                    await until(lambda: len(app.subscribers) == 1)
                     assert app.gone == 0  # another user client is still there
                     first.ws.transport.abort()  # the UI process dies: no close frame
                     await until(lambda: app.gone == 1)
-                assert len(app.subscribers) == 1
+                assert not app.subscribers
             await until(lambda: app.subscribers == [])
             assert app.gone == 1  # a CLI agent leaving is not the UI closing
 

@@ -69,3 +69,23 @@ def test_named_design_rejects_undeclared_refs_and_project_image_defaults():
         recipes.Recipe(version=2, name="Bad", steps=[{"tool": "transform", "params": {"image": "$input:missing"}}])
     with pytest.raises(ValueError, match="portable"):
         recipes.RecipeInput(kind="image", default="project-artifact")
+
+def test_design_cannot_supply_a_font_path_through_text_binding(monkeypatch):
+    from badshop.engine import text
+
+    session = Session.new()
+    source = image(session, "red")
+    seen = []
+    monkeypatch.setattr(text, "find_font_file", lambda style, explicit: seen.append(explicit))
+    recipe = recipes.Recipe(version=2, name="Shared caption", inputs={
+        "font": {"kind": "text", "default": "bundled"},
+    }, steps=[{"tool": "text", "params": {
+        "image": "$input", "text": "Caption", "font": "$text:font", "size": 6, "margin": 1,
+    }}])
+
+    result = recipes.run(session, recipe, [{"input": source, "font": "//host/share/font.ttf"},
+                                           {"input": source}], threading.Event())
+    assert [row["status"] for row in result["rows"]] == ["error", "done"]
+    assert "choose a discovered font name" in result["rows"][0]["error"]
+    assert seen == []
+    assert session.artifacts.data(result["rows"][1]["output_id"])

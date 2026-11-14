@@ -94,6 +94,7 @@ def test_native_update_must_stop_before_local_only_is_acknowledged(env):
                 assert json.loads(await ws.recv())["type"] == "welcome"
                 await ws.send(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "updates.begin", "params": {}}))
                 lease = json.loads(await ws.recv())["result"]["lease"]
+                app._emit("core.log", {"level": "info", "message": "private renderer log"})
                 client = Client(app)
                 toggle = asyncio.create_task(client.call("settings.set", values={"no_remote": True}))
                 event = json.loads(await ws.recv())

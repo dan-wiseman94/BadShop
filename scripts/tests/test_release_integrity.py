@@ -1,20 +1,44 @@
 """Release integrity must cover every uploaded asset and reject ambiguous names."""
 import hashlib
 import json
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packaging"))
-from release_checksums import checksums
 from check_version import check_versions
+from release_checksums import checksums
 from release_inventory import command
 from update_manifest import can_promote_nightly, manifest, nightly_version
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
+    def test_signing_uses_only_the_authorized_workflow_event_commit(self):
+        workflows = Path(__file__).resolve().parents[2] / '.github/workflows'
+        native = (workflows / 'native-desktop.yml').read_text(encoding='utf-8')
+        triggers, jobs = native.split('\njobs:\n', 1)
+        self.assertNotIn('\n  workflow_dispatch:', triggers)
+        self.assertNotIn('source_ref', native)
+        self.assertNotIn('\n    secrets:', triggers)
+        guard, steps = jobs.split('\n    steps:\n', 1)
+        self.assertIn("environment: ${{ inputs.nightly && 'updater-signing-nightly' || 'updater-signing-stable' }}", guard)
+        self.assertIn('github.ref_protected', guard)
+        self.assertIn("github.event_name == 'push'", guard)
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", guard)
+        self.assertIn('/.github/workflows/release.yml@', guard)
+        self.assertIn("github.event_name == 'schedule'", guard)
+        self.assertIn("github.ref == 'refs/heads/main'", guard)
+        self.assertIn('/.github/workflows/nightly.yml@', guard)
+        self.assertIn('ref: ${{ github.sha }}', steps)
+        self.assertIn('TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}', steps)
+        for filename in ('release.yml', 'nightly.yml'):
+            with self.subTest(filename=filename):
+                caller = (workflows / filename).read_text(encoding='utf-8')
+                self.assertIn('uses: ./.github/workflows/native-desktop.yml', caller)
+                self.assertNotIn('secrets: inherit', caller)
+
     def test_candidate_draft_access_does_not_raise_reusable_builder_permissions(self):
         root = Path(__file__).resolve().parents[2]
         native = (root / '.github/workflows/native-desktop.yml').read_text()
@@ -85,7 +109,6 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assertIn("full: true", workflow)
         self.assertIn("uses: ./.github/workflows/native-desktop.yml", workflow)
         self.assertIn("nightly: true", workflow)
-        self.assertIn("secrets: inherit", workflow)
         self.assertIn("target_commitish: ${{ github.sha }}", workflow)
         self.assertIn("${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}", workflow)
         publish = workflow.split("  stage:", 1)[1]
@@ -107,7 +130,6 @@ class ReleaseIntegrityTests(unittest.TestCase):
         core = (root / ".github/workflows/core.yml").read_text()
         self.assertIn("group: core-${{ github.workflow }}-", core)
         native = (root / ".github/workflows/native-desktop.yml").read_text()
-        self.assertIn("ref: ${{ inputs.source_ref || github.sha }}", native)
         build = native.split("- name: Build native installers", 1)[1].split("- name:", 1)[0]
         self.assertIn("BADSHOP_UPDATER_PUBLIC_KEY: ${{ vars.BADSHOP_UPDATER_PUBLIC_KEY }}", build)
 

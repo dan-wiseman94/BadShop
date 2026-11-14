@@ -205,7 +205,7 @@ export function Chat({
             </div>
             {message.content.map((part, i) =>
               part.type === "text" ? (
-                <CompletedMarkdown key={i} text={part.text ?? ""} />
+                <ChatMarkdown key={i} text={part.text ?? ""} />
               ) : part.artifact_id ? (
                 <ArtifactThumb
                   key={i}
@@ -238,7 +238,7 @@ export function Chat({
             <div className="message-name">
               badshop<span>Art director</span>
             </div>
-            <Markdown>{stream}</Markdown>
+            <ChatMarkdown text={stream} />
           </article>
         )}
         {session?.pending_approvals.map((id) => {
@@ -435,45 +435,45 @@ export function Chat({
   );
 }
 
-const CompletedMarkdown = memo(function CompletedMarkdown({ text }: { text: string }) {
+const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
   return (
-                <Markdown
-                  allowedElements={[
-                    "p",
-                    "strong",
-                    "em",
-                    "code",
-                    "pre",
-                    "ul",
-                    "ol",
-                    "li",
-                    "blockquote",
-                    "h1",
-                    "h2",
-                    "h3",
-                    "hr",
-                    "br",
-                    "a",
-                  ]}
-                  components={{
-                    a: ({ href, children }) => (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(event) => {
-                          if (href && /^https?:\/\//.test(href)) {
-                            event.preventDefault();
-                            run(() => openLink(href));
-                          }
-                        }}
-                      >
-                        {children}
-                      </a>
-                    ),
-                  }}
-                >
-                  {text}
-                </Markdown>
+    <Markdown
+      allowedElements={[
+        "p",
+        "strong",
+        "em",
+        "code",
+        "pre",
+        "ul",
+        "ol",
+        "li",
+        "blockquote",
+        "h1",
+        "h2",
+        "h3",
+        "hr",
+        "br",
+        "a",
+      ]}
+      components={{
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => {
+              if (href && /^https?:\/\//.test(href)) {
+                event.preventDefault();
+                run(() => openLink(href));
+              }
+            }}
+          >
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {text}
+    </Markdown>
   );
 });

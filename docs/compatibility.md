@@ -110,13 +110,18 @@ SQLite. The legacy backup remains unchanged. Keep this importer while supported
 0.4.x/0.5.x installations can upgrade directly. Downgrading does not convert a
 SQLite recovery database: save a portable project before using an older release.
 
-Managed CLI processes receive random revocable adapter credentials, separate from
-the renderer token. Document calls require an active run and matching direction;
-tool discovery can run while idle. Stop ends authorization for queued work, and
-an older socket cannot borrow a later run. Document, direction and profile
-replacement revoke the credential and retire the process's private configuration.
-The cached process can reconnect with the same credential for its next run until
-one of those replacement boundaries retires it.
+Managed CLI processes use a private credential file and send prompts over their
+stdin pipe. A cached process uses a fresh bearer for each turn. Its separate tool
+discovery credential can only list tools, including while idle. Document calls
+require the current run and direction. Managed artifact RPCs can read only that
+run's completed tool outputs. To inspect another image in the active direction,
+the CLI calls the approval-aware `view` tool. Stop ends authorization for queued
+work, and an older socket cannot borrow a later run. Document, direction and
+profile replacement and enabling Local only revoke credentials and retire
+the process's private configuration.
+
+Renderer connections receive project events. The native updater receives only
+the update cancellation event, and MCP uses its own progress notifications.
 
 Standalone MCP retains explicit HMAC-derived credentials for independently
 launched integrations. The current proxy negotiates protocol 1 and binds itself

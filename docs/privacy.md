@@ -13,6 +13,12 @@ entries and diagnostics on your computer. Credentials use the OS keychain or nam
 variables. Provider secrets are not saved in project archives. Projects can contain original
 pictures, prompts, replies, source URLs, filenames and credits: inspect what you share.
 
+Opening or restoring a project keeps the stricter of its saved approval mode and the local default.
+Replaying saved steps can reuse results that the project already holds. A fresh replay cannot read the
+current clipboard, contact private addresses, or load a font by file path. Run an explicit new tool
+call to authorize those inputs. Portable designs and previews use installed font names from BadShop's
+font catalogue.
+
 Session and preview image bytes use private temporary directories, removed when
 their owner closes. Abrupt process termination can leave scratch files for OS
 cleanup. Recovery keeps SQLite metadata and immutable image files in the app-data
