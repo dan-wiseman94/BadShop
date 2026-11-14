@@ -45,6 +45,8 @@ test("coordinate instructions keep the Fit image visible and pickable at the min
     artifact.label.includes("work"),
   )!;
   await connect(page, core);
+  await page.getByLabel("Zoom", { exact: true }).selectOption("4");
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Steps" }).click();
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
   await page.getByLabel("Search tools").fill("cutout");
   await page.getByRole("button", { name: /^cutout crop/ }).click();
@@ -216,6 +218,7 @@ test("the empty chat remains at the top at the minimum desktop size", async ({
 }) => {
   await page.setViewportSize({ width: 900, height: 600 });
   await connect(page, core);
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Chat" }).click();
   await expect
     .poll(() =>
       page.locator(".chat-history").evaluate((node) => node.scrollTop),
@@ -245,7 +248,7 @@ test("local vision can be deferred on first launch and found in Settings", async
   const supported = assets.some((asset) => asset.name.startsWith("local-vision/"));
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
-  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
+  await welcome.getByText("Connect AI", { exact: true }).click();
   if (supported) {
     await expect(welcome.getByRole("button", { name: /Download and use on-device AI/ })).toBeEnabled();
   } else {
@@ -278,7 +281,7 @@ test("first run with saved profiles explicitly selects a provider before continu
   })) as { id: string };
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   const welcome = page.getByRole("dialog", { name: "Welcome to badshop" });
-  await welcome.getByText("Connect AI (optional)", { exact: true }).click();
+  await welcome.getByText("Connect AI", { exact: true }).click();
   await expect(
     welcome.getByRole("button", { name: "Use Saved local vision" }),
   ).toBeVisible();

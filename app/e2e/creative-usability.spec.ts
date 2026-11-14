@@ -15,6 +15,8 @@ test("quick idea uses the photo added from its own import button", async ({ page
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   await page.getByRole("button", { name: "Start with a quick idea" }).click();
   await page.getByRole("button", { name: /An error with no solution/ }).click();
+  await expect(page.getByRole("textbox", { name: "Headline", exact: true })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Headline", exact: true })).toBeInViewport();
   const picker = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Add my own image" }).click();
   await page.getByRole("dialog", { name: "Add material" }).getByRole("button", { name: "Choose files" }).click();

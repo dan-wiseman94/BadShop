@@ -38,10 +38,12 @@ type Candidate = {
 };
 export function Studio({
   onClose,
+  onViewImage,
   onAttach,
   onDraft,
 }: {
   onClose: () => void;
+  onViewImage?: () => void;
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
 }) {
@@ -155,26 +157,20 @@ export function Studio({
           </button>
         </div>
         <nav className="studio-tabs" aria-label="Images and directions">
-          {[
-            ["discover", "Find images"],
-            ["retro", "Retro workbench"],
-            ["ideas", "Idea mixer"],
-            ["library", "Junk drawer"],
-            ["branches", "Branches"],
-            ["layouts", "Layouts & packs"],
-            ["local", "Clips, pages & folders"],
-            ["sheets", "Sprite sheets"],
-            ["pairs", "Image pairs"],
-            ["recent", "Recent choices"],
-          ].map(([id, label]) => (
-            <Button
-              key={id}
-              aria-pressed={tab === id}
-              onClick={() => {
-                showTab(id);
-              }}
-              label={label}
-            />
+          {([
+            ["Find", [["discover", "Find images"], ["local", "Clips, pages & folders"]]],
+            ["Reuse", [["library", "Junk drawer"], ["layouts", "Layouts & packs"], ["recent", "Recent choices"]]],
+            ["Create", [["retro", "Retro workbench"], ["ideas", "Idea mixer"], ["branches", "Branches"],
+              ["sheets", "Sprite sheets"], ["pairs", "Image pairs"]]],
+          ] as const).map(([label, tabs]) => (
+            <div key={label} className="studio-tab-group" role="group" aria-label={label}>
+              <span>{label}</span>
+              <div>
+                {tabs.map(([id, title]) => (
+                  <Button key={id} aria-pressed={tab === id} onClick={() => showTab(id)} label={title} />
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
         {error && (
@@ -255,41 +251,46 @@ export function Studio({
                   </option>
                 ))}
               </SelectField>
-              <SelectField label="Kind of picture" bind={[material, setMaterial]}
-                options={[["photo", "Photos"], ["illustration", "Illustrations & icons"], ["object", "Museum objects"], ["any", "Any"]]} />
-              <p className="muted">Picture kind chooses collections when searching all sources. Check the previews; it does not classify every image.</p>
-              <SelectField
-                label="Needed for"
-                bind={[purpose, setPurpose]}
-                options={[
-                  ["subject", "Main subject"],
-                  ["head", "Head swap"],
-                  ["background", "Background"],
-                  ["object", "Object / prop"],
-                ].map(([id, title]) => [id, title] as const)}
-              />
-              <InputField
-                label="Pose / framing"
-                placeholder="Facing left, whole head visible"
-                bind={[pose, setPose]}
-              />
-              <InputField
-                label="Expression"
-                placeholder="Surprised, mouth open"
-                bind={[expression, setExpression]}
-              />
-              <InputField
-                label="More pictures of this exact subject"
-                inputFirst
-                labelClassName="check-label"
-                type="checkbox"
-                bind={[sameSubject, setSameSubject]}
-              />
               <Button
                 className="primary"
                 disabled={disabled || !query.trim()}
                 label={busy ? "Working…" : "Find candidates"}
               />
+              <details className="studio-search-options wide">
+                <summary>Search filters</summary>
+                <div className="studio-form">
+                  <SelectField label="Kind of picture" bind={[material, setMaterial]}
+                    options={[["photo", "Photos"], ["illustration", "Illustrations & icons"], ["object", "Museum objects"], ["any", "Any"]]} />
+                  <p className="muted">Picture kind chooses collections when searching all sources. Check the previews; it does not classify every image.</p>
+                  <SelectField
+                    label="Needed for"
+                    bind={[purpose, setPurpose]}
+                    options={[
+                      ["subject", "Main subject"],
+                      ["head", "Head swap"],
+                      ["background", "Background"],
+                      ["object", "Object / prop"],
+                    ].map(([id, title]) => [id, title] as const)}
+                  />
+                  <InputField
+                    label="Pose / framing"
+                    placeholder="Facing left, whole head visible"
+                    bind={[pose, setPose]}
+                  />
+                  <InputField
+                    label="Expression"
+                    placeholder="Surprised, mouth open"
+                    bind={[expression, setExpression]}
+                  />
+                  <InputField
+                    label="More pictures of this exact subject"
+                    inputFirst
+                    labelClassName="check-label"
+                    type="checkbox"
+                    bind={[sameSubject, setSameSubject]}
+                  />
+                </div>
+              </details>
             </form>
             {sheet && (
               <div className="studio-sheet">
@@ -591,6 +592,7 @@ export function Studio({
             onDraft={onDraft}
             onInspect={(id) => {
               useUI.getState().set({ selectedArtifact: id, selectedStep: null, viewerZoom: 1 });
+              onViewImage?.();
               onClose();
             }}
           />
