@@ -16,7 +16,12 @@ class NativeLabels:
 
     def read(self, threshold):
         shot = self.output / 'native-labels.png'
-        screenshot(self.window, shot)
+        if sys.platform == 'darwin':
+            # Exclude the drop shadow so image coordinates match CGWindowBounds.
+            subprocess.run(['screencapture', '-x', '-o', '-l', str(self.window), str(shot)],
+                           check=True, timeout=15)
+        else:
+            screenshot(self.window, shot)
         ocr = self.output / 'native-labels-ocr.png'
         with Image.open(shot) as image:
             # Remove light control borders that otherwise merge small button labels.

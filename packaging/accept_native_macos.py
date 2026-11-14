@@ -35,7 +35,7 @@ def text(value):
 def file_dialog(path, window, output, *, saving=False):
     import Quartz
     from accept_native_visual import NativeLabels
-    NativeLabels(window, output).wait('Save As' if saving else 'Cancel')
+    NativeLabels(window, output).wait('Cancel')
     if saving:
         key(0, Quartz.kCGEventFlagMaskCommand)
         text(path.name)
