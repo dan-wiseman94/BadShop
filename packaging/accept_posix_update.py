@@ -32,7 +32,7 @@ def open_existing(pid, window, project, output, *, reject_future=False):
         return
     ready = Path(psutil.Process(pid).environ()['BADSHOP_SMOKE_READY_FILE'])
     if json.loads(ready.read_text())['welcome']:
-        native_keys(window, 'Return')
+        NativeLabels(window, output).click('Edit a photo')
         time.sleep(1)
     native_keys(window, 'ctrl+o')
     linux_file_dialog(pid, window, project)

@@ -68,6 +68,7 @@ def editing(pid, window, close, output):
     import AppKit
     import Quartz
     from PIL import Image
+    from accept_native_visual import NativeLabels
     assert os.environ.get('GITHUB_ACTIONS') == 'true'
     env = psutil.Process(pid).environ()
     ready = Path(env['BADSHOP_SMOKE_READY_FILE'])
@@ -85,7 +86,7 @@ def editing(pid, window, close, output):
 
     activate(pid)
     if state()['welcome']:
-        key(36)
+        NativeLabels(window, output).click('Edit a photo')
         state(welcome=False)
     image = root / 'native-input.png'
     Image.new('RGBA', (40, 30), (30, 160, 240, 255)).save(image)
@@ -117,7 +118,6 @@ def editing(pid, window, close, output):
     file_dialog(reopened, window, output)
     state(session_id=identity, unsaved=False)
     wait_project_pixels(autosave, identity, pixels)
-    from accept_native_visual import NativeLabels
     from accept_clipboard import paste_into_browser
     NativeLabels(window, output).click('Copy image')
     time.sleep(.5)
@@ -136,7 +136,7 @@ def open_existing(pid, window, project, output, *, reject_future=False):
     activate(pid)
     ready = Path(psutil.Process(pid).environ()['BADSHOP_SMOKE_READY_FILE'])
     if json.loads(ready.read_text())['welcome']:
-        key(36)
+        NativeLabels(window, output).click('Edit a photo')
         time.sleep(1)
     activate(pid)
     key(31, Quartz.kCGEventFlagMaskCommand)
