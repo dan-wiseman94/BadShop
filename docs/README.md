@@ -49,6 +49,8 @@ found online, review the source's rights information before reuse.
 ## Develop and maintain BadShop
 
 Start with [architecture](architecture.md), then [development and testing](development.md).
+The [modernization ledger](architecture-modernization-progress.md#merged-status--2026-11-14)
+records the merged implementation, final verification and outstanding release/field gates.
 See [contributing](../CONTRIBUTING.md), [pack authoring](pack-authoring.md) and the
 opt-in [product study kit](product-study.md) to help grow the project.
 The [release guide](releasing.md) covers packaging and platform verification;
