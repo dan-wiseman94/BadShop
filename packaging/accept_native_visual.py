@@ -25,8 +25,11 @@ class NativeLabels:
         ocr = self.output / 'native-labels-ocr.png'
         with Image.open(shot) as image:
             # Remove light control borders that otherwise merge small button labels.
-            image.convert('L').point(lambda value: 0 if value < threshold else 255).resize(
-                (image.width * 3, image.height * 3), Image.Resampling.NEAREST).save(ocr)
+            gray = image.convert('L')
+            if threshold is not None:
+                gray = gray.point(lambda value: 0 if value < threshold else 255)
+            gray.resize((image.width * 3, image.height * 3),
+                        Image.Resampling.LANCZOS if threshold is None else Image.Resampling.NEAREST).save(ocr)
         result = subprocess.check_output(['tesseract', str(ocr), 'stdout', '--psm', '11', 'tsv'],
                                          stderr=subprocess.DEVNULL, text=True, timeout=20)
         (self.output / 'native-labels.tsv').write_text(result)
@@ -39,7 +42,7 @@ class NativeLabels:
         attempt = 0
         while time.monotonic() < deadline:
             # Font antialiasing differs between the Arch and Ubuntu desktops.
-            rows, shot = self.read((150, 120)[attempt % 2])
+            rows, shot = self.read((None, 150, 120)[attempt % 3])
             attempt += 1
             words = [re.sub(r'[^\w]', '', row['text'].lower()) for row in rows]
             for index in range(len(words) - len(expected) + 1):
