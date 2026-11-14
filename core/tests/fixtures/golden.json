@@ -264,7 +264,14 @@
    "lines": [
     "text: 2 line(s), impact style, font Anton-Regular.ttf, size 50px, at top-left (15, 20)"
    ],
-   "data": {},
+   "data": {
+    "element_bounds": [
+     15,
+     20,
+     441,
+     182
+    ]
+   },
    "files": {
     "work/result.png": {
      "format": "PNG",
@@ -283,7 +290,14 @@
    "lines": [
     "text: 1 line(s), paint style, font ComicNeue-Bold.ttf, size 38px, at top-left (198, 357)"
    ],
-   "data": {},
+   "data": {
+    "element_bounds": [
+     198,
+     357,
+     403,
+     443
+    ]
+   },
    "files": {
     "work/result.png": {
      "format": "PNG",
@@ -302,7 +316,14 @@
    "lines": [
     "text: 1 line(s), wordart style, font Anton-Regular.ttf, size 47px, at top-left (129, 492)"
    ],
-   "data": {},
+   "data": {
+    "element_bounds": [
+     129,
+     492,
+     345,
+     580
+    ]
+   },
    "files": {
     "work/result.png": {
      "format": "PNG",
@@ -388,7 +409,14 @@
     "size: 457x600",
     "piece placed with top-left at (48, 23), 405x405 after scaling"
    ],
-   "data": {},
+   "data": {
+    "element_bounds": [
+     48,
+     23,
+     453,
+     428
+    ]
+   },
    "files": {
     "work/result.png": {
      "format": "PNG",
@@ -408,7 +436,14 @@
     "size: 474x600",
     "piece placed with top-left at (200, 460), 200x120 after scaling"
    ],
-   "data": {},
+   "data": {
+    "element_bounds": [
+     200,
+     460,
+     400,
+     580
+    ]
+   },
    "files": {
     "work/result.png": {
      "format": "PNG",
@@ -1264,6 +1299,37 @@
      "sha256": "38692f1f8f49636bf0445d5c5d5941dd4dd8d2606fdce842872040fb8bcc5081",
      "frames": [
       "74872a909b96cd2be038204000e4229d5a12000a5aa0d0bef73e66cfc8b649e6"
+     ]
+    }
+   }
+  },
+  "animation-edit": {
+   "lines": [
+    "Edited 2 frames; 370 ms; 40x30"
+   ],
+   "data": {
+    "frames": 2,
+    "durations": [
+     120,
+     250
+    ],
+    "source_frames": [
+     0,
+     0
+    ],
+    "loop": 2
+   },
+   "files": {
+    "work/edited.gif": {
+     "format": "GIF",
+     "size": [
+      40,
+      30
+     ],
+     "sha256": "9ebde45adb1f9b8142ef20ced3060313f6e832c1c81de44448e08a0f96c681c9",
+     "frames": [
+      "8973aeacadf644164f48bb8ffdd8260df82a5b69338d3c87e3d6592276ec7f8d",
+      "86376cecf735bb8c6ac8a2da9bf1faa1efe992c5767b64b1a05e7d63b3b81df3"
      ]
     }
    }

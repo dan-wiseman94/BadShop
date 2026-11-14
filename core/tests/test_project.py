@@ -27,6 +27,9 @@ from conftest import FIXTURES
 # Every field of every tool set away from its default, with the awkward values a model or user may give:
 # negative numbers, exponent floats, words that start with "-", new lines and non-ASCII text.
 RICH = {
+    "animation_edit": {"image": "a.png", "frames": [{"index": 0, "duration": 240}],
+                       "crop": [1, 2, 40, 50], "speed": 2, "loop": 3,
+                       "captions": [{"text": "--Hi", "start": 0, "end": 1, "x": 1, "y": 2, "scale": 2, "color": "red"}]},
     "transform": {"image": "a.png", "crop": [0, 0, 40, 50], "width": 100, "height": 80, "rotate": 90, "flip_horizontal": True, "flip_vertical": True},
     'retro_layout': {'style':'forum','images':['a.png'],'title':'Hi','caption':'Hello','seed':7,'density':'chaotic','text_scale':2,'exact_text':False,'fit':'cover'},
     'canvas': {'image':'a.png','width':200,'height':100,'background':'red','tile':True},
@@ -73,6 +76,13 @@ RICH = {
                 "at": [5, 6], "hold": 0, "fry": 2, "colors": 32, "seed": 9, "name": "zoomy"},
     "export": {"image": "a.png", "name": "keep"},
 }
+
+RICH["export_profile"].update(width=120, height=80, background="white", preserve_animation=True, shrink_to_fit=True)
+RICH["layout"].update(focal_points=[[0.2, 0.7]], panel_border=4, panel_padding=5, exact_text=True)
+RICH["text"].update(preserve_case=True, preserve_line_breaks=True, box=[0, 0, 100, 200], align="left",
+                    overflow="error", frame="bubble", frame_padding=4, frame_color="red", frame_border="blue",
+                    frame_width=3, tail=[40, 250])
+RICH["cutout"].update(keep_regions=[[[10, 20], [20, 20], [20, 30]]], remove_regions=[[[30, 40], [40, 40], [40, 50]]])
 
 
 def png_bytes(size: tuple[int, int], color: str) -> bytes:
@@ -599,14 +609,14 @@ def test_the_good_file_opens(saved, tmp_path):
 
 def test_autosave_lands_in_the_data_dir_and_is_found_again(tmp_path, monkeypatch):
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "data"))
-    assert project.autosave_path() == tmp_path / "data" / "autosave" / "session.badshop"
+    assert project.autosave_path() == tmp_path / "data" / "autosave" / "session.sqlite"
     assert not project.autosave_path().is_file()
     s = meme(tmp_path)
     project.autosave(s)
     assert project.autosave_path().is_file()
     s.run_tool("filter", {"image": s.data.steps[0].outputs[0], "names": ["emboss"]}, "user")
     project.autosave(s)  # after every step: the same file, replaced
-    assert [p.name for p in project.autosave_path().parent.iterdir()] == ["session.badshop"]
+    assert {p.name for p in project.autosave_path().parent.iterdir()} == {"session.sqlite", "blobs"}
     restored = project.open_project(project.autosave_path(), output_dir=tmp_path)
     assert [st.tool for st in restored.data.steps] == ["filter", "cutout", "paste", "deepfry", "animate", "filter"]
 
@@ -615,7 +625,7 @@ def test_claim_autosave_sets_the_last_runs_autosave_aside_for_a_restore(tmp_path
     # spec §9: after a crash the next launch offers to restore the autosave, so the new session's first
     # change must not overwrite it (§10: a restarted core reopens it)
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "data"))
-    previous = tmp_path / "data" / "autosave" / "previous.badshop"
+    previous = tmp_path / "data" / "autosave" / "previous.sqlite"
     assert project.claim_autosave() is None  # a first launch: nothing to offer
     assert not (tmp_path / "data").exists()  # and nothing made
     project.autosave(meme(tmp_path))  # the last run, which then crashed

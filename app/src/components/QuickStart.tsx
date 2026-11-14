@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { action, importBlob, useCoreQuery, useSession } from "../data";
+import { action, imageUrl, importBlob, useArtifact, useCoreQuery, useSession } from "../data";
 import { useUI } from "../store";
 import { useOperation } from "../useOperation";
 import { InputField } from "./Fields";
@@ -11,6 +11,11 @@ import { CreativeCollections } from "./CreativeCollections";
 import { CreationReplay } from "./CreationReplay";
 import { RemixChallenge } from "./RemixChallenge";
 import { directionLabel } from "../directions";
+
+function TakePreview({ id }: { id: string }) {
+  const { data } = useArtifact(id, true);
+  return <img src={imageUrl(data)} alt="" style={{ width: 110, height: 75, objectFit: "contain" }} />;
+}
 
 export function QuickStart({ onImport, onAdvanced, importedImage, importing = false }: {
   onImport: () => void;
@@ -121,7 +126,7 @@ export function QuickStart({ onImport, onAdvanced, importedImage, importing = fa
       {!!branches?.branches.length && <details><summary>Saved takes</summary>{branches.branches.map(branch => <button key={branch.id}
         disabled={disabled || branch.id === branches.active_id} onClick={() => void perform(async () => {
           await action("branches.switch", { id: branch.id, expected_revision: session!.document_revision });
-        })}>{directionLabel(branch.name)}</button>)}</details>}
+        })}>{branch.preview_id && <TakePreview id={branch.preview_id} />}{directionLabel(branch.name)}</button>)}</details>}
       <details><summary>Save a reusable recipe</summary><RecipeStudio /></details>
       <CreativeCollections image={image} title={String(step?.params.title ?? title)} caption={step ? revision : caption} disabled={disabled} />
       <details><summary>Show how it happened</summary><CreationReplay /></details>

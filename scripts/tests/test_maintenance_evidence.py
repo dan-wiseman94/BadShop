@@ -42,6 +42,8 @@ class EvidenceTests(unittest.TestCase):
                     self.assertEqual(wire.main(), 0)
 
     def test_wire_nullability_and_unknown_schema_are_not_silently_erased(self):
+        self.assertEqual(wire.ts_type({'type': 'object', 'patternProperties': {
+            '^[a-z]+$': {'$ref': '#/$defs/RecipeInput'}}}), 'Record<string, RecipeInput>')
         self.assertEqual(wire.ts_type({'anyOf': [{'type': 'string'}, {'type': 'null'}]}), 'string | null')
         with self.assertRaisesRegex(ValueError, 'Unsupported wire schema'):
             wire.ts_type({'oneOf': [{'type': 'string'}]})

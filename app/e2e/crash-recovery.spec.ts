@@ -4,7 +4,7 @@ import path from "node:path";
 import { test, expect, root, python, startCore } from "./fixtures";
 import type { Session } from "../src/types";
 
-test("a killed core restores unsaved pixels and saves a reusable project through the UI", async ({ page, emptyCore }) => {
+test("a killed core restores unsaved pixels through project home and saves a reusable project", async ({ page, emptyCore }) => {
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   await page.getByRole("button", { name: "Start with a quick idea" }).click();
   await page.getByLabel("Import image files").setInputFiles(path.join(root, "core/tests/fixtures/lincoln.png"));
@@ -15,11 +15,11 @@ test("a killed core restores unsaved pixels and saves a reusable project through
   const before = await emptyCore.call("session.get") as Session;
   const output = before.steps[0].outputs[0];
   const pixels = await emptyCore.call("artifacts.get", { id: output }) as { data: string };
-  const autosave = path.join(emptyCore.folder, "data/autosave/session.badshop");
+  const autosave = path.join(emptyCore.folder, "data/autosave/session.sqlite");
   await expect.poll(() => {
     try {
       const saved = JSON.parse(execFileSync(python, ["-c",
-        "import json,sys,zipfile; print(zipfile.ZipFile(sys.argv[1]).read('session.json').decode())", autosave], { encoding: "utf8" })) as Session;
+        "import sys; from badshop.session.recovery import load; print(load(__import__('pathlib').Path(sys.argv[1])).data.model_dump_json(by_alias=True))", autosave], { encoding: "utf8" })) as Session;
       return saved.steps[0]?.outputs[0];
     } catch { return null; } // Atomic autosave may not have completed yet.
   }).toBe(output);
@@ -36,7 +36,8 @@ test("a killed core restores unsaved pixels and saves a reusable project through
   const recovered = await startCore(emptyCore.folder);
   try {
     await page.goto(`/?core_port=${recovered.port}&core_token=${recovered.token}`);
-    await page.getByRole("button", { name: "Restore session", exact: true }).click();
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    await page.getByRole("button", { name: "Recover autosaved project", exact: true }).click();
     await expect.poll(async () => (await recovered.call("session.get") as Session).id).toBe(before.id);
     const restored = await recovered.call("session.get") as Session;
     expect(restored.steps).toEqual(before.steps);

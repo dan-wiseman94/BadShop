@@ -3,16 +3,20 @@ import { ManualTools } from "./ManualTools";
 import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
 import { Grid2X2, ScanFace, Maximize, ChevronDown } from "lucide-react";
-import { action, imageUrl, useArtifact, useSession, run } from "../data";
+import { action, imageUrl, useArtifact, useSession, useCoreQuery, run } from "../data";
+import { LibraryImage } from "./LibraryImage";
+import { useOperation } from "../useOperation";
 import { useCanvasArtifact, useUI } from "../store";
 import { useReducedMotion } from "../appearance";
 import { openLink } from "../native";
 import { CopyImage, ShareImage } from "./ShareImage";
 import type { Params } from "../types";
+import { recordedElements } from "../recordedElements";
 export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
   const { data } = useArtifact(id, true);
   return (
-    <button type="button" className="artifact-thumb" onClick={onClick} title={label ?? data?.meta.label}>
+    <button type="button" className="artifact-thumb" onClick={onClick} title={label ?? data?.meta.label}
+      draggable onDragStart={event => event.dataTransfer.setData("application/x-badshop-artifact", id)}>
       <img src={imageUrl(data)} alt={label ?? data?.meta.label ?? "Image"} />
     </button>
   );
@@ -29,11 +33,15 @@ function faceBoxes(data: Params | null | undefined): number[][] {
 }
 export function Viewer({ onImport }: { onImport: () => void }) {
   const { data: session } = useSession();
+  const { data: library = [] } = useCoreQuery("library.list");
+  const [materialSearch, setMaterialSearch] = useState("");
+  const { busy: materialBusy, error: materialError, perform: materialAction } = useOperation();
   const selectedStep = useUI((s) => s.selectedStep);
   const { id: canvasId, inputId } = useCanvasArtifact(session);
   const pick = useUI((s) => s.pick);
   const [grid, setGrid] = useState(false);
   const [boxes, setBoxes] = useState(false);
+  const [selectElements, setSelectElements] = useState(false);
   const before = useUI((state) => state.viewerBefore);
   const setBefore = (viewerBefore: boolean) => useUI.getState().set({ viewerBefore });
   const [sharing, setSharing] = useState(false);
@@ -62,6 +70,12 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const paused = playing === null ? reduced : !playing;
   const { data, error } = useArtifact(id, false, paused, frame);
   const meta = data?.meta;
+  const elements = recordedElements(session, id);
+  const selectElement = (stepId: string) => {
+    const output = session?.steps.slice().reverse().find(step => step.outputs.includes(id ?? ""));
+    useUI.getState().set({ selectedStep: stepId, selectedArtifact: output
+      ? { stepId: output.id, outputIndex: output.outputs.indexOf(id!) } : id });
+  };
   const progress = session?.stream_text;
   useEffect(() => {
     const node = stage.current;
@@ -78,7 +92,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   }, [selectedStep]);
   const scale = meta
     ? zoom === "fit"
-      ? Math.min((size.width - 72) / meta.width, (size.height - 72) / meta.height, 1)
+      ? Math.max(0.001, Math.min(Math.max(1, size.width - 24) / meta.width, Math.max(1, size.height - 24) / meta.height, 1))
       : zoom
     : 1;
   const point = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -96,7 +110,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
       )
       .flatMap((step) => faceBoxes(step.data)) ?? [];
   return (
-    <section className="viewer pane" aria-label="Image viewer">
+    <section className="viewer pane" data-picking={!!pick} aria-label="Image viewer">
       <div className="pane-heading">
         <span className="flex items-center gap-2">
           <ThemeIcon name="canvas" size={16} />
@@ -105,6 +119,14 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
       </div>
       <div className="viewer-tools">
+        <button aria-pressed={selectElements} disabled={!elements.length || !!pick}
+          onClick={() => setSelectElements(!selectElements)}>Select elements</button>
+        <button disabled={!session?.manual_history?.undo || session.turn_running || !!session.pending_approvals.length}
+          title={session?.manual_history?.undo ? `Undo ${session.manual_history.undo}` : "No manual change to undo"}
+          onClick={() => run(() => action("history.undo", { expected_revision: session?.document_revision }))}>Undo</button>
+        <button disabled={!session?.manual_history?.redo || session.turn_running || !!session.pending_approvals.length}
+          title={session?.manual_history?.redo ? `Redo ${session.manual_history.redo}` : "No manual change to redo"}
+          onClick={() => run(() => action("history.redo", { expected_revision: session?.document_revision }))}>Redo</button>
         {id && <CopyImage id={id} frame={paused ? frame : 0} animated={(meta?.frames ?? 1) > 1} />}
         <div className="segmented">
           <Button
@@ -208,6 +230,16 @@ export function Viewer({ onImport }: { onImport: () => void }) {
             }}
           >
             <img className="canvas-image" src={imageUrl(data)} alt={meta.label} draggable={false} />
+            {selectElements && !pick && elements.map((element, index) => {
+              const [left, top, right, bottom] = element.box;
+              const x = Math.max(0, left), y = Math.max(0, top);
+              const width = Math.min(meta.width, right) - x, height = Math.min(meta.height, bottom) - y;
+              return width > 0 && height > 0 && <button key={`${element.step.id}-${index}`}
+                className="recorded-element" aria-label={`Edit ${element.label}`} title={`Edit ${element.label}`}
+                aria-pressed={selectedStep === element.step.id}
+                style={{ left: x * scale, top: y * scale, width: width * scale, height: height * scale }}
+                onClick={() => selectElement(element.step.id)} />;
+            })}
             {(grid || boxes || selection) && (
               <svg className="image-overlay" viewBox={`0 0 ${meta.width} ${meta.height}`} aria-hidden="true">
                 {grid && (
@@ -269,7 +301,25 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </div>
         )}
       </div>
+      {selectElements && !!elements.length && <label>Recorded elements (including overlaps)
+        <select aria-label="Recorded element" value={elements.some(element => element.step.id === selectedStep) ? selectedStep! : ""}
+          onChange={event => { if (event.target.value) selectElement(event.target.value); }}>
+          <option value="">Choose an element</option>
+          {elements.map((element, index) => <option key={`${element.step.id}-${index}`} value={element.step.id}>{element.label}</option>)}
+        </select>
+        <small>Outlines show recorded bounds. Cropped or transformed results can be edited from their timeline steps.</small>
+      </label>}
       {id && <ManualTools key={id} image={id} />}
+      {id && <div role="group" aria-label="Selected material actions" className="manual-tools">
+        {["subject", "background", "prop"].map(role => <button key={role} disabled={materialBusy || session?.turn_running}
+          onClick={() => void materialAction(async () => {
+            await action("creative.set", { values: { source_roles: { ...session?.creative?.source_roles, [role]: id } } });
+            useUI.getState().set({ notice: `Selected picture is your ${role}.` });
+          })}>Use as {role}</button>)}
+        <button onClick={() => setSharing(true)}>Finish this image</button>
+        {meta?.original_id && (session?.artifacts[meta.original_id]?.frames ?? 1) > 1 &&
+          <button onClick={() => useUI.getState().set({ selectedArtifact: meta.original_id! })}>Use animated original</button>}
+      </div>}
       {!!session?.steps.some((step) => session.bypass_tools?.includes(step.tool)) &&
         <details className="manual-tools"><summary>Applied effects</summary>
           {session.steps.filter((step) => session.bypass_tools?.includes(step.tool)).map((step) =>
@@ -336,11 +386,14 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         }}
       >
         <div className="strip-title">
-          Images <ChevronDown size={12} />
+          Materials <ChevronDown size={12} />
         </div>
+        <label>Find material<input value={materialSearch} onChange={e => setMaterialSearch(e.target.value)} placeholder="Picture or character name" /></label>
+        <button type="button" onClick={onImport}>Add material</button>
         <div className="artifact-list">
           {all
             .filter((a) => !all.some((b) => b.original_id === a.id))
+            .filter(a => a.label.toLowerCase().includes(materialSearch.toLowerCase()))
             .map((a) => (
               <ArtifactThumb
                 key={a.id}
@@ -364,6 +417,20 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </button>
         )}
       </form>
+      <details className="material-library"><summary>Saved characters &amp; materials</summary>
+        <div className="artifact-list">
+          {library.filter(entry => `${entry.name} ${entry.tags.join(" ")}`.toLowerCase().includes(materialSearch.toLowerCase())).map(entry =>
+            <button type="button" key={entry.id} disabled={materialBusy || session?.turn_running}
+              onClick={() => void materialAction(async () => {
+                const generation = useUI.getState().documentGeneration;
+                const result = await action("library.import", { id: entry.id });
+                if (generation === useUI.getState().documentGeneration)
+                  useUI.getState().set({ selectedArtifact: result.working.id, selectedStep: null });
+              })}><LibraryImage entry={entry} /><span>{entry.name}</span></button>)}
+        </div>
+        {!library.length && <p>Save characters in Cast or pictures in the Junk drawer to reuse them here.</p>}
+      </details>
+      {materialError && <p role="alert">{materialError}</p>}
       <dialog ref={shareDialog} className="share-dialog" aria-label="Export image" onClose={() => setSharing(false)}>
         <button onClick={() => setSharing(false)} aria-label="Close export">Close</button>
         {sharing && id && <ShareImage key={id} id={id} />}

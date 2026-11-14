@@ -159,6 +159,9 @@ class Session:
         names = [s.id for s in self.data.steps] + [m.id for m in self.data.messages]
         names += [sid for m in self.data.messages for sid in m.step_ids]
         names += [a.produced_by for a in self.artifacts.meta.values() if a.produced_by]
+        for snapshot in [*self.data.manual_undo, *self.data.manual_redo]:
+            names.extend(s.id for s in snapshot.steps)
+            names.extend(m.id for m in snapshot.messages)
         numbers = [int(n[len(prefix):]) for n in names if n.startswith(prefix) and n[len(prefix):].isdigit()]
         return f"{prefix}{max(numbers, default=0) + 1}"
 
@@ -291,6 +294,9 @@ class Session:
             if allowed:
                 raw['allow_sources'] = allowed
         params = self._resolved(runner.validate(tool, raw, actor))
+        if not runner.is_trusted(actor):
+            self.data.manual_undo.clear()
+            self.data.manual_redo.clear()
         step = Step(id=self._next_id("s"), index=len(self.data.steps) + 1, tool=tool, params=params,
                     actor=actor, status="proposed", reason=reason)
         if not runner.is_trusted(actor) and registry.get(tool).mutates:
@@ -558,13 +564,40 @@ class Session:
         self._refuse_later(step, pos, params)
         return params
 
-    def preview_edit(self, step_id: str, raw: dict) -> list[OutputRecord]:
+    def preview_edit(self, step_id: str, raw: dict, *, final_result: bool = False) -> list[OutputRecord]:
         """Render one local step without publishing artifacts, history or change events."""
         step = self.step(step_id)
         self._refuse_busy(self.data.steps)
         if step.bypassed:
             raise EngineError("enable this effect before previewing its settings")
         params = self.validate_step_params(step_id, raw)
+        if final_result:
+            todo = self.data.steps[self._position(step_id):]
+            if len(todo) > 60:
+                raise EngineError("final preview is limited to 60 operations")
+            for item in todo:
+                if item.status == "rejected":
+                    continue
+                spec = registry.get(item.tool)
+                if spec.network or spec.writes_files:
+                    raise EngineError("final preview requires local steps without file writes",
+                                      hint="preview this step alone instead")
+            # Own metadata and dictionaries; immutable bytes can safely be shared.
+            store = self.artifacts.fork()
+            try:
+                shadow = Session(self.data.model_copy(deep=True), store, executor=self.executor,
+                                 output_dir=self.output_dir, decoder=self.artifacts.decoder)
+                shadow.no_remote = True
+                shadow.edit(step_id, params)
+                completed = shadow.replay_from(step_id)
+                failed = next((item for item in completed if item.status == "error"), None)
+                if failed:
+                    raise EngineError(failed.error.message, hint=failed.error.hint)
+                last = next((item for item in reversed(completed) if item.outputs), None)
+                return [OutputRecord("preview", store.data(aid), "preview.png", "")
+                        for aid in (last.outputs if last else [])]
+            finally:
+                store.close()
         return self.preview_tool(step.tool, params)
 
     def preview_tool(self, tool: str, raw: dict) -> list[OutputRecord]:
@@ -766,7 +799,7 @@ def referenced_ids(data: SessionData, meta: dict[str, ArtifactMeta]) -> set[str]
         by_short.setdefault(short(i), []).append(i)
     for found in Session._mentioned([data.transcript, texts], set(by_short)):
         ids.update(by_short[found])
-    for branch in data.branches.values():
+    for branch in [*data.branches.values(), *data.manual_undo, *data.manual_redo]:
         ids.update(branch.artifact_ids)
         ids.update(branch.creative.source_roles.values())
     originals = [meta[i].original_id for i in ids if i in meta]

@@ -38,6 +38,8 @@ ALL_FILTERS = ["emboss", "edges", "contour", "solarize", "posterize", "invert", 
 
 # id -> (tool, params, needs a downloaded asset). Image parameters name fixture files.
 CASES = {
+    'animation-edit': ('animation_edit', {'image': J, 'frames': [{'index': 0, 'duration': 120}, {'index': 0, 'duration': 250}],
+                       'crop': [0, 0, 40, 30], 'captions': [{'text': 'HI', 'start': 1, 'end': 2, 'x': 0, 'y': 0}], 'loop': 2}, False),
     'transform': ('transform', {'image': L, 'crop': [20, 30, 220, 330], 'width': 80,
                                'height': 120, 'rotate': 90, 'flip_horizontal': True}, False),
     'retro-forum': ('retro_layout', {'style':'forum','images':[L,J],'title':'MY POST','caption':'HELLO','seed':7}, False),

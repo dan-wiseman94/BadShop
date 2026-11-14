@@ -1,0 +1,34 @@
+import path from "node:path";
+import { stat } from "node:fs/promises";
+import { test, expect, root } from "./fixtures";
+import type { Session } from "../src/types";
+
+test("project home previews reopen saved work through the unsaved-change guard", async ({ page, emptyCore }) => {
+  await emptyCore.call("session.new", { name: "Saved collage" });
+  await emptyCore.call("artifacts.import", { path: path.join(root, "core/tests/fixtures/lincoln.png") });
+  const saved = await emptyCore.call("session.get") as Session;
+  const file = path.join(emptyCore.folder, "collage.badshop");
+  await emptyCore.call("session.save_as", { path: file });
+  await emptyCore.call("session.new", { name: "New draft" });
+  await emptyCore.call("tools.run", { tool: "canvas", params: { width: 64, height: 48 } });
+  await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
+  await page.getByRole("button", { name: "Edit a photo without AI" }).click();
+  await page.getByRole("button", { name: "Projects", exact: true }).click();
+  const home = page.getByRole("dialog", { name: "Project home", exact: true });
+  await expect(home.locator("img")).toBeVisible();
+  await home.getByRole("button", { name: "Saved collage", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: /Save changes/ })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect((await emptyCore.call("session.get") as Session).name).toBe("New draft");
+  await home.getByRole("button", { name: "Saved collage", exact: true }).click();
+  await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+  await expect(home).toHaveCount(0);
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).id).toBe(saved.id);
+  await page.getByRole("button", { name: "Projects", exact: true }).click();
+  await home.getByLabel("Find a recent project").fill("missing name");
+  await expect(home.getByText("No matching projects.")).toBeVisible();
+  await home.getByLabel("Find a recent project").fill("");
+  await home.getByRole("button", { name: "Remove Saved collage from recent projects", exact: true }).click();
+  await expect(home.getByRole("button", { name: "Saved collage", exact: true })).toHaveCount(0);
+  expect((await stat(file)).isFile()).toBe(true);
+});

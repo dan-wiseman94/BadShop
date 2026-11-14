@@ -81,3 +81,48 @@ test("stopping a running recipe keeps finished images and permits another run", 
   await emptyCore.call("session.open", { path: project });
   expect(await emptyCore.call("artifacts.get", { id: kept })).toEqual(bytes);
 });
+
+test("a saved design keeps separate picture roles across projects and retries one failed row", async ({ page, emptyCore }) => {
+  const first = await emptyCore.call("artifacts.import", { path: path.join(root, "core/tests/fixtures/lincoln.png") }) as { working: { id: string } };
+  const second = await emptyCore.call("artifacts.import", { path: path.join(root, "core/tests/fixtures/trump.png") }) as { working: { id: string } };
+  await emptyCore.call("tools.run", { tool: "paste", params: { base: first.working.id, piece: second.working.id, at: [0, 0], width: 120 } });
+  await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
+  await page.getByRole("button", { name: "Edit a photo without AI" }).click();
+  await page.locator(".step").first().click();
+  async function openDesigns() {
+    await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+    await page.getByRole("button", { name: "Retro workbench", exact: true }).click();
+    await page.getByRole("button", { name: "Recipes", exact: true }).click();
+  }
+  await openDesigns();
+  const studio = page.getByRole("region", { name: "Visual recipes" });
+  await studio.getByRole("button", { name: "Capture selected step", exact: true }).click();
+  await studio.getByLabel("Recipe name", { exact: true }).fill("Two distinct pictures");
+  await studio.getByRole("button", { name: "Keep these recipe controls", exact: true }).click();
+  await studio.getByRole("button", { name: "Save to design library", exact: true }).click();
+  await expect(studio.getByRole("status")).toHaveText("Design saved for use in any project.");
+  await emptyCore.call("session.new", { name: "Another project", discard_unsaved: true });
+  await emptyCore.call("artifacts.import", { path: path.join(root, "core/tests/fixtures/lincoln.png") });
+  await emptyCore.call("artifacts.import", { path: path.join(root, "core/tests/fixtures/trump.png") });
+  await page.reload();
+  await openDesigns();
+  await studio.getByLabel("Design library").selectOption("Two distinct pictures");
+  await studio.getByLabel("Row 1: base").selectOption(second.working.id);
+  await studio.getByLabel("Row 1: piece").selectOption(first.working.id);
+  await studio.getByRole("button", { name: "Add batch row", exact: true }).click();
+  await studio.getByLabel("Row 2: base").selectOption(first.working.id);
+  await studio.getByRole("button", { name: "Run design rows", exact: true }).click();
+  await expect(studio.getByRole("status")).toContainText("1 steps completed");
+  await expect(studio.getByAltText("Row 1 preview")).toBeVisible();
+  const initial = await emptyCore.call("session.get") as Session;
+  expect(initial.steps[0].params).toMatchObject({ base: second.working.id, piece: first.working.id });
+  const kept = initial.steps[0].outputs[0];
+  const bytes = await emptyCore.call("artifacts.get", { id: kept });
+  await studio.getByLabel("Row 2: piece").selectOption(second.working.id);
+  await studio.getByRole("button", { name: "Retry row 2", exact: true }).click();
+  await expect(studio.getByAltText("Row 2 preview")).toBeVisible();
+  const finished = await emptyCore.call("session.get") as Session;
+  expect(finished.steps).toHaveLength(2);
+  expect(finished.steps[1].params).toMatchObject({ base: first.working.id, piece: second.working.id });
+  expect(await emptyCore.call("artifacts.get", { id: kept })).toEqual(bytes);
+});

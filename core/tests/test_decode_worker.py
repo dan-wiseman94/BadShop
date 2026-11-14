@@ -1,7 +1,6 @@
 """Compressed image bytes must be decoded outside the desktop core process."""
 import io
 import os
-import sys
 import tempfile
 import threading
 
@@ -76,13 +75,38 @@ def test_aggregate_import_limit_is_atomic_and_counts_unique_bytes(monkeypatch):
     assert store.ids() == [kept.id] and store.data(kept.id) == first
 
 
-def test_phone_format_refusal_gives_a_conversion_path_and_preserves_document():
+def test_malformed_phone_image_is_refused_without_changing_document():
     session = Session.new()
     kept = session.import_image(encoded(Image.new("RGB", (10, 10), "red")), "kept")
-    with pytest.raises(EngineError, match="phone image format") as refused:
+    with pytest.raises(EngineError, match="isn't an image") as refused:
         session.import_image(b"unsupported phone bytes", "holiday.heic")
-    assert "export a PNG or JPEG" in refused.value.hint
+    assert "HEIC/HEIF" in refused.value.hint
     assert session.artifacts.ids() == [kept.id]
+
+
+def test_heic_worker_import_and_project_keep_original_and_decoded_pixels(tmp_path, monkeypatch):
+    source = Image.new("RGB", (64, 32), (30, 140, 220))
+    raw = encoded(source, "HEIF", quality=-1)
+    expected = ArtifactStore()
+    work, original = expected.import_image(raw, "phone.heic")
+    assert original.format == "HEIF"
+    assert original.mime == "image/heif"
+    monkeypatch.setattr(artifacts, "_decode", lambda *args: pytest.fail("HEIC decoded in parent"))
+    with WorkerExecutor(timeout_s=30, max_rss_mb=1024) as worker:
+        session = Session.new(decoder=worker.decode, executor=worker)
+        imported = session.import_image(raw, "phone.heic")
+        assert session.artifacts.data(imported.id) == expected.data(work.id)
+        assert session.artifacts.data(imported.original_id) == raw
+        file = tmp_path / "phone.badshop"
+        save(session, file)
+        restored = open_project(file, decoder=worker.decode, executor=worker)
+        assert restored.artifacts.data(imported.original_id) == raw
+        assert restored.artifacts.data(imported.id) == expected.data(work.id)
+        step = restored.run_tool("text", {"image": imported.original_id, "text": "Hi",
+            "font": "bundled", "size": 8, "margin": 1}, "user")
+        assert step.status == "done"
+        pid = worker.pid
+    assert not psutil.pid_exists(pid)
 
 
 def test_library_restore_storage_failure_keeps_existing_document(tmp_path, monkeypatch):
@@ -113,17 +137,18 @@ def test_multi_output_storage_failure_rolls_back_only_new_artifacts(monkeypatch)
     assert step.outputs == [] and session.artifacts.ids() == [kept.id]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="isolated POSIX subprocess fixture")
 @pytest.mark.parametrize("stop", ["timeout", "cancel"])
 def test_media_worker_timeout_removes_owned_source_copy_and_child(tmp_path, monkeypatch, stop):
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(scratch))
-    binary = tmp_path / "ffprobe"
-    pidfile = tmp_path / "probe.pid"
-    binary.write_text(f"#!{sys.executable}\nimport os,time,pathlib\npathlib.Path({str(pidfile)!r}).write_text(str(os.getpid()))\ntime.sleep(60)\n")
-    binary.chmod(0o700)
-    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    # Inject a stalled native-decoder stand-in into the real spawned worker.
+    # No production test hook: spawn inherits this test-only import path.
+    pidfile = tmp_path / "decoder.pid"
+    (tmp_path / "av.py").write_text(
+        "import os,time,pathlib\nclass FFmpegError(Exception): pass\n"
+        f"def open(*args, **kwargs):\n    pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid()))\n    time.sleep(60)\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
     source = tmp_path / "clip.mp4"
     source.write_bytes(b"private video test fixture")
     signal = threading.Event()
@@ -139,7 +164,7 @@ def test_media_worker_timeout_removes_owned_source_copy_and_child(tmp_path, monk
                 timer.cancel()
                 timer.join()
         assert not list(scratch.glob("badshop-media-*"))
-        assert pidfile.exists(), "must reach the actual owned subprocess before timeout"
+        assert pidfile.exists(), "must enter the decoder in the actual worker before timeout"
         try:
             assert psutil.Process(int(pidfile.read_text())).status() == psutil.STATUS_ZOMBIE
         except psutil.NoSuchProcess:

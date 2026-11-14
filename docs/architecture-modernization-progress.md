@@ -1,7 +1,7 @@
 # Architecture modernization implementation status
 
 Implementation baseline: `fb1ad675546bd466d5578fbf324a72361458a619`.
-The five audit documents are inherited uncommitted task material. The full W0–W14
+The five audit documents were inherited task material, retained in checkpoint `2f8316c`. The full W0–W14
 plan remains authorized; this ledger does not mark it complete.
 
 ## Implemented
@@ -128,7 +128,7 @@ times were 0.323/0.466 seconds in that single run.
 No live providers, Windows/macOS native workflows, PowerShell runtime test, frozen
 core build, or packaged installer acceptance were executed. The Windows quoting
 test is present for a Windows host; Linux exercised POSIX. The PyInstaller
-fingerprint resource requires packaged validation before release. These gaps mean
+fingerprint resource is now verified in a frozen Linux core; installer/platform validation remains open. These gaps mean
 W1 is not a fully validated cross-platform release.
 
 ## Review and maintenance cost
@@ -162,38 +162,107 @@ use the shared complete contract fixture. The maintenance report is retained at
 Transport/ownership complexity was reviewed as safety logic rather than split
 to satisfy a numeric target. No new runtime dependencies were introduced.
 
-## Concurrent main changes
+## Storage and reconciliation continuation
 
-Latest fetched `origin/main`: `ae4297cab3dd027d969cd74c13560e50763e4a20`.
-This continuation started at remote tip `0df3ba2fb66bd61e204199942dd4cc1e6b5da1d6`.
-The theme/XP change (#45) is separate from the runtime changes. PR #47's idle
-snapshot stream clearing is included in this task's reconciliation logic; retain
-its upstream controller regression on integration.
+Upstream `ae4297cab3dd027d969cd74c13560e50763e4a20` is reconciled with the
+modernization work. The reconciliation preserves #45 themes, #47 idle-stream
+clearing, #46 creation workflows/manual history/HEIF/recipes, and #48–49 release
+metadata and Windows smoke changes. The registered contracts now cover those
+methods and results. Pattern-constrained recipe input maps generate typed values.
+A later fetch advanced to `1b404cfc09e04394d3f451ccd950fce772fe208d` (#50): authenticated draft-release listing and its tests. That change is isolated from storage and is included in the final reconciliation. Nothing was published remotely.
 
-Main advanced again with #46 (creation/reusable editing workflows). Its overlap
-is material: new project-recent/history/media methods, manual undo/redo snapshots,
-HEIF artifacts, recipe inputs/row results, branch/history mutation wrappers,
-settings records, native capture capabilities and additional packaging resources.
-Before integration, add those registered results/scopes to the contract registry,
-regenerate types from the merged models/signatures, preserve the upstream UI and
-engine features, and rerun their affected workflows. W4–W6 must migrate manual
-undo/redo membership as well as automatic turn checkpoints. Neither main change
-has been merged or overwritten in this task worktree. No remote publication or
-commit was performed.
-The subsequent #48 release preparation changes version/lock metadata to 0.5.0
-and adds readiness waits to two upstream browser tests. Preserve those when
-reconciling the recorded #46 overlap; they are not incorporated here.
-The last fetch also includes #49: version/locks advance to 0.5.1 and the Windows
-editing smoke explicitly chooses files in the new Add material dialog. It is
-reviewed and remains part of the pending upstream reconciliation.
+Encoded images now reside in hash-verified disk files. Preview forks own temporary
+outputs and independent links to inputs. Failed batches delete their published
+files; normal core shutdown explicitly releases session scratch storage. Immutable
+publication uses file flushing and POSIX directory synchronization. Windows power-loss
+behavior and hard-kill scratch reclamation remain unverified/incomplete.
 
-## Remaining
+Local autosave now uses SQLite storage version 1 and persistent immutable blobs.
+Metadata nodes share unchanged records and chunked list membership. The writer
+publishes blobs before a short transaction, uses DELETE journaling with EXTRA sync,
+and stages initial database creation. Startup settles hot rollback journals before
+moving the database. A process-death test exercises actual journal rollback.
+Legacy recovery ZIPs remain migration inputs and are preserved after restore.
+Manual undo/redo and branch snapshots round-trip through the same validators.
+Corrupt standalone recovery is preserved separately so fresh work can autosave;
+unsettled journals and unsupported storage versions are never silently discarded.
 
-The full modernization is **not complete**. W0 needs the remaining media/library,
-renderer and target-hardware baselines. W2 still needs durable operation receipts
-and removal of transitional context-free clients. W3 still needs full parent
-invocation/recipe lifecycle, deadline and resource policy. W4, structural sharing in W5, W6–W11,
-remaining W12/W13 work and W14 rollout remain open. Explicit artifact-use/output
-identities, transactional SQLite/disk-blob persistence, resource scheduling,
-normalized UI, provider-neutral context, accessibility, provenance/GC and release
-rollout have not been implemented. Continue from the detailed plan.
+Collection retains both current and previous recovery, waits 24 hours before
+removing unreachable blobs, and refuses collection if any recovery metadata is
+unreadable. Metadata garbage is removed transactionally. Periodic collection is
+bounded to once per hour for the active recovery folder. Portable schema 4 saves
+remain ZIP archives and retain their size/hash/decoder/reference safeguards.
+
+### Evidence and review
+
+- `reconcile-browser`: all 10 upstream creation/history/recipe workflows passed.
+- `disk-blobs`: frontend build passed; initial storage failures exposed implicit
+  temporary-directory cleanup, which was replaced with explicit lifetime cleanup.
+- `recovery-storage`: 194 focused tests and lint passed.
+- `storage-quick`: 1,487 core tests passed, 8 failed, 51 skipped; 84 frontend tests
+  passed, 1 failed; all 13 Rust tests, formatting, build and workflow tests passed.
+  This run is not reported as an overall pass.
+- `storage-followup`: stale-source evidence only; synchronization was refused while
+  the quick harness held the checkout. It does not validate subsequent fixes.
+- `storage-followup-fixed`: 73 core tests passed; three remaining provider assertions
+  needed terminal run identity. Settings controls passed. The privacy test passed
+  serially; its initial parallel timeout occurred before the owned request arrived.
+- `storage-final`: 181 tests passed, including corrected provider protocol assertions,
+  portable project round-trip, manual history, previews, cleanup and recovery failure
+  injection. Lint, generated contracts, import boundaries and Vulture passed.
+- `sqlite-browser`: all 10 real recovery/reconnect/recipe scenarios passed, including
+  killing the core, matching recovered bytes, saving/reopening and preserving drafts.
+- `sqlite-desktop`: debug build and development-launcher native workflow passed.
+  The direct debug native run failed at GTK Open acceptance; retain that failure.
+  `storage-review` initially reran a debug binary overwritten by the development
+  launcher, so it pointed at a stopped Vite server. After rebuilding,
+  `storage-native-final` passed actual native recovery/clipboard/Save/Open/close.
+  Do not equate these source runs with installer validation.
+- `storage-benchmark` and `storage-benchmark-optimized`: same deterministic
+  100/200/500/1,000-step workload, 11 retained branches, exact state/pixel round-trip.
+  At 1,000 steps, initial recovery commit/open were 6.88/6.48 seconds. Grouping
+  small records and caching reads reduced them to 0.33/0.61 seconds; comparable
+  archive save was 0.35 seconds. SQLite metadata was 1.28 MB versus 6.73 MB expanded
+  JSON. This is a small-image workload, not a large-media memory benchmark.
+
+The second-pass review caught hot-journal rename risk, implicit scratch cleanup,
+corrupt existing nodes being accepted by INSERT OR IGNORE, missing aggregate
+recovery size checks, and metadata fragmentation. Focused regressions preserve
+those guards. Updated path assertions now name SQLite recovery, and event assertions
+require run identity as well as their previous payloads. The media staging test
+allows only the session's owned blob directory while live and requires it to be
+gone after shutdown. No pixel goldens were changed by this storage work; upstream
+creation-workflow golden changes were preserved during reconciliation.
+
+- `storage-review`: 138 project/recovery tests passed, including size guards and
+  corrupt-recovery preservation. Maintenance initially lacked its optional quality
+  environment and an upstream ref in the private clone. `storage-maintenance`
+  passed all 10 maintenance tests; `storage-native-final` reports growth against
+  the fetched upstream commit after importing its bundle into a task-specific ref.
+- `storage-frozen`: freezing caught the prior fingerprint spec's invalid `WORKPATH`
+  name. The documented PyInstaller global is `workpath`; after that fix,
+  `storage-frozen-fixed` built the onedir core and passed normal-exit and forced-death
+  smokes, bundled HEIC/PDF/video, SQLite recovery bytes and worker cleanup. The
+  packaged fingerprint matches the current core source. `runtime.json` records
+  SQLite 3.53.1, compile options and the storage version/journal/sync policy.
+
+- `modernization-integrated-core`: final shared-storage regression run passed
+  1,498 core tests; 51 platform/opt-in checks were skipped. The changed generator
+  nullability/pattern-property regression passed. No full-suite failure is hidden
+  by the earlier focused reruns.
+
+### Remaining
+
+The full W0–W14 modernization is **not complete**. Disk-backed images and shared
+recovery metadata do not finish the document migration: W4 explicit artifact-use,
+invocation and named-output identities, W5 shared in-memory revisions, and the
+portable-format migration remain open. W6 still needs durable command intents,
+receipts, commit-before-event semantics, inspection/repair UI and migration/rollback
+release coverage. The current session remains the mutation authority.
+
+Also outstanding: the remaining resource/media scheduling and binary delivery,
+normalized/windowed UI projection, provider-neutral bounded conversation model,
+render boundaries/accessibility, scratch/cache budgets, full resource baselines,
+packaged cross-platform release gates and user rollout/study work. The plan's
+100 ms commit proposal is not met by the 1,000-step benchmark. No live provider,
+macOS/Windows native release, signed update or installer outcome is claimed.

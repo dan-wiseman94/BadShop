@@ -95,7 +95,20 @@ before repeating it. Durable operation receipts are not implemented yet.
 Snapshots include the active run ID, its emitted partial text and last terminal
 outcome so refresh can recover streaming/retry state. This run state is currently
 in memory, not crash-durable project history. Saved image and timeline recovery
-continue to use the existing project/autosave path.
+use portable projects and the local SQLite recovery store.
+
+Local recovery storage version 1 uses `autosave/session.sqlite` and immutable
+files in `autosave/blobs/`. The previous run is retained as `previous.sqlite`.
+These are application-owned recovery files, not portable projects: use Save to
+produce a `.badshop` archive. SQLite files outside the recovery directory are
+not accepted by the project importer. Unknown recovery versions are refused.
+
+The older `session.badshop`/`previous.badshop` recovery format remains readable.
+When no SQLite recovery is available, startup offers the legacy archive; Restore
+validates it through the normal archive reader, then the next autosave writes
+SQLite. The legacy backup remains unchanged. Keep this importer while supported
+0.4.x/0.5.x installations can upgrade directly. Downgrading does not convert a
+SQLite recovery database: save a portable project before using an older release.
 
 Managed CLI processes receive random revocable adapter credentials, separate from
 the renderer token. Document calls require an active run and matching direction;

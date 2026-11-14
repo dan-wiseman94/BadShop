@@ -34,12 +34,13 @@ TRUMP = FIXTURES / "trump.png"
 HEAD = [100, 50, 350, 330]  # a box on lincoln's 457x600 working copy
 NO_HOME = "~nosuchuser_badshop"  # "~name" for a user this computer doesn't have: pathlib can't expand it
 METHODS = sorted([
+    "history.undo", "history.redo", "projects.recent", "projects.forget",
     'retro.list', 'creative.set', 'recipes.capture', 'recipes.save', 'recipes.remove', 'recipes.run', 'recipes.stop',
     'tools.preview', 'remix.inspect', 'remix.export',
     'credits.get', 'credits.export', 'sources.key', 'cache.status', 'cache.clear', 'artifacts.frame',
     "sources.status", "updates.begin", "updates.end",
     "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",
-    "media.status", "media.cancel", "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
+    "media.status", "media.cancel", "media.capture", "media.discard", "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
     "collections.update", "collections.import", "collections.remove",
     "library.list", "library.save", "library.update", "library.import", "library.remove", "library.thumbnail",
     "branches.list", "branches.create", "branches.switch", "branches.rename", "branches.remove",
@@ -117,7 +118,8 @@ def test_settings_bounds():
         "approval_mode": "ask_changes", "auto_replay": True, "output_dir": None, "step_budget": 40,
         "tool_timeout_s": 120.0, "tool_memory_mb": 3072, "fake_provider_script": None,
         'creative_defaults': CreativePreferences().model_dump(), 'no_remote': False, 'remember_history': True,
-        'source_allowlist': [], 'rights_filter': 'any', 'source_orientation': 'any'}
+        'source_allowlist': [], 'rights_filter': 'any', 'source_orientation': 'any',
+        'export_presets': [], 'recent_projects': [], 'saved_designs': []}
     for bad in ({"step_budget": 0}, {"step_budget": 501}, {"tool_timeout_s": 0.5}, {"tool_timeout_s": 3601},
                 {"tool_timeout_s": float("inf")}, {"tool_memory_mb": 255}, {"tool_memory_mb": 65537},
                 {"approval_mode": "yolo"}, {"output_dir": "relative/folder"},
@@ -372,6 +374,21 @@ def test_invalid_handler_result_reports_unknown_outcome_without_repeating_action
             dispatcher.method('unregistered.contract')(export)
 
     asyncio.run(scenario())
+
+def test_animation_frame_thumbnail_preserves_source_and_requested_frame(env):
+    async def body(app):
+        c = Client(app)
+        buffer = io.BytesIO()
+        Image.new("RGB", (320, 160), "red").save(buffer, "GIF", save_all=True,
+            append_images=[Image.new("RGB", (320, 160), "blue")], duration=[80, 170], loop=3)
+        source = app.session.artifacts.add(buffer.getvalue(), "frames.gif")
+        response = await c.call("artifacts.frame", id=source.id, frame=1, max_px=64)
+        with Image.open(io.BytesIO(base64.b64decode(response["data"]))) as thumbnail:
+            assert thumbnail.size == (64, 32)
+            assert thumbnail.convert("RGB").getpixel((0, 0)) == (0, 0, 255)
+        assert app.session.artifacts.data(source.id) == buffer.getvalue()
+        assert response["meta"]["frames"] == 2
+    run(body)
 
 
 def test_pinned_result_requires_cli_review_even_in_auto_mode(env):
@@ -772,7 +789,7 @@ def test_save_as_refuses_the_autosave_folder(env, via_link):
             assert e.value.message == f"can't save a project in {folder}: it is badshop's autosave folder"
             assert e.value.data == {"hint": "pick another folder for the project"}
         assert (await c.call("session.get"))["path"] is None
-        assert [p.name for p in folder.iterdir()] == ["session.badshop"]  # nothing was written there
+        assert {p.name for p in folder.iterdir()} == {"session.sqlite", "blobs"}  # no portable save was written there
         saved = await c.call("session.save_as", path=str(env / "mine.badshop"))  # any other folder is fine
         assert saved == {"path": str(env / "mine.badshop")}
 

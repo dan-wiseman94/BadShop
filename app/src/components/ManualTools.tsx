@@ -5,8 +5,11 @@ import type { Params } from "../types";
 import { ToolForm } from "./ToolForm";
 
 const choices = [
+  { label: "Edit GIF frames", name: "animation_edit", params: {} },
+  { label: "Cut out / repair selection", name: "cutout", params: {} },
   { label: "Crop / resize / rotate / flip", name: "transform", params: {} },
-  { label: "Text", name: "text", params: {} },
+  { label: "Text", name: "text", params: { preserve_case: true, preserve_line_breaks: true, fit_exact: true, font: "bundled" } },
+  { label: "Compose subject on background", name: "paste", params: {} },
   { label: "Arrows & shapes", name: "draw", params: {} },
   { label: "Censor", name: "censor", params: {} },
 ] satisfies { label: string; name: string; params: Params }[];
@@ -25,7 +28,13 @@ export function ManualTools({ image }: { image: string }) {
     {tool && choice && <div>
       <h3>{choice.label}</h3>
       <ToolForm key={`${image}-${choice.name}`} tool={tool}
-        initial={{ image, ...choice.params }} disabled={session?.turn_running}
+        initial={choice.name === "paste" ? {
+          base: session?.creative?.source_roles.background ?? image,
+          piece: session?.creative?.source_roles.subject ?? image,
+          at: [0, 0],
+          width: Math.max(1, Math.round((session?.artifacts[session?.creative?.source_roles.background ?? image]?.width ?? 400) / 2)),
+        } : { image: choice.name === "animation_edit" && session?.artifacts[image]?.original_id
+          ? session.artifacts[image].original_id : image, ...choice.params }} disabled={session?.turn_running}
         submitLabel={`Apply ${choice.label.toLowerCase()}`}
         onSubmit={async (params) => {
           const step = await action("tools.run", { tool: tool.name, params });

@@ -12,8 +12,8 @@ from pydantic.json_schema import GenerateJsonSchema
 
 from badshop.providers.profiles import Profile
 from badshop.server.protocol import DocumentContext
-from badshop.server.settings import Settings
-from badshop.session.models import ArtifactMeta, Message, SessionData, Step
+from badshop.server.settings import RecentProject, Settings
+from badshop.session.models import ArtifactMeta, BranchSnapshot, Message, SessionData, Step
 from badshop.session.preferences import CreativePreferences
 from badshop.session.recipes import Recipe
 from badshop.session.library import LibraryEntry
@@ -31,7 +31,10 @@ SessionSnapshot = create_model('SessionSnapshot', __base__=SessionData,
     unsaved_changes=(bool, ...), turn_running=(bool, ...), batch_running=(bool, ...),
     pending_approvals=(list[str], ...), restorable=(str | None, ...), bypass_tools=(list[str], ...),
     run_id=(str | None, ...), last_turn_outcome=(TurnOutcome | None, ...), recipes=(list[Recipe], ...),
-    stream_text=(str, ...))
+    stream_text=(str, ...),
+    manual_history=(record('ManualHistory', undo=str | None, redo=str | None), ...),
+    manual_undo=(list[BranchSnapshot], Field(default_factory=list, exclude=True)),
+    manual_redo=(list[BranchSnapshot], Field(default_factory=list, exclude=True)))
 PathResult = record('PathResult', path=str)
 ArtifactPayload = record('ArtifactPayload', meta=ArtifactMeta, mime=str, data=str)
 Imported = record('ImportedArtifacts', working=ArtifactMeta, original=ArtifactMeta)
@@ -64,9 +67,15 @@ CollectionSummary = record('CollectionSummary', id=str, name=str, count=int, dup
 CollectionEntry = record('CollectionEntry', id=str, name=str, tags=list[str], description=str,
                          thumbnail_data_url=str, width=int, height=int, duplicate_of=(str | None, None))
 Credits = record('Credits', sources=list[dict], notice=str)
-RecipeRun = record('RecipeRun', completed=list[str], errors=list[record('RecipeError', message=str)], cancelled=bool)
+RecipeRow = record('RecipeRow', index=int, status=str, step_ids=list[str], output_id=str | None, error=str | None)
+RecipeRun = record('RecipeRun', completed=list[str], errors=list[record('RecipeError', message=str)],
+                   cancelled=bool, rows=list[RecipeRow])
+RecentProjectStatus = create_model('RecentProjectStatus', __base__=RecentProject, available=(bool, ...))
+SettingsResponse = create_model('SettingsResponse', __base__=Settings, saved_designs=(list[Recipe], ...))
 
 RESULTS = {
+    'projects.recent': list[RecentProjectStatus], 'projects.forget': record('ForgottenProject', forgotten=bool),
+    'history.undo': SessionSnapshot, 'history.redo': SessionSnapshot,
     'session.get': SessionSnapshot, 'session.new': SessionSnapshot, 'session.open': SessionSnapshot,
     'session.restore': SessionSnapshot, 'session.set_approval_mode': SessionSnapshot,
     'session.save': PathResult, 'session.save_as': PathResult, 'session.export_recipe': PathResult,
@@ -80,7 +89,7 @@ RESULTS = {
     'providers.list': list[Profile], 'providers.save': Profile, 'providers.add': Profile,
     'providers.delete': record('DeletedProvider', deleted=bool), 'providers.select': SessionSnapshot,
     'providers.on_device': SessionSnapshot, 'providers.test': ProviderStatus, 'providers.detect': list[CLIDetection],
-    'settings.get': Settings, 'settings.set': Settings, 'diagnostics.get': Diagnostics,
+    'settings.get': SettingsResponse, 'settings.set': SettingsResponse, 'diagnostics.get': Diagnostics,
     'assets.status': list[Asset], 'assets.download': PathResult, 'assets.cancel': record('CancelledAsset', cancelled=bool),
     'updates.begin': record('UpdateLease', lease=str), 'updates.end': record('EndedUpdate', ended=bool),
     'chat.send': record('StartedTurn', started=bool), 'chat.retry': record('RetriedTurn', started=bool),
@@ -101,6 +110,7 @@ RESULTS = {
     'packs.import': record('ImportedPack', entries=list[LibraryEntry], name=str, count=int),
     'media.preview': MediaPreview, 'media.status': record('MediaStatus', video=bool, pdf=bool),
     'media.cancel': record('CancelledMedia', cancelled=bool),
+    'media.capture': MediaPreview | None, 'media.discard': record('DiscardedMedia', discarded=bool),
     'media.import': record('ImportedMedia', artifacts=list[ArtifactMeta], provenance=dict),
     'collections.index': CollectionSummary, 'collections.list': list[CollectionSummary],
     'collections.search': list[CollectionEntry], 'collections.update': CollectionEntry,
@@ -110,6 +120,7 @@ RESULTS = {
 }
 
 READ_METHODS = frozenset({
+    'projects.recent',
     'session.get', 'branches.list', 'tools.list', 'artifacts.get', 'artifacts.frame', 'providers.list',
     'providers.detect', 'diagnostics.get', 'settings.get', 'assets.status', 'sources.status', 'novelty.recent',
     'library.list', 'library.thumbnail', 'retro.list', 'recipes.capture', 'credits.get', 'remix.inspect',
@@ -117,6 +128,7 @@ READ_METHODS = frozenset({
     'steps.preview', 'tools.preview',
 })
 GLOBAL_METHODS = frozenset({
+    'projects.recent', 'projects.forget', 'media.capture', 'media.discard',
     'tools.list', 'providers.list', 'providers.save', 'providers.add', 'providers.delete', 'providers.test',
     'providers.detect', 'diagnostics.get', 'settings.get', 'settings.set', 'updates.begin', 'updates.end',
     'assets.status', 'assets.download', 'assets.cancel', 'sources.key', 'novelty.recent', 'novelty.clear',

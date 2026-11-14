@@ -13,6 +13,8 @@ export interface Session {
   context?: DocumentContext;
   run_id?: string | null;
   last_turn_outcome?: { run_id: string | null; reason: string; error?: string | null } | null;
+
+  manual_history?: { undo: string | null; redo: string | null };
   batch_running?: boolean;
   undo_branch_id?: string | null;
   pause_before_finish?: boolean;
@@ -70,6 +72,8 @@ export interface Profile {
   capability_overrides: Record<string, boolean>;
 }
 export interface Settings {
+  saved_designs?: Recipe[];
+  export_presets?: { name: string; params: Params }[];
   creative_defaults?: CreativePreferences;
   no_remote?: boolean;
   remember_history?: boolean;
@@ -118,7 +122,9 @@ export type Recipe = {
   version: number;
   name: string;
   steps: { tool: string; params: Params }[];
+  inputs?: Record<string, { kind: "image" | "text"; default?: string | null }>;
 }
+export interface RecipeRowResult { index: number; status: string; output_id: string | null; error: string | null; step_ids: string[] }
 export interface CoreEvent {
   method: string;
   params: Params;

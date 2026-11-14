@@ -14,7 +14,9 @@ import time
 from pathlib import Path
 
 import psutil
+import av
 from PIL import Image
+from pillow_heif import register_heif_opener
 from websockets.asyncio.client import connect
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -125,7 +127,7 @@ async def observe_startup(pid: int):
 
 async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 background_removal: bool = False, metrics: Path | None = None,
-                cycles: int = 5, metrics_kind: str = 'packaged'):
+                cycles: int = 5, metrics_kind: str = 'packaged', capture: bool = False):
     with tempfile.TemporaryDirectory(prefix='badshop-smoke-') as folder:
         env = {**os.environ, 'BADSHOP_CONFIG_DIR': folder + '/config',
                'BADSHOP_DATA_DIR': folder + '/data', 'BADSHOP_OUT': folder + '/out',
@@ -181,6 +183,20 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 if keychain:
                     from smoke_keychain import exercise_keychain
                     await exercise_keychain(rpc)
+                if capture:
+                    before_capture = await rpc('session.get')
+                    preview = await rpc('media.capture')
+                    assert preview and preview['width'] > 0 and preview['height'] > 0
+                    captured = await rpc('media.import', preview_id=preview['id'], candidate_ids=['0'],
+                                         crop=[0, 0, 40, 30])
+                    capture_id = captured['artifacts'][0]['id']
+                    with Image.open(io.BytesIO(base64.b64decode((await rpc('artifacts.get', id=capture_id))['data']))) as pixels:
+                        assert pixels.size == (40, 30)
+                    after_capture = await rpc('session.get')
+                    assert len(after_capture['artifacts']) == len(before_capture['artifacts']) + 1
+                    assert after_capture['artifacts'][capture_id]['original_id'] is None
+                    await rpc('media.discard', preview_id=preview['id'])
+                    print('Frozen capture passed: screenshot pixels, region-only import and preview cleanup', flush=True)
                 source = Path(folder) / 'input 🖼.png'
                 shutil.copyfile(ROOT / 'core/tests/fixtures/lincoln.png', source)
                 image = await rpc('artifacts.import', path=str(source))
@@ -195,6 +211,46 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                         observer.cancel()
                         await asyncio.gather(observer, return_exceptions=True)
                 assert step['status'] == 'done', step
+                register_heif_opener()
+                phone_path = Path(folder) / 'phone.heic'
+                Image.new('RGB', (64, 32), (30, 140, 220)).save(phone_path, format='HEIF', quality=-1)
+                phone = await rpc('artifacts.import', path=str(phone_path))
+                assert phone['original']['format'] == 'HEIF'
+                phone_frame = await rpc('artifacts.frame', id=phone['original']['id'], frame=0)
+                with Image.open(io.BytesIO(base64.b64decode(phone_frame['data']))) as decoded:
+                    assert decoded.size == (64, 32)
+                phone_bytes = phone_path.read_bytes()
+                assert base64.b64decode((await rpc('artifacts.get', id=phone['original']['id']))['data']) == phone_bytes
+                pdf_path = Path(folder) / 'page.pdf'
+                Image.new('RGB', (80, 60), 'blue').save(pdf_path, format='PDF')
+                pdf_preview = await rpc('media.preview', path=str(pdf_path), kind='document', page=1)
+                pdf_path.unlink()
+                pdf_import = await rpc('media.import', preview_id=pdf_preview['id'], candidate_ids=['0'],
+                                       crop=[10, 10, 30, 30])
+                pdf_id = pdf_import['artifacts'][0]['id']
+                pdf_bytes = (await rpc('artifacts.get', id=pdf_id))['data']
+                with Image.open(io.BytesIO(base64.b64decode(pdf_bytes))) as decoded:
+                    assert decoded.size == (20, 20)
+                    red, green, blue = decoded.getpixel((10, 10))[:3]
+                    assert red < 10 and green < 10 and blue > 240
+                video_path = Path(folder) / 'clip.mp4'
+                with av.open(str(video_path), 'w') as video:
+                    stream = video.add_stream('mpeg4', rate=3)
+                    stream.width, stream.height, stream.pix_fmt = 80, 60, 'yuv420p'
+                    for color in ('red', 'green', 'blue'):
+                        for packet in stream.encode(av.VideoFrame.from_image(Image.new('RGB', (80, 60), color))):
+                            video.mux(packet)
+                    for packet in stream.encode():
+                        video.mux(packet)
+                video_preview = await rpc('media.preview', path=str(video_path), kind='video', count=3)
+                video_path.unlink()
+                video_import = await rpc('media.import', preview_id=video_preview['id'], candidate_ids=['2'])
+                video_id = video_import['artifacts'][0]['id']
+                video_bytes = (await rpc('artifacts.get', id=video_id))['data']
+                with Image.open(io.BytesIO(base64.b64decode(video_bytes))) as decoded:
+                    assert decoded.size == (80, 60)
+                    red, green, blue = decoded.getpixel((10, 10))[:3]
+                    assert red < 10 and green < 10 and blue > 240
                 if background_removal:
                     step = await rpc('tools.run', tool='cutout',
                                      params={'image': image['working']['id'], 'model': 'u2net'})
@@ -235,8 +291,20 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
                 opened = await rpc('session.open', path=str(destination),
                                    expected_revision=fresh['document_revision'])
                 assert opened['id'] == snapshot['id'] and not opened['unsaved_changes']
+                assert base64.b64decode((await rpc('artifacts.get', id=phone['original']['id']))['data']) == phone_bytes
+                print('Frozen HEIC passed: bundled decoder, frame preview and original-byte persistence', flush=True)
+                assert (await rpc('artifacts.get', id=pdf_id))['data'] == pdf_bytes
+                print('Frozen PDF passed: bundled page rendering, crop and persisted pixels after source deletion', flush=True)
+                assert (await rpc('artifacts.get', id=video_id))['data'] == video_bytes
+                print('Frozen video passed: bundled frame extraction and persisted pixels after source deletion', flush=True)
                 restored = await rpc('artifacts.get', id=image['working']['id'])
                 assert hashlib.sha256(base64.b64decode(restored['data'])).hexdigest() == image['working']['id']
+                # Exercise the bundled SQLite writer, not just portable ZIP Save.
+                from badshop.session.recovery import load as load_recovery
+                recovered = load_recovery(Path(folder) / 'data/autosave/session.sqlite')
+                assert recovered.data.id == opened['id']
+                assert recovered.artifacts.data(image['working']['id']) == base64.b64decode(restored['data'])
+                recovered.artifacts.close()
                 if metrics:
                     for cycle in range(cycles):
                         current = await rpc('session.get')
@@ -311,16 +379,17 @@ async def smoke(executable: Path, crash: bool = False, keychain: bool = False,
 
 
 async def main(executable: Path, keychain: bool = False, background_removal: bool = False,
-               metrics: Path | None = None, cycles: int = 5, metrics_kind: str = 'packaged'):
+               metrics: Path | None = None, cycles: int = 5, metrics_kind: str = 'packaged', capture: bool = False):
     await smoke(executable, keychain=keychain, background_removal=background_removal,
-                metrics=metrics, cycles=cycles, metrics_kind=metrics_kind)
-    await smoke(executable, crash=True)
+                metrics=metrics, cycles=cycles, metrics_kind=metrics_kind, capture=capture)
+    await smoke(executable, crash=True, capture=capture)
 
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('executable', type=Path)
     p.add_argument('--keychain', action='store_true', help='require a real OS keychain round-trip')
+    p.add_argument('--capture', action='store_true', help='capture only an isolated test display')
     p.add_argument('--background-removal', action='store_true',
                    help='download U2-Net and verify background removal in the frozen worker')
     p.add_argument('--metrics', type=Path, help='retain advisory startup/RSS evidence from repeated project cycles')
@@ -328,4 +397,4 @@ if __name__ == '__main__':
     p.add_argument('--metrics-kind', choices=('source', 'packaged'), default='packaged')
     args = p.parse_args()
     asyncio.run(main(args.executable, args.keychain, args.background_removal,
-                     args.metrics, args.cycles, args.metrics_kind))
+                     args.metrics, args.cycles, args.metrics_kind, args.capture))

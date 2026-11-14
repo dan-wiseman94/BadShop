@@ -81,6 +81,15 @@ it("uses message identity, preserving genuinely repeated assistant text", () => 
   expect(merged.messages.map((message) => message.id)).toEqual(["m1", "m2"]);
   expect(merged.stream_text).toBe("");
 });
+it("clears late text when an idle snapshot already contains the completed reply", () => {
+  const old = session([reply("m1", "Ready after retry.")], "Ready after retry.");
+  const merged = reconcileSessionSnapshot(
+    { ...session(old.messages), turn_running: false },
+    old,
+  );
+  expect(merged.messages).toEqual(old.messages);
+  expect(merged.stream_text).toBe("");
+});
 it("does not carry transient text into another session", () => {
   expect(
     reconcileSessionSnapshot(

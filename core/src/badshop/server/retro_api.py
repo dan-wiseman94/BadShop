@@ -11,14 +11,15 @@ from badshop.engine import retro
 from badshop.agent.loop import _to_the_end
 from badshop.engine.errors import EngineError
 from badshop.session.preferences import CreativePreferences
-from badshop.session import recipes
+from badshop.session import branches, recipes
 
 
 def register(app):
     app._recipe_cancel = None
 
     @app.dispatcher.method("artifacts.frame", actors="user")
-    async def frame(actor: str, id: str, frame: Annotated[int, Field(ge=0, le=1000)] = 0):
+    async def frame(actor: str, id: str, frame: Annotated[int, Field(ge=0, le=1000)] = 0,
+                    max_px: Annotated[int, Field(ge=1, le=1000)] | None = None):
         def decode():
             aid = app.session.artifacts.resolve(id)
             meta = app.session.artifacts.meta[aid]
@@ -26,7 +27,11 @@ def register(app):
                 raise EngineError("frame is outside this animation")
             out = io.BytesIO()
             with app.session.artifacts.image(aid, frame) as im:
-                im.convert("RGBA").save(out, "PNG")
+                from PIL import Image
+                image = im.convert("RGBA")
+                if max_px:
+                    image.thumbnail((max_px, max_px), Image.Resampling.NEAREST)
+                image.save(out, "PNG")
             return {
                 "meta": meta.model_dump(mode="json"),
                 "mime": "image/png",
@@ -90,9 +95,10 @@ def register(app):
             prefs = CreativePreferences.model_validate({**app.session.data.creative.model_dump(), **values})
             for aid in prefs.source_roles.values():
                 app.session.artifacts.resolve(aid)
-            app.session.data.creative = prefs
-            app.session.changes.append('The user updated creative preferences: ' + prefs.model_dump_json(exclude={'favorite_briefs', 'saved_searches', 'favorite_styles'}))
-            app.session._changed()
+            with branches.manual_edit(app.session, "creative settings"):
+                app.session.data.creative = prefs
+                app.session.changes.append('The user updated creative preferences: ' + prefs.model_dump_json(exclude={'favorite_briefs', 'saved_searches', 'favorite_styles'}))
+                app.session._changed()
             return prefs.model_dump(mode="json")
 
         return await app._blocking(change)
@@ -128,17 +134,19 @@ def register(app):
 
     @app.dispatcher.method("recipes.run", actors="user")
     async def batch(
-        actor: str, recipe: dict, inputs: Annotated[list[str], Field(min_length=1, max_length=12)]
+        actor: str, recipe: dict, inputs: Annotated[list[str | dict[str, str]], Field(min_length=1, max_length=12)]
     ):
         parsed = recipes.Recipe.model_validate(recipe)
         if len(parsed.steps) * len(inputs) > 60:
             raise EngineError("a batch is limited to 60 tool steps")
         app._check_idle()
         owned = app.session
-        ids = [owned.artifacts.resolve(ref) for ref in inputs]
         signal = threading.Event()
         app._recipe_cancel = signal
-        work = asyncio.create_task(app._blocking(recipes.run, owned, parsed, ids, signal))
+        def run_batch():
+            with branches.manual_edit(owned, "recipe batch"):
+                return recipes.run(owned, parsed, inputs, signal)
+        work = asyncio.create_task(app._blocking(run_batch))
         try:
             return await asyncio.shield(work)
         except asyncio.CancelledError:

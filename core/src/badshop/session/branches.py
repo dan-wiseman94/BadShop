@@ -7,6 +7,7 @@ request to discard it. Saving that document includes all snapshots and their ref
 import copy
 import time
 import uuid
+from contextlib import contextmanager
 
 from badshop.engine.errors import EngineError
 from badshop.session.models import BranchSnapshot
@@ -77,7 +78,10 @@ def create(session, name: str, from_step: str | None = None, *, automatic: bool 
     _activate(session, branch)
 
 
-def _activate(session, branch: BranchSnapshot) -> None:
+def _activate(session, branch: BranchSnapshot, *, clear_history: bool = True) -> None:
+    if clear_history:
+        session.data.manual_undo.clear()
+        session.data.manual_redo.clear()
     session.data.active_branch_id = branch.id
     session.data.steps = copy.deepcopy(branch.steps)
     session.data.messages = copy.deepcopy(branch.messages)
@@ -124,6 +128,8 @@ def remove(session, id: str) -> dict:
 
 def begin_turn(session) -> None:
     """Preserve the current direction and give this turn its own recoverable branch."""
+    session.data.manual_undo.clear()
+    session.data.manual_redo.clear()
     if any(step.status in ("proposed", "approved", "running") for step in session.data.steps):
         session.data.undo_branch_id = None
         session.changes.append("turn undo is unavailable while another caller owns a pending step")
@@ -156,4 +162,47 @@ def undo_turn(session) -> None:
     _remember(session)
     _activate(session, session.data.branches[checkpoint])
     session.data.undo_branch_id = None
+    session._changed()
+
+
+@contextmanager
+def manual_edit(session, name: str):
+    """Record one user transaction using the same snapshots as creative directions."""
+    pending = any(step.status in ("proposed", "approved", "running") for step in session.data.steps)
+    active = session.data.active_branch_id or uuid.uuid4().hex
+    before = _snapshot(session, active, name, time.time())
+    try:
+        yield
+    finally:
+        after = _snapshot(session, active, name, before.created_at)
+        if after != before:
+            if pending:
+                session.data.manual_undo.clear()
+                session.data.manual_redo.clear()
+            else:
+                if session.data.active_branch_id is None:
+                    session.data.active_branch_id = active
+                    session.data.branches[active] = after.model_copy(update={"name": "Original"})
+                session.data.manual_undo = [*session.data.manual_undo, before][-30:]
+                session.data.manual_redo.clear()
+            session._changed()
+
+
+def manual_restore(session, *, redo: bool = False) -> None:
+    _idle(session)
+    source = session.data.manual_redo if redo else session.data.manual_undo
+    target = session.data.manual_undo if redo else session.data.manual_redo
+    if not source:
+        raise EngineError("there is no manual change to redo" if redo else "there is no manual change to undo")
+    saved = source[-1]
+    if saved.id != session.data.active_branch_id:
+        raise EngineError("this change belongs to a different creative direction")
+    current = _snapshot(session, saved.id, saved.name, time.time())
+    source.pop()
+    target.append(current)
+    del target[:-30]
+    name = session.data.branches[saved.id].name
+    session.data.branches[saved.id] = saved.model_copy(deep=True, update={"name": name})
+    _activate(session, saved, clear_history=False)
+    session.changes = [f"the user {'redid' if redo else 'undid'} {saved.name}; use the restored timeline"]
     session._changed()

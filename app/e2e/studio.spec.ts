@@ -19,7 +19,7 @@ test("saved assets and independent branches survive project reopen", async ({
     .fill("portrait, president");
   await page.getByRole("button", { name: "Save to junk drawer" }).click();
   await expect(
-    page.getByText("Lincoln head source", { exact: true }),
+    page.locator(".studio-card").getByText("Lincoln head source", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Branches", exact: true }).click();
   await page.getByLabel("New branch name").fill("Fried version");

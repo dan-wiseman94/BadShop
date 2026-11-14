@@ -46,6 +46,50 @@ def test_preview_refuses_network_and_preserves_state():
     assert session.data.model_dump_json() == before
 
 
+def test_final_preview_replays_dependents_without_publishing(tmp_path):
+    session = Session.new()
+    buffer = io.BytesIO()
+    Image.new("RGB", (40, 30), "red").save(buffer, "PNG")
+    source = session.import_image(buffer.getvalue(), "source")
+    first = session.run_tool("filter", {"image": source.id, "names": ["invert"]}, "user")
+    last = session.run_tool("transform", {"image": first.outputs[0], "width": 20}, "user")
+    before = session.data.model_dump_json()
+    stored = dict(session.artifacts._data)
+    metadata = {key: value.model_dump() for key, value in session.artifacts.meta.items()}
+    changes = list(session.changes)
+    events = []
+    session.emit = lambda *args: events.append(args)
+    session.on_change = lambda: events.append("changed")
+    params = {**first.params, "names": ["grayscale"]}
+    preview = session.preview_edit(first.id, params, final_result=True)
+    assert Image.open(io.BytesIO(preview[0].data)).size == (20, 15)
+    assert session.data.model_dump_json() == before
+    assert session.artifacts._data == stored
+    assert {key: value.model_dump() for key, value in session.artifacts.meta.items()} == metadata
+    assert session.changes == changes
+    assert events == []
+    session.edit(first.id, params)
+    session.replay_from(first.id)
+    assert session.artifacts.data(last.outputs[0]) == preview[0].data
+    path = project.save(session, tmp_path / "final-preview.badshop")
+    reopened = project.open_project(path)
+    assert reopened.artifacts.data(reopened.step(last.id).outputs[0]) == preview[0].data
+
+
+def test_final_preview_refuses_downstream_network_without_mutation():
+    session = Session.new()
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), "red").save(buffer, "PNG")
+    source = session.import_image(buffer.getvalue(), "source")
+    first = session.run_tool("filter", {"image": source.id, "names": ["invert"]}, "user")
+    network = session.propose("wiki", {"title": "test"}, "user")
+    network.status = "stale"  # A previously recorded network step awaiting replay.
+    before = session.data.model_dump_json()
+    with pytest.raises(EngineError, match="local steps without file writes"):
+        session.preview_edit(first.id, first.params, final_result=True)
+    assert session.data.model_dump_json() == before
+
+
 def test_transform_preserves_exact_pixels_and_rejects_bad_crop():
     image = Image.new("RGB", (2, 1))
     image.putdata([(255, 0, 0), (0, 0, 255)])

@@ -146,12 +146,25 @@ def native_keys(window: int, *keys: str) -> None:
 
 def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
     """Require durable pixels, not merely a renderer's recovery notification."""
+    from badshop.engine.errors import EngineError
     with Image.open(io.BytesIO(image)) as expected:
         expected_size = expected.size
         expected_pixels = expected.convert('RGBA').tobytes()
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         try:
+            if path.suffix == '.sqlite':
+                from badshop.session.recovery import load
+                recovered = load(path)
+                if recovered.data.id == session_id:
+                    for digest, meta in recovered.artifacts.meta.items():
+                        if meta.format != 'PNG' or (meta.width, meta.height) != expected_size:
+                            continue
+                        with Image.open(io.BytesIO(recovered.artifacts.data(digest))) as restored:
+                            if restored.convert('RGBA').tobytes() == expected_pixels:
+                                return recovered.data.model_dump(mode='json', by_alias=True)
+                time.sleep(.1)
+                continue
             with zipfile.ZipFile(path) as archive:
                 session = json.loads(archive.read('session.json'))
                 if session['id'] == session_id:
@@ -163,7 +176,7 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
                         with Image.open(io.BytesIO(data)) as restored:
                             if restored.size == expected_size and restored.convert('RGBA').tobytes() == expected_pixels:
                                 return session
-        except (OSError, zipfile.BadZipFile):
+        except (OSError, zipfile.BadZipFile, EngineError):
             pass  # The first atomic autosave may still be in flight.
         time.sleep(.1)
     raise AssertionError(f'Project did not persist the expected session and image: {path}; '
@@ -212,7 +225,7 @@ def isolated_command(command: list[str], root: Path, env: dict) -> list[str]:
 
 
 def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 90,
-          restart_core: bool = False, *,
+          restart_core: bool = False, *, capture: bool = False,
           webview_profile: Path | None = None,
           exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
@@ -241,6 +254,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
         nonce = secrets.token_hex(16)
         env['BADSHOP_SMOKE_READY_FILE'] = str(ready_path)
         env['BADSHOP_SMOKE_NONCE'] = nonce
+        env.pop('BADSHOP_SMOKE_CAPTURE', None)
+        if capture:
+            env['BADSHOP_SMOKE_CAPTURE'] = '1'
         log_path = root / 'desktop.log'
         metrics = {'schema': 1, 'kind': 'desktop-runtime', 'profile': 'renderer-ready-v1',
                    'platform': sys.platform, 'command': command, 'status': 'failed', 'measurements': {}}
@@ -272,6 +288,9 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                     time.sleep(.2)
                 else:
                     raise RuntimeError(f'No rendered, authenticated session after {startup_timeout}s')
+                if capture:
+                    assert json.loads(ready_path.read_text())['capture_pixels'] is True
+                    print('Native screen capture passed: window hide/restore, decoded screenshot pixels and discarded preview')
                 print(json.dumps({'shell_pid': proc.pid, 'core_pid': core.pid,
                                   'core_executable': core.exe(), 'listen_ports': ports,
                                   'established_connections': connected, 'renderer_ready': True}), flush=True)
@@ -307,7 +326,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                         clipboard.wait(timeout=5)
                     session_id = state['session_id']
                     expected_pixels = pasted.read_bytes()
-                    autosave = root / 'core-data/autosave/session.badshop'
+                    autosave = root / 'core-data/autosave/session.sqlite'
                     wait_project_pixels(autosave, session_id, expected_pixels)
                 if restart_core:
                     old_pid = core.pid
@@ -456,6 +475,7 @@ if __name__ == '__main__':
     parser.add_argument('--screenshot', type=Path)
     parser.add_argument('--restart-core', action='store_true',
                         help='Crash the owned core and require renderer readiness after recovery')
+    parser.add_argument('--capture', action='store_true', help='Opt in to screen capture on a private display')
     parser.add_argument('--startup-timeout', type=float, default=90,
                         help='Seconds allowed for startup, including compilation for a source launcher')
     parser.add_argument('command', nargs=argparse.REMAINDER)
@@ -465,4 +485,4 @@ if __name__ == '__main__':
         parser.error('provide the installed desktop command after --')
     if args.startup_timeout <= 0:
         parser.error('--startup-timeout must be positive')
-    smoke(command, args.screenshot, args.startup_timeout, args.restart_core)
+    smoke(command, args.screenshot, args.startup_timeout, args.restart_core, capture=args.capture)

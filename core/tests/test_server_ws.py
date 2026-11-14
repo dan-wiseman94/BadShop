@@ -284,7 +284,7 @@ def test_fast_chat_stream_keeps_websocket_open_and_saves_full_reply(env, monkeyp
                 assert not any(e["method"] == "message.delta" for e in ui.seen[assistant:])
 
     run(scenario)
-    saved = open_project(env / "data" / "autosave" / "session.badshop")
+    saved = open_project(env / "data" / "autosave" / "session.sqlite")
     assert saved.data.messages[-1].content[0].text == burst + tail
 
 
@@ -643,7 +643,7 @@ def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_ser
             async with client(relaunched.port, relaunched.token) as ui:
                 snap = await ui.call("session.get")
                 assert snap["steps"] == []  # a new session, and the offer to restore the last one
-                assert Path(snap["restorable"]) == data / "autosave" / "previous.badshop"
+                assert Path(snap["restorable"]) == data / "autosave" / "previous.sqlite"
                 restored = await ui.call("session.restore")
                 assert restored["path"] is None  # the autosave is not the user's project file
                 assert [(s["id"], s["status"]) for s in restored["steps"]] == [
@@ -688,7 +688,8 @@ def test_the_core_stops_cleanly_when_its_stdin_closes(tmp_path):
 
     step_id = asyncio.run(scenario())
     assert "badshop-core: stdin closed" in (tmp_path / "core.log").read_text(encoding="utf-8")
-    autosaved = open_project(data / "autosave" / "session.badshop")
+    from badshop.session.recovery import load
+    autosaved = load(data / "autosave" / "session.sqlite")
     assert [(s.id, s.tool, s.status) for s in autosaved.data.steps] == [(step_id, "info", "done")]
     assert trump in autosaved.data.artifacts
 

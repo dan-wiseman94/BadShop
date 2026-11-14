@@ -42,6 +42,9 @@ def ts_type(schema: dict) -> str:
             return '{\n' + ''.join(
                 f'  {json.dumps(name)}{"" if name in required else "?"}: {ts_type(value)};\n'
                 for name, value in schema['properties'].items()) + '}'
+        if 'patternProperties' in schema:
+            values = list(dict.fromkeys(ts_type(item) for item in schema['patternProperties'].values()))
+            return f'Record<string, {" | ".join(values)}>'
         additional = schema.get('additionalProperties', {})
         return f'Record<string, {ts_type(additional) if isinstance(additional, dict) else "unknown"}>'
     if kind in ('string', 'number', 'integer', 'boolean', 'null'):

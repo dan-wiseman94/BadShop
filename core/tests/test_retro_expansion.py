@@ -81,7 +81,7 @@ def test_recipe_request_ends_owned_work_and_releases_its_reservation(env, monkey
             entered.set()
             assert signal.wait(5), "owned recipe did not receive cancellation"
             finished.set()
-            return {"completed": [], "errors": [], "cancelled": True}
+            return {"completed": [], "errors": [], "rows": [], "cancelled": True}
 
         monkeypatch.setattr(recipes, "run", run)
         pending = asyncio.create_task(client.call("recipes.run", recipe=recipe, inputs=[aid]))

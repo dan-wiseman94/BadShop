@@ -28,9 +28,10 @@ test("a saved character survives a new project and a visual recipe makes reusabl
   await page.getByRole("button", { name: "Save recipe", exact: true }).click();
   await expect.poll(async () => ((await emptyCore.call("session.get") as Session).recipes as Recipe[])[0]?.name).toBe("Our running joke");
   const saved = await emptyCore.call("session.get") as Session;
-  expect(saved.recipes![0].steps[0].params.images).toEqual(["$input", "$input"]);
-  await page.getByRole("group", { name: "Pictures to use (up to 12)" }).getByRole("checkbox").first().check();
-  await page.getByRole("button", { name: "Run recipe on selected pictures" }).click();
+  expect(saved.recipes![0].steps[0].params.images).toEqual(["$input:images_1", "$input:images_2"]);
+  for (const role of ["images_1", "images_2"])
+    await page.getByRole("combobox", { name: `Row 1: ${role}`, exact: true }).selectOption((saved.steps[0].params.images as string[])[0]);
+  await page.getByRole("button", { name: "Run design rows" }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps.at(1)?.status).toBe("done");
   const after = await emptyCore.call("session.get") as Session;
   expect(after.steps.at(-1)!.outputs).toEqual(saved.steps[0].outputs);

@@ -17,6 +17,7 @@ const session: MethodMap['session.get'][1] = {
   path: null, document_revision: 1, unsaved_changes: false, turn_running: false, batch_running: false,
   pending_approvals: [], restorable: null, bypass_tools: [], run_id: null, last_turn_outcome: null,
   stream_text: '',
+  manual_history: { undo: null, redo: null },
   creative: { style: "geocities", density: "balanced", era_strictness: "inspired", exact_text: true,
     seed: 1, fit: "contain", takes: 1, remember_history: true, animation_delay: 100,
     export_profile: "original", favorite_styles: [], favorite_briefs: [], saved_searches: [],

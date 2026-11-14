@@ -665,12 +665,52 @@ class ExportProfileParams(Params):
     quality: int = Field(80, ge=1, le=100)
     max_bytes: int | None = Field(None, ge=100, le=50_000_000)
     fit: Literal["contain", "cover", "stretch"] = "contain"
+    width: int | None = Field(None, ge=1, le=2000)
+    height: int | None = Field(None, ge=1, le=2000)
+    background: Color = "#000000"
+    preserve_animation: bool = False
+    shrink_to_fit: bool = False
+
+    @model_validator(mode="after")
+    def complete_dimensions(self):
+        if (self.width is None) != (self.height is None):
+            raise ValueError("Specify both output width and height")
+        return self
 
 
 def export_profile(p, im):
-    size = EXPORTS[p.profile] or im.size
+    if p.preserve_animation and getattr(im, "n_frames", 1) > 1:
+        if p.format != "GIF":
+            raise EngineError("Choose GIF to preserve animation", hint="or explicitly export a still image")
+        if im.n_frames > 200:
+            raise EngineError("animation exceeds 200 frames", hint="trim the animation first")
+        size = (p.width, p.height) if p.width is not None else EXPORTS[p.profile] or im.size
+        if size[0] * size[1] * im.n_frames > 20_000_000:
+            raise EngineError("animation exceeds 20 million output pixels", hint="choose smaller dimensions")
+        frames, durations = [], []
+        original_frame = im.tell()
+        loop = int(im.info.get("loop", 0))
+        try:
+            for frame in ImageSequence.Iterator(im):
+                durations.append(int(frame.info.get("duration", 100)))
+                still = p.model_copy(update={"preserve_animation": False, "max_bytes": None, "format": "PNG"})
+                frames.append(export_profile(still, frame.copy()).outputs[0].image)
+        finally:
+            im.seek(original_frame)
+        while True:
+            output = Output("result", frames[0], "export.gif", fmt="GIF", frames=frames,
+                            duration=durations, loop=loop)
+            length = len(output.encode())
+            if p.max_bytes is None or length <= p.max_bytes:
+                return EngineResult(outputs=[output], data={"bytes": length, "frames": len(frames),
+                    "width": frames[0].width, "height": frames[0].height})
+            smaller = (max(1, frames[0].width * 3 // 4), max(1, frames[0].height * 3 // 4))
+            if not p.shrink_to_fit or smaller == frames[0].size:
+                raise EngineError("animation cannot fit that byte limit", hint="increase the limit or trim frames")
+            frames = [frame.resize(smaller, Image.Resampling.NEAREST) for frame in frames]
+    size = (p.width, p.height) if p.width is not None else EXPORTS[p.profile] or im.size
     out = (Image.new("RGBA", size, (0, 0, 0, 0)) if p.format != "JPEG" and has_alpha(im)
-           else Image.new("RGB", size, "#000000"))
+           else Image.new("RGB", size, p.background))
     paste(out, im, (0, 0, *size), p.fit)
     qualities = range(p.quality, 0, -1) if p.max_bytes and p.format == "JPEG" else [p.quality]
     for q in qualities:
@@ -678,6 +718,9 @@ def export_profile(p, im):
         length = len(output.encode())
         if p.max_bytes is None or length <= p.max_bytes:
             return EngineResult(outputs=[output], data={"bytes": length, "quality": q, "profile": p.profile})
+    if p.shrink_to_fit and size != (1, 1):
+        smaller = (max(1, size[0] * 3 // 4), max(1, size[1] * 3 // 4))
+        return export_profile(p.model_copy(update={"width": smaller[0], "height": smaller[1]}), im)
     raise EngineError(
         "the image cannot fit that byte limit at the requested dimensions",
         hint="increase the byte limit or choose a smaller profile",

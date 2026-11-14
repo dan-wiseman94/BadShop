@@ -132,7 +132,7 @@ active document. Saves use atomic replacement to protect the last good file.
 | Stored data | Location/owner | Included in a project? |
 | --- | --- | --- |
 | Chat, steps, referenced images, branches, correction controls, checkpoints and project creative settings | Session archive | Yes |
-| Recovery copy | App data `autosave/session.badshop`; previous run offered as `previous.badshop` | A separate recovery archive |
+| Recovery copy | App data `autosave/session.sqlite`, `previous.sqlite` and shared `blobs/` | Local recovery; explicit Save still exports a portable archive |
 | Provider profiles and application settings | Config directory | Credentials are not embedded |
 | Provider/source secrets | OS keychain or named environment variables | No |
 | Models, fonts, reusable assets and local caches | App data directory | Separate from the project; referenced project images are retained |
@@ -142,6 +142,26 @@ active document. Saves use atomic replacement to protect the last good file.
 Tests set private locations and never borrow the user's settings or credentials.
 Autosave is recovery, not an explicit project save. See [privacy](privacy.md) and
 [project compatibility](compatibility.md#project-compatibility-and-recovery).
+
+Encoded images live in immutable temporary disk blobs during a session. Preview
+forks own separate directories and retain independent links to their inputs.
+Dropping an artifact removes its owned file; releasing a store removes its scratch
+directory. No long-lived dictionary retains every encoded image as Python bytes.
+
+Recovery publishes hash-verified blobs before committing metadata in SQLite.
+Metadata uses content-addressed nodes and bounded list chunks, sharing unchanged
+branch and manual-history records. SQLite uses DELETE journaling and EXTRA sync;
+startup settles a hot journal before moving the closed database to the previous
+recovery slot. Initial database creation uses a separate staging file. These rules
+follow SQLite's [rollback journal protocol](https://www.sqlite.org/atomiccommit.html)
+and [sync modes](https://www.sqlite.org/pragma.html#pragma_synchronous).
+Both recovery slots are garbage-collection roots; unreferenced blobs receive a
+24-hour grace period, and unreadable metadata prevents collection.
+
+The in-memory session remains the mutation owner, and events may precede the
+recovery commit. This is not yet a durable operation-receipt protocol. Portable
+schema 4 and live branch snapshots still contain full histories; shared recovery
+nodes do not by themselves replace that document model.
 
 ## Provider paths
 

@@ -9,11 +9,10 @@ import io
 import json
 import math
 import shutil
-import subprocess
 import tempfile
 import time
 import uuid
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -68,20 +67,6 @@ def data_url(image, size=250):
     return "data:image/png;base64," + base64.b64encode(png(thumb)).decode("ascii")
 
 
-def _run(args, timeout=20):
-    binary = shutil.which(args[0])
-    if not binary:
-        raise EngineError(f"{args[0]} is not installed", hint="install the media tool for your OS, then restart badshop")
-    try:
-        result = subprocess.run([binary, *args[1:]], stdin=subprocess.DEVNULL, capture_output=True,
-                                timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        raise EngineError("media extraction timed out", hint="choose a shorter clip or smaller document") from None
-    if result.returncode:
-        raise EngineError("media could not be decoded", hint="try another file or an earlier page/time")
-    return result.stdout
-
-
 class MediaSources:
     def __init__(self, root=None):
         self.root = Path(root) if root else assets.data_dir() / "media-previews"
@@ -91,13 +76,30 @@ class MediaSources:
             raise EngineError("invalid media preview id")
         return self.root / id
 
+    def capture(self, *, _scratch=None):
+        from badshop.session.capture import capture_image
+        image = capture_image()
+        if image is None:
+            return None
+        with image, (nullcontext(_scratch) if _scratch else tempfile.TemporaryDirectory(prefix="badshop-media-")) as scratch:
+            if image.width * image.height > MAX_PIXELS:
+                raise EngineError("captured desktop exceeds the 32 megapixel limit")
+            path = Path(scratch) / "Screen capture.png"
+            image.save(path, "PNG")
+            return self._preview(str(path), "document", _scratch=scratch, _capture=True)
+
+    def discard(self, id):
+        folder = self._folder(id)
+        if folder.is_dir() and not folder.is_symlink():
+            shutil.rmtree(folder)
+
     def preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1, *, _scratch=None):
         try:
             return self._preview(path, kind, start, end, count, page, _scratch=_scratch)
         except (OSError, ValueError, EOFError, Image.DecompressionBombError):
             raise EngineError("source could not be decoded", hint="choose a supported image, PDF, GIF or video") from None
 
-    def _preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1, *, _scratch=None):
+    def _preview(self, path: str, kind: str, start=0.0, end=None, count=8, page=1, *, _scratch=None, _capture=False):
         if kind not in ("video", "document") or not 1 <= count <= 12 or not 1 <= page <= 100000:
             raise EngineError("invalid media preview options")
         if not math.isfinite(start) or start < 0 or (end is not None and (not math.isfinite(end) or end <= start)):
@@ -111,11 +113,24 @@ class MediaSources:
             frozen.write_bytes(raw)
             if kind == "document":
                 if chosen.suffix.lower() == ".pdf":
-                    target = Path(temp) / "page"
-                    _run(["pdftoppm", "-f", str(page), "-l", str(page), "-singlefile", "-scale-to", "1000",
-                          "-png", str(frozen), str(target)], timeout=30)
-                    with Image.open(target.with_suffix(".png")) as image:
-                        frames = [(small_image(image), {"page": page, "label": f"Page {page}"})]
+                    # PDFium stays in the existing isolated, cancellable media worker.
+                    import pypdfium2 as pdfium
+                    try:
+                        with pdfium.PdfDocument(raw) as document:
+                            if page > len(document):
+                                raise EngineError(f"this PDF has {len(document)} pages; choose an earlier page")
+                            with closing(document[page - 1]) as selected_page:
+                                width, height = selected_page.get_size()
+                                if not all(math.isfinite(v) and v > 0 for v in (width, height)):
+                                    raise EngineError("PDF page dimensions are invalid")
+                                with closing(selected_page.render(scale=1000 / max(width, height),
+                                        no_smoothtext=True, no_smoothimage=True, no_smoothpath=True,
+                                        limit_image_cache=True)) as bitmap:
+                                    image = bitmap.to_pil().convert("RGBA")
+                                    frames = [(image, {"page": page, "label": f"Page {page}"})]
+                    except pdfium.PdfiumError:
+                        raise EngineError("PDF could not be opened or rendered",
+                                          hint="choose an unencrypted, valid PDF") from None
                 else:
                     with Image.open(io.BytesIO(raw), formats=IMAGE_FORMATS) as image:
                         image.seek(page - 1)
@@ -143,32 +158,43 @@ class MediaSources:
                     if image.n_frames > 3000:
                         warnings.append("Only the first 3000 GIF frames were considered.")
             else:
-                probe = json.loads(_run(["ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe",
-                     "-format_whitelist", VIDEO_FORMATS, "-show_entries", "format=duration:stream=width,height", "-of", "json", str(frozen)], timeout=10))
-                if any(s.get("width", 0) * s.get("height", 0) > MAX_PIXELS for s in probe.get("streams", [])):
-                    raise EngineError("video dimensions exceed the preview limit")
-                duration = float(probe.get("format", {}).get("duration", 0))
-                if not math.isfinite(duration) or duration <= start:
-                    raise EngineError("no video at that start time")
-                stop = min(end if end is not None else start + 30, duration)
-                if stop - start > 120:
-                    raise EngineError("preview at most 120 seconds at once")
-                deadline = time.monotonic() + 45
-                for index in range(count):
-                    timestamp = start + (stop - start) * index / count
-                    target = Path(temp) / f"frame-{index}.png"
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        warnings.append("Preview time limit reached; showing extracted frames.")
-                        break
-                    _run(["ffmpeg", "-v", "error", "-nostdin", "-protocol_whitelist", "file,pipe",
-                          "-format_whitelist", VIDEO_FORMATS, "-max_alloc", "134217728", "-threads", "1", "-ss", str(timestamp), "-i", str(frozen), "-an", "-frames:v", "1",
-                          "-vf", "scale=1000:1000:force_original_aspect_ratio=decrease:flags=neighbor",
-                          "-threads", "1", str(target)], timeout=min(15, remaining))
-                    if target.exists():
-                        with Image.open(target) as image:
-                            frames.append((small_image(image), {"time_s": round(timestamp, 4),
-                                          "label": f"At {timestamp:.3f}s"}))
+                import av
+                try:
+                    with av.open(str(frozen), options={"protocol_whitelist": "file,pipe",
+                                 "format_whitelist": VIDEO_FORMATS}, timeout=(10, 15)) as video:
+                        if not video.streams.video:
+                            raise EngineError("this file has no video stream")
+                        stream = video.streams.video[0]
+                        if stream.width * stream.height > MAX_PIXELS:
+                            raise EngineError("video dimensions exceed the preview limit")
+                        stream.codec_context.thread_count = 1
+                        duration = (float(stream.duration * stream.time_base) if stream.duration is not None
+                                    else float(video.duration or 0) / av.time_base)
+                        if not math.isfinite(duration) or duration <= start:
+                            raise EngineError("no video at that start time")
+                        stop = min(end if end is not None else start + 30, duration)
+                        if stop - start > 120:
+                            raise EngineError("preview at most 120 seconds at once")
+                        origin = float((stream.start_time or 0) * stream.time_base)
+                        deadline = time.monotonic() + 45
+                        for index in range(count):
+                            timestamp = start + (stop - start) * index / count
+                            if time.monotonic() >= deadline:
+                                raise EngineError("video preview timed out; choose a shorter clip")
+                            video.seek(int((timestamp + origin) / stream.time_base), stream=stream)
+                            for frame in video.decode(stream):
+                                if time.monotonic() >= deadline:
+                                    raise EngineError("video preview timed out; choose a shorter clip")
+                                if frame.width * frame.height > MAX_PIXELS:
+                                    raise EngineError("video dimensions exceed the preview limit")
+                                if frame.time is not None and frame.time + 1e-6 < timestamp + origin:
+                                    continue
+                                frames.append((small_image(frame.to_image()), {"time_s": round(timestamp, 4),
+                                              "label": f"At {timestamp:.3f}s"}))
+                                break
+                except av.FFmpegError:
+                    raise EngineError("video could not be decoded",
+                                      hint="choose a supported local clip or an earlier time") from None
                 warnings.append("Video times are requested seek positions; the selected frame is frozen for replay.")
         if not frames:
             raise EngineError("no frames could be extracted")
@@ -193,6 +219,8 @@ class MediaSources:
         record = {"id": id, "source_name": chosen.name, "source_sha256": original_hash, "kind": kind,
                   "width": frames[0][0].width, "height": frames[0][0].height, "candidates": candidates,
                   "warnings": warnings, "sheet_data_url": data_url(contact_sheet(panels), 1000)}
+        if _capture:
+            record["capture"] = True
         stored = {k: v for k, v in record.items() if k != "sheet_data_url"}
         stored["candidates"] = [{k: v for k, v in item.items() if k != "thumbnail_data_url"}
                                 for item in candidates]
@@ -242,8 +270,9 @@ class MediaSources:
         for blob, item in prepared:
             label = f"{record['source_name']} {item['label']}"
             title = label + (f" crop {list(crop)}" if crop is not None else "")
-            source = Source(kind="local-media", title=title)
-            if crop is not None:
+            source = Source(kind="screen-capture" if record.get("capture") else "local-media", title=title)
+            # A screen-region import must not embed private pixels outside the chosen region.
+            if crop is not None and not record.get("capture"):
                 original = session.import_image((folder / f"{item['id']}.png").read_bytes(), label,
                                                 Source(kind="local-media", title=label))
                 step = session.run_tool("cutout", {"image": original.id, "box": list(crop), "no_ai": True}, "user")

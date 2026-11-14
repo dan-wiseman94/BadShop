@@ -5,6 +5,16 @@ import tempfile
 from pathlib import Path
 
 
+def sync_directory(path: Path) -> None:
+    """Persist published directory entries on POSIX; Windows uses file flushes."""
+    if os.name != 'nt':
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
 def write_new_bytes(path: Path, data: bytes) -> None:
     """Publish complete bytes without replacing any existing destination.
 

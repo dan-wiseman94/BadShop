@@ -151,7 +151,7 @@ def save(session: Session, path: Path) -> Path:
     # escape and read back unchanged, where UTF-8 could not encode it at all.
     session_json = json.dumps(payload, indent=1).encode("ascii")
     recipe_json = (json.dumps(export_recipe(session), indent=2) + "\n").encode("ascii")
-    problem = _size_problem(len(session_json), {aid: len(session.artifacts.data(aid)) for aid in keep})
+    problem = _size_problem(len(session_json), {aid: session.artifacts.size(aid) for aid in keep})
     if problem:
         raise EngineError(f"can't save {path.name}: the project would be too big to open again ({problem})",
                           hint=TOO_BIG_HINT)
@@ -363,7 +363,7 @@ def _session_data(path: Path, raw: bytes) -> SessionData:
     data.schema_ = SCHEMA
     if data.active_branch_id is not None and data.active_branch_id not in data.branches:
         raise _damaged(path, "the active creative direction is missing")
-    for bid, branch in data.branches.items():
+    for bid, branch in [*data.branches.items(), *((s.id, s) for s in [*data.manual_undo, *data.manual_redo])]:
         if bid != branch.id:
             raise _damaged(path, "a creative direction is listed under the wrong id")
         if any(aid not in data.artifacts for aid in branch.artifact_ids):
@@ -412,6 +412,9 @@ def open_project(path: Path, **session_kw) -> Session:
     approval comes back rejected; one saved while approved or running comes back failed. Every failure is
     an EngineError; nothing outside the returned Session changes."""
     path = Path(path)
+    if path.suffix == '.sqlite' and path.resolve().parent == autosave_path().resolve().parent:
+        from badshop.session.recovery import load
+        return load(path, **session_kw)
     try:
         with path.open("rb") as file, zipfile.ZipFile(_preflight(path, file)) as zf:
             members = _index(path, zf)
@@ -444,10 +447,15 @@ def open_project(path: Path, **session_kw) -> Session:
     except _ZIP_ERRORS as e:
         raise EngineError(f"{path.name} isn't a badshop project, or it is damaged ({type(e).__name__}: {e})",
                           hint="open a .badshop file saved by badshop; " + DAMAGED_HINT) from None
+    return _restore(path, data, artifacts, session_kw)
+
+
+def _restore(path, data, artifacts, session_kw):
+    """Shared normalization and reference validation for archive and local recovery."""
     _finish_interrupted(data, artifacts)
     session = Session(data, artifacts, **session_kw)  # Session makes data.artifacts the store's metas
     missing = session.referenced_ids() - set(artifacts.ids())
-    for branch in data.branches.values():
+    for branch in [*data.branches.values(), *data.manual_undo, *data.manual_redo]:
         branch_data = SessionData(id=data.id, name=branch.name, created_at=branch.created_at,
                                   steps=branch.steps, messages=branch.messages, transcript=branch.transcript)
         _finish_interrupted(branch_data, artifacts)
@@ -459,31 +467,62 @@ def open_project(path: Path, **session_kw) -> Session:
 
 def autosave_path() -> Path:
     """Where the open session is saved after every change (spec §9)."""
-    return assets.data_dir() / "autosave" / f"session{EXT}"
+    return assets.data_dir() / "autosave" / "session.sqlite"
 
 
 def autosave(session: Session) -> None:
     """Save the open session to the data dir (spec §9); raises EngineError like save."""
-    save(session, autosave_path())
+    from badshop.session.recovery import collect, save as save_recovery
+    save_recovery(session, autosave_path())
+    # Collection failure must not turn a committed recovery into a failed save.
+    with contextlib.suppress(OSError):
+        collect(autosave_path().parent)
 
 
 def claim_autosave() -> Path | None:
     """Set the autosave the last run left behind out of this run's way, and return it (None: there is none).
 
-    A core calls this once at launch, before its session can change. Every autosave replaces
-    `autosave/session.badshop`, so without this the new session's first change would overwrite what a
+    A core calls this once at launch, before its session can change. Every autosave commits
+    `autosave/session.sqlite`, so without this the new session's first change would overwrite what a
     crashed run left there before anyone could restore it (spec §9: the next launch offers to restore it;
-    §10: a restarted core reopens it). The file is moved to `autosave/previous.badshop` and that path is
+    §10: a restarted core reopens it). The file is moved to `autosave/previous.sqlite` and that path is
     returned. With nothing to move (the last run changed nothing, or crashed again before it did), a
-    previous.badshop that no later run replaced is still returned, so the offer outlives a crash loop.
+    previous.sqlite that no later run replaced is still returned, so the offer outlives a crash loop.
     Creates nothing and never raises: a file that can't be moved stays where it is and None is returned
     (a folder that refuses the rename usually refuses the autosave's temp file too, so the file waits for the
     next launch)."""
     path = autosave_path()
-    previous = path.with_name(f"previous{EXT}")
+    previous = path.with_name('previous.sqlite')
     try:
+        if path.exists():
+            from badshop.session.recovery import settle
+            settle(path)
         with contextlib.suppress(FileNotFoundError):
             os.replace(path, previous)
-        return previous if previous.is_file() else None
+        if previous.is_file():
+            return previous
+        # Old ZIP recovery is a migration input, never overwritten by the new writer.
+        # Restoring it validates all bytes, then the next change commits SQLite.
+        legacy = path.with_name(f'session{EXT}')
+        backup = path.with_name(f'previous{EXT}')
+        with contextlib.suppress(FileNotFoundError):
+            os.replace(legacy, backup)
+        if backup.is_file():
+            return backup
+        preserved = list(path.parent.glob('corrupt-*.sqlite'))
+        return max(preserved, key=lambda p: p.stat().st_mtime) if preserved else None
+    except EngineError as error:
+        # Preserve an unreadable standalone database as evidence, so fresh work
+        # can still autosave. Never separate a database from an unsettled journal,
+        # or replace a store belonging to a newer supported-format migration.
+        companions = [path.with_name(path.name + suffix) for suffix in ('-journal', '-wal', '-shm')]
+        if error.message == 'could not settle interrupted recovery' and not any(p.exists() for p in companions):
+            preserved = path.with_name(f'corrupt-{secrets.token_hex(8)}.sqlite')
+            try:
+                os.replace(path, preserved)
+                return preserved
+            except OSError:
+                pass
+        return path
     except OSError:
         return None

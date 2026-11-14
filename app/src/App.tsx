@@ -19,6 +19,9 @@ import { Settings, Welcome } from "./components/Settings";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { Studio } from "./components/Studio";
 import { QuickStart } from "./components/QuickStart";
+import { ProjectHome } from "./components/ProjectHome";
+import { LocalMedia, type MediaInput } from "./components/LocalMedia";
+import { ImportSources } from "./components/ImportSources";
 import { sourceCard } from "./sourceCard";
 import { SaveChangesDialog, useSessionActions } from "./sessionActions";
 import { usePaneLayout } from "./layout";
@@ -39,6 +42,10 @@ import type { ApprovalMode } from "./types";
 import { readPreference, savePreference, useReducedMotion } from "./appearance";
 import { useUpdates, UpdateProgress } from "./updates";
 import "./themes.css";
+function mediaKind(name: string): MediaInput["kind"] | null {
+  if (/\.(pdf|tiff?)$/i.test(name)) return "document";
+  return /\.(mp4|mov|mkv|webm|avi|m4v|mpeg|mpg|ts|ogv|wmv|flv)$/i.test(name) ? "video" : null;
+}
 function Resizer({
   side,
   onResize,
@@ -108,9 +115,16 @@ export default function App() {
   const [history, setHistory] = useState(false);
   const chooseWorkspace = (value: string) => { setWorkspace(value); savePreference("workspace", value); };
   const [menu, setMenu] = useState(false);
+  const [homeOpen, setHomeOpen] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
   const [importedImage, setImportedImage] = useState<{ id: string; generation: number } | null>(null);
   const [pendingImports, setPendingImports] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
+  const [mediaInputs, setMediaInputs] = useState<(MediaInput & { id: string })[]>([]);
+  const [mediaBusy, setMediaBusy] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ completed: number; total: number } | null>(null);
+  const cancelImports = useRef(false);
+  const importingBatch = useRef(false);
   const [ideaDrafts, setIdeaDrafts] = useState<{ id: string; text: string; generation: number }[]>([]);
   const consumeIdeaDraft = useCallback((id: string) => {
     setIdeaDrafts((previous) => previous.filter((draft) => draft.id !== id));
@@ -159,6 +173,9 @@ export default function App() {
   useEffect(() => {
     setAttachments([]);
     setIdeaDrafts([]);
+    setMediaInputs([]);
+    setImportOpen(false);
+    cancelImports.current = true;
   }, [ui.documentGeneration]);
   useEffect(() => {
     if (!session) return;
@@ -181,6 +198,11 @@ export default function App() {
       if (path.toLowerCase().endsWith(".badshop")) {
         return documents.request({ kind: "open", path });
       }
+      const kind = mediaKind(path);
+      if (kind) {
+        setMediaInputs(previous => [...previous, { id: crypto.randomUUID(), kind, path }]);
+        return true;
+      }
       setPendingImports(count => count + 1);
       try {
         const result = await action("artifacts.import", { path });
@@ -193,6 +215,11 @@ export default function App() {
     [documents.request],
   );
   const addBlob = useCallback(async (blob: Blob, name?: string) => {
+    const kind = mediaKind(name ?? "");
+    if (kind && blob instanceof File) {
+      setMediaInputs(previous => [...previous, { id: crypto.randomUUID(), kind, file: blob }]);
+      return;
+    }
     setPendingImports(count => count + 1);
     try {
       const result = await importBlob(blob, name);
@@ -201,19 +228,34 @@ export default function App() {
       setImportedImage({ id: result.working.id, generation: useUI.getState().documentGeneration });
     } finally { setPendingImports(count => count - 1); }
   }, []);
+  const importBatch = useCallback(async (files: (string | File)[]) => {
+    if (importingBatch.current) throw new Error("Wait for the current import or cancel it first.");
+    importingBatch.current = true;
+    cancelImports.current = false;
+    setImportProgress({ completed: 0, total: files.length });
+    try {
+      for (let i = 0; i < files.length && !cancelImports.current; i++) {
+        const file = files[i];
+        if (typeof file === "string") {
+          if (!(await addPath(file))) break;
+        } else await addBlob(file, file.name);
+        setImportProgress({ completed: i + 1, total: files.length });
+      }
+    } finally { importingBatch.current = false; setImportProgress(null); }
+  }, [addPath, addBlob]);
   const importImages = useCallback(() => {
     if (native)
       run(async () => {
         const paths = await pickImages();
-        for (const path of paths ?? []) await addPath(path);
+        await importBatch(paths ?? []);
       });
     else fileInput.current?.click();
-  }, [addPath]);
+  }, [importBatch]);
   useEffect(() => {
     let disposed = false;
     const unlisten = onFileDrop((paths) =>
       run(async () => {
-        for (const path of paths) if (!(await addPath(path))) break;
+        await importBatch(paths);
       }),
     );
     void unlisten.then((fn) => {
@@ -223,7 +265,7 @@ export default function App() {
       disposed = true;
       void unlisten.then((fn) => fn());
     };
-  }, [addPath]);
+  }, [importBatch]);
   const save = useCallback((as = false) => run(() => documents.save(as)), [documents.save]);
   useEffect(() => {
     if (!menu) return;
@@ -242,6 +284,7 @@ export default function App() {
         }
         setNewSessionOpen(false);
         setStudioOpen(false);
+        setHomeOpen(false);
         if (useUI.getState().pick) {
           useUI.getState().set({ pick: null });
           return;
@@ -343,6 +386,9 @@ export default function App() {
     documents.pending,
     studioOpen,
     updateModalOpen,
+    homeOpen,
+    mediaInputs[0]?.id,
+    importOpen,
   ]);
   const closeWelcome = (workspace: "quick" | "advanced") => {
     chooseWorkspace(workspace);
@@ -367,7 +413,7 @@ export default function App() {
         if (native) return;
         const files = Array.from(event.dataTransfer.files);
         run(async () => {
-          for (const file of files) await addBlob(file, file.name);
+          await importBatch(files);
         });
       }}
     >
@@ -375,6 +421,7 @@ export default function App() {
         <div className="brand">
           badshop<span>✱</span>
         </div>
+        <button disabled={ui.status !== "ready"} onClick={() => setHomeOpen(true)}>Projects</button>
         <div className="session-menu" ref={sessionMenu}>
           <button
             className="session-name"
@@ -448,7 +495,7 @@ export default function App() {
               <Button
                 onClick={() => {
                   setMenu(false);
-                  importImages();
+                  setImportOpen(true);
                 }}
                 label="Import images"
                 icon={Plus}
@@ -565,6 +612,46 @@ export default function App() {
           />
         </div>
       </header>
+      {importOpen && <ImportSources onClose={() => setImportOpen(false)}
+        onFiles={() => { setImportOpen(false); importImages(); }}
+        onClipboard={() => { setImportOpen(false); run(async () => { await addBlob(await clipboardImage()); }); }}
+        onCapture={preview => {
+          setImportOpen(false);
+          setMediaInputs(previous => [...previous, { id: crypto.randomUUID(), kind: "document", preview }]);
+        }}
+        onAttach={id => {
+          setAttachments(previous => [...new Set([...previous, id])]);
+          useUI.getState().set({ selectedArtifact: id });
+          setImportedImage({ id, generation: useUI.getState().documentGeneration });
+          setImportOpen(false);
+        }} />}
+      {importProgress && <div className="restore-banner" role="status">
+        <span>Imported or queued {importProgress.completed} of {importProgress.total} files.</span>
+        <button onClick={() => { cancelImports.current = true; }}>Stop after current file</button>
+      </div>}
+      {mediaInputs[0] && <div className="modal-backdrop">
+        <section className="modal studio" role="dialog" aria-modal="true" aria-label="Import media">
+          <h2>Choose frames or a page</h2>
+          <p>{mediaInputs.length} file(s) waiting. Imported pictures stay in the project.</p>
+          <LocalMedia key={mediaInputs[0].id} source={mediaInputs[0]} onBusyChange={setMediaBusy} onAttach={id => {
+            setAttachments(previous => [...new Set([...previous, id])]);
+            useUI.getState().set({ selectedArtifact: id });
+            setImportedImage({ id, generation: useUI.getState().documentGeneration });
+          }} />
+          <button disabled={mediaBusy || !!importProgress} onClick={() => run(async () => {
+            if (mediaInputs[0]?.preview) await action("media.discard", { preview_id: mediaInputs[0].preview.id });
+            setMediaInputs(previous => previous.slice(1));
+          })}>Done / next file</button>
+          <button onClick={() => {
+            cancelImports.current = true;
+            run(async () => {
+              await action("media.cancel");
+              for (const input of mediaInputs) if (input.preview) await action("media.discard", { preview_id: input.preview.id });
+              setMediaInputs([]);
+            });
+          }}>Cancel remaining imports</button>
+        </section>
+      </div>}
       {!ui.settingsOpen &&
         !studioOpen &&
         !ui.paletteOpen &&
@@ -625,12 +712,12 @@ export default function App() {
           gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr)${workspace === "advanced" || history ? ` 6px ${widths.right}px` : ""}`,
         }}
       >
-        <QuickStart key={`quick-${ui.documentGeneration}`} importing={pendingImports > 0} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={importImages} onAdvanced={() => chooseWorkspace("advanced")} />
+        <QuickStart key={`quick-${ui.documentGeneration}`} importing={pendingImports > 0} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={() => setImportOpen(true)} onAdvanced={() => chooseWorkspace("advanced")} />
         <Chat
           key={`chat-${ui.documentGeneration}`}
           attachments={attachments}
           onAttachments={setAttachments}
-          onImport={importImages}
+          onImport={() => setImportOpen(true)}
           onPaste={paste}
           draft={ideaDrafts.find((draft) => draft.generation === ui.documentGeneration)}
           onDraftConsumed={consumeIdeaDraft}
@@ -642,7 +729,7 @@ export default function App() {
           onResize={(delta) => resize("left", delta)}
           onReset={reset}
         />
-        <Viewer key={`viewer-${ui.documentGeneration}`} onImport={importImages} />
+        <Viewer key={`viewer-${ui.documentGeneration}`} onImport={() => setImportOpen(true)} />
         <Resizer
           side="right"
           value={widths.right}
@@ -674,6 +761,11 @@ export default function App() {
           }}
         />
       )}
+      {homeOpen && !documents.pending && <ProjectHome onClose={() => setHomeOpen(false)}
+        onNew={() => { setHomeOpen(false); setNewSessionOpen(true); }}
+        onBrowse={async () => { if (await documents.open()) setHomeOpen(false); }}
+        onOpen={async path => { if (await documents.request({ kind: "open", path })) setHomeOpen(false); }}
+        onRestore={async () => { if (await documents.request({ kind: "restore" })) setHomeOpen(false); }} />}
       {ui.settingsOpen && !documents.pending && !updateModalOpen && <Settings updates={updates} />}
       {updates.info?.version && !ui.settingsOpen && !documents.pending && updates.phase === "idle" && (
         <div className="update-notice" role="status">
@@ -722,12 +814,12 @@ export default function App() {
         ref={fileInput}
         aria-label="Import image files"
         type="file"
-        accept="image/*"
+        accept="image/*,video/*,.heic,.heif,.pdf"
         multiple
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           run(async () => {
-            for (const file of files) await addBlob(file, file.name);
+            await importBatch(files);
           });
           event.target.value = "";
         }}

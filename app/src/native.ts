@@ -7,7 +7,21 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Connection } from "./types";
+import { rpc } from "./rpc";
 export const native = isTauri();
+async function setCaptureWindowHidden(hidden: boolean) {
+  if (!native) return;
+  const window = getCurrentWindow();
+  if (hidden) await window.hide();
+  else { await window.show(); await window.setFocus(); }
+}
+export async function captureScreen() {
+  await setCaptureWindowHidden(true);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return await rpc.request("media.capture");
+  } finally { await setCaptureWindowHidden(false); }
+}
 export const onCloseRequested = (confirm: () => Promise<boolean>) =>
   native
     ? getCurrentWindow().onCloseRequested(async (event) => {
@@ -50,8 +64,8 @@ export async function pickImages() {
     multiple: true,
     filters: [
       {
-        name: "Images",
-        extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "avif"],
+        name: "Images, clips and pages",
+        extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "avif", "heic", "heif", "pdf", "mp4", "mov", "mkv", "webm", "avi", "m4v", "mpeg", "mpg", "ts", "ogv", "wmv", "flv"],
       },
     ],
   });
