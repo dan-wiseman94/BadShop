@@ -6,6 +6,10 @@ on:
         description: Existing release tag to rebuild (refs/tags/vX.Y.Z)
         required: true
         type: string
+      candidate_tag:
+        description: Verify downloaded candidate bytes instead of rebuilding
+        type: string
+        default: ''
   workflow_call:
     inputs:
       nightly:
@@ -21,6 +25,7 @@ permissions:
   contents: read
 jobs:
   bundle:
+    if: inputs.candidate_tag == '' || inputs.candidate_tag == null
     strategy:
       fail-fast: false
       matrix:
@@ -228,4 +233,54 @@ jobs:
             packaging/*.licenses.json
             app/src-tauri/target/release/bundle/**/*.app.tar.gz
             app/src-tauri/target/release/bundle/**/*.sig
+          if-no-files-found: error
+  candidate:
+    if: inputs.candidate_tag != '' && inputs.candidate_tag != null
+    permissions:
+      # GitHub exposes private drafts only to a token with release write access.
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            label: linux-x64
+          - os: windows-latest
+            label: windows-x64
+          - os: macos-15
+            label: macos-arm64
+          - os: macos-15-intel
+            label: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libfuse2 libtbb12 xvfb xdotool xclip imagemagick gnome-keyring dbus-x11 flatpak
+      - run: uv sync --project core --locked
+      - name: Download and inspect exact candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+          CANDIDATE_LABEL: ${{ matrix.label }}
+          BADSHOP_SMOKE_WEBVIEW_POLICY: '1'
+          PYTHONIOENCODING: utf-8
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            dbus-run-session -- bash -e -c '
+              printf "\n" | gnome-keyring-daemon --unlock --components=secrets
+              xvfb-run -a --server-args="-screen 0 1600x1100x24" uv run --project core python packaging/accept_candidate.py
+            '
+          elif [[ "$RUNNER_OS" == macOS ]]; then
+            uv run --project core --with pyobjc-framework-Cocoa --with pyobjc-framework-Quartz python packaging/accept_candidate.py
+          else
+            uv run --project core --with playwright==1.58.0 --with pywinauto==0.6.9 python packaging/accept_candidate.py
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: candidate-acceptance-${{ matrix.label }}
+          path: artifacts/verification/candidate-acceptance/
           if-no-files-found: error
