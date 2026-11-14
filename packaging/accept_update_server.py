@@ -62,10 +62,13 @@ class UpdateServer:
         import sys
         self.platform = sys.platform
         if sys.platform == 'win32':
-            subprocess.run(['certutil', '-user', '-addstore', 'Root', str(cert_path)], check=True)
+            # Hosted Windows runners are elevated; machine-store import avoids
+            # the current-user Root store's interactive trust confirmation.
+            subprocess.run(['certutil', '-f', '-addstore', 'Root', str(cert_path)],
+                           check=True, timeout=60)
         elif sys.platform == 'darwin':
             subprocess.run(['sudo', 'security', 'add-trusted-cert', '-d', '-r', 'trustRoot',
-                            '-k', '/Library/Keychains/System.keychain', str(cert_path)], check=True)
+                            '-k', '/Library/Keychains/System.keychain', str(cert_path)], check=True, timeout=60)
         else:
             self.linux_cert = Path('/usr/local/share/ca-certificates/badshop-acceptance.crt')
             subprocess.run(['sudo', 'cp', str(cert_path), str(self.linux_cert)], check=True)
@@ -142,7 +145,7 @@ class UpdateServer:
                 os.environ[key] = value
         (self.output / 'updater-network.json').write_text(json.dumps(self.events, indent=2))
         if self.platform == 'win32':
-            subprocess.run(['certutil', '-user', '-delstore', 'Root', self.thumbprint], check=True)
+            subprocess.run(['certutil', '-delstore', 'Root', self.thumbprint], check=True, timeout=60)
         elif self.platform == 'darwin':
             subprocess.run(['sudo', 'security', 'delete-certificate', '-Z', self.thumbprint,
                             '/Library/Keychains/System.keychain'], check=True)
