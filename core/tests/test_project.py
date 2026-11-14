@@ -600,14 +600,14 @@ def test_the_good_file_opens(saved, tmp_path):
 def test_autosave_lands_in_the_data_dir_and_is_found_again(tmp_path, monkeypatch):
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "data"))
     assert project.autosave_path() == tmp_path / "data" / "autosave" / "session.badshop"
-    assert project.find_autosave() is None
+    assert not project.autosave_path().is_file()
     s = meme(tmp_path)
     project.autosave(s)
-    assert project.find_autosave() == project.autosave_path()
+    assert project.autosave_path().is_file()
     s.run_tool("filter", {"image": s.data.steps[0].outputs[0], "names": ["emboss"]}, "user")
     project.autosave(s)  # after every step: the same file, replaced
     assert [p.name for p in project.autosave_path().parent.iterdir()] == ["session.badshop"]
-    restored = project.open_project(project.find_autosave(), output_dir=tmp_path)
+    restored = project.open_project(project.autosave_path(), output_dir=tmp_path)
     assert [st.tool for st in restored.data.steps] == ["filter", "cutout", "paste", "deepfry", "animate", "filter"]
 
 
@@ -621,7 +621,7 @@ def test_claim_autosave_sets_the_last_runs_autosave_aside_for_a_restore(tmp_path
     project.autosave(meme(tmp_path))  # the last run, which then crashed
     crashed = project.autosave_path().read_bytes()
     assert project.claim_autosave() == previous  # the next launch sets it aside
-    assert project.find_autosave() is None and previous.read_bytes() == crashed
+    assert not project.autosave_path().is_file() and previous.read_bytes() == crashed
     assert project.claim_autosave() == previous  # a launch that changed nothing still offers it
     assert previous.read_bytes() == crashed
     fresh = Session.new("fresh", output_dir=tmp_path)
@@ -631,7 +631,7 @@ def test_claim_autosave_sets_the_last_runs_autosave_aside_for_a_restore(tmp_path
     restored = project.open_project(previous, output_dir=tmp_path)
     assert [st.tool for st in restored.data.steps] == ["filter", "cutout", "paste", "deepfry", "animate"]
     assert project.claim_autosave() == previous  # the launch after this one offers this run's session
-    assert project.find_autosave() is None
+    assert not project.autosave_path().is_file()
     assert project.open_project(previous, output_dir=tmp_path).data.name == "fresh"
 
 
@@ -644,4 +644,4 @@ def test_claim_autosave_never_raises_and_leaves_what_it_cant_move(tmp_path, monk
 
     monkeypatch.setattr(project.os, "replace", denied)
     assert project.claim_autosave() is None  # nothing offered this time
-    assert project.find_autosave() == project.autosave_path()  # the file waits for the next launch
+    assert project.autosave_path().is_file()  # the file waits for the next launch

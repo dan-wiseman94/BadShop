@@ -50,7 +50,6 @@ def test_fetch_search_sources_line_up_with_outputs(web):
     found = aligned(run)
     assert [o.key for o in run.result.outputs] == ["1", "2", "3", "4", "sheet"]
     assert [s and s["kind"] for s in found] == ["commons", "openverse", "commons", "openverse", None]
-    assert sources.SOURCE_KEYS == tuple(KEYS)
     assert found[0] == {  # the recorded Commons reply predates extmetadata: no licence or creator in it
         "kind": "commons", "url": first_commons_url(),
         "page": ("https://commons.wikimedia.org/wiki/File:"

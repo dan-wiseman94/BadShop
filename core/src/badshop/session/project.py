@@ -467,12 +467,6 @@ def autosave(session: Session) -> None:
     save(session, autosave_path())
 
 
-def find_autosave() -> Path | None:
-    """This run's autosave, once its session has changed (claim_autosave set the last run's aside)."""
-    path = autosave_path()
-    return path if path.is_file() else None
-
-
 def claim_autosave() -> Path | None:
     """Set the autosave the last run left behind out of this run's way, and return it (None: there is none).
 

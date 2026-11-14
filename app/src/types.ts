@@ -92,7 +92,7 @@ export interface Connection {
   token: string;
   log_path?: string;
 }
-export interface ArtifactPayload {
+interface ArtifactPayload {
   meta: Artifact;
   mime: string;
   data: string;
@@ -304,7 +304,7 @@ export interface MethodMap {
   "assets.download": [{ name: string }, { path: string }];
   "assets.cancel": [{ name: string }, { cancelled: boolean }];
 }
-export interface RetroStyle {
+interface RetroStyle {
   id: string;
   name: string;
   era: string;
@@ -313,7 +313,7 @@ export interface RetroStyle {
   height: number;
   preview: string;
 }
-export interface CreativePreferences {
+interface CreativePreferences {
   remember_history?: boolean;
   animation_delay?: number;
   style: string;
@@ -373,13 +373,13 @@ export interface LayoutDefinition {
     mask?: string;
   }[];
 }
-export interface BuiltinPack {
+interface BuiltinPack {
   id: string;
   name: string;
   description: string;
   count: number;
 }
-export interface MediaCandidate {
+interface MediaCandidate {
   id: string;
   label: string;
   time_s?: number;
@@ -398,7 +398,7 @@ export interface MediaPreview {
   candidates: MediaCandidate[];
   warnings: string[];
 }
-export interface CollectionSummary {
+interface CollectionSummary {
   id: string;
   name: string;
   count: number;

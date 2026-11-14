@@ -4,11 +4,11 @@ import io
 import json
 import os
 import time
-import uuid
 from pathlib import Path
 
 from PIL import Image
 
+from badshop.atomic import write_text
 from badshop.engine import assets
 from badshop.engine.errors import EngineError
 from badshop.session.media import IMAGE_FORMATS, data_url, picked_path, small_image, source_bytes
@@ -36,14 +36,7 @@ class LocalCollections:
             raise EngineError("collection index is missing or unreadable; index the folder again") from None
 
     def _write(self, record):
-        self.root.mkdir(parents=True, exist_ok=True)
-        path = self._path(record["id"])
-        temp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-        try:
-            temp.write_text(json.dumps(record))
-            os.replace(temp, path)
-        finally:
-            temp.unlink(missing_ok=True)
+        write_text(self._path(record["id"]), json.dumps(record))
 
     @staticmethod
     def _summary(record):
