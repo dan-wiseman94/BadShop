@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import PurePath
 
 from PIL import Image, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 
 from badshop.engine.common import fit, has_alpha, load_image, to_rgb
 from badshop.engine.errors import EngineError
@@ -15,16 +16,17 @@ from badshop.engine.sources import slugify
 from badshop.session.models import ArtifactMeta, Source
 
 # The decoders an import may use: never EPS (it runs Ghostscript) or Pillow's rarer plugins (SEC-S1).
-IMPORT_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF")
+register_heif_opener()
+IMPORT_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF", "HEIF")
 MAX_IMPORT_PIXELS = 100_000_000  # the most pixels any artifact may have; refused before decoding
 MAX_STORED_BYTES = 2 * 2**30  # same payload ceiling as project archives; originals count too
 WORKING_MAX = 1000  # an import's working copy: longest side in px, as `prep` makes
 MIME: dict[str, str] = {"PNG": "image/png", "JPEG": "image/jpeg", "GIF": "image/gif", "WEBP": "image/webp",
-                        "BMP": "image/bmp", "TIFF": "image/tiff", "AVIF": "image/avif"}
+                        "BMP": "image/bmp", "TIFF": "image/tiff", "AVIF": "image/avif", "HEIF": "image/heif"}
 FORMAT_ALIASES = {"MPO": "JPEG"}  # a phone's multi-picture JPEG opens as MPO; it is a JPEG file
 MIN_PREFIX = 6
 REF_HINT = "use an artifact id from a tool result, like a3f9c1d2"
-FORMATS_HINT = "use a PNG, JPEG, GIF, WebP, BMP, TIFF or AVIF image"
+FORMATS_HINT = "use a PNG, JPEG, GIF, WebP, BMP, TIFF, AVIF or HEIC/HEIF image"
 
 
 def short(id: str) -> str:
@@ -46,9 +48,6 @@ def _label(name: str) -> str:
 
 
 def _refused(name: str, e: Exception) -> EngineError:
-    if PurePath(name).suffix.lower() in (".heic", ".heif", ".avif") and isinstance(e, UnidentifiedImageError):
-        return EngineError(f"{name} uses a phone image format badshop cannot open yet",
-                           hint="export a PNG or JPEG copy from your photo app, then import that copy")
     if isinstance(e, Image.DecompressionBombError):  # ours (over MAX_IMPORT_PIXELS) or Pillow's own limit
         return EngineError(f"{name} is too big ({e})", hint="use a smaller copy of the image "
                            f"(the limit is {MAX_IMPORT_PIXELS // 1_000_000} megapixels)")

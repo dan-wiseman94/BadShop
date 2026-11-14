@@ -38,7 +38,7 @@ from badshop.engine.common import fit, has_alpha, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.server import local_runtime, rpc
 from badshop.server.rpc import INVALID_PARAMS, Dispatcher, RpcError
-from badshop.server.settings import ApprovalMode, Settings, load_settings, save_settings
+from badshop.server.settings import ApprovalMode, RecentProject, Settings, load_settings, save_settings
 from badshop.session import branches, project
 from badshop.session.library import AssetDetails, AssetLibrary
 from badshop.session.novelty import NoveltyMemory, NoveltyMode
@@ -406,7 +406,10 @@ class CoreApp:
         """The session as saved (SessionData by alias) plus what the app knows about it."""
         visible = self.session.visible_artifact_ids()
         from badshop.session.session import BYPASS_TOOLS
-        return {**self.session.data.model_dump(mode="json", by_alias=True),
+        return {**self.session.data.model_dump(mode="json", by_alias=True, exclude={"manual_undo", "manual_redo"}),
+                "manual_history": {
+                    "undo": self.session.data.manual_undo[-1].name if self.session.data.manual_undo else None,
+                    "redo": self.session.data.manual_redo[-1].name if self.session.data.manual_redo else None},
                 "bypass_tools": sorted(BYPASS_TOOLS),
                 "artifacts": {aid: meta.model_dump(mode="json") for aid, meta in self.session.artifacts.meta.items()
                               if aid in visible},
@@ -675,6 +678,8 @@ class CoreApp:
             ("session.get", self._session_get, "user"),
             ("session.open", self._session_open, "user"),
             ("session.restore", self._session_restore, "user"),
+            ("projects.recent", self._projects_recent, "user"),
+            ("projects.forget", self._projects_forget, "user"),
             ("session.save", self._session_save, "user"),
             ("session.save_as", self._session_save_as, "user"),
             ("session.export_recipe", self._session_export_recipe, "user"),
@@ -683,6 +688,8 @@ class CoreApp:
             ("chat.stop", self._chat_stop, "user"),
             ("chat.pause", self._chat_pause, "user"),
             ("chat.undo", self._chat_undo, "user"),
+            ("history.undo", self._history_undo, "user"),
+            ("history.redo", self._history_redo, "user"),
             ("chat.finish_checkpoint", self._chat_finish_checkpoint, "user"),
             ("chat.retry", self._chat_retry, "user"),
             ("providers.list", self._providers_list, "user"),
@@ -769,6 +776,37 @@ class CoreApp:
     async def _session_get(self, actor: str) -> dict:
         return self._snapshot()
 
+    def _remember_project(self) -> None:
+        if self.path is None or not self.settings.remember_history:
+            return
+        try:
+            path = str(self.path.absolute())
+            preview = next((s.outputs[0] for s in reversed(self.session.data.steps)
+                            if s.status == "done" and s.outputs), None)
+            if preview is None:
+                preview = next(iter(sorted(self.session.visible_artifact_ids())), None)
+            thumbnail = _artifact_payload(self.session, preview, 128)["data"] if preview else None
+            entry = RecentProject(path=path, name=self.session.data.name, opened_at=time.time(), thumbnail=thumbnail)
+            rows = [entry, *(item for item in self.settings.recent_projects if item.path != path)][:20]
+            updated = self.settings.model_copy(update={"recent_projects": rows})
+            save_settings(updated)
+            self.settings = updated
+        except (EngineError, OSError, ValidationError) as error:
+            self._log("warning", f"Project is available, but its recent-project preview could not be saved: {error}")
+
+    async def _projects_recent(self, actor: str) -> list[dict]:
+        def listing():
+            return [{**row.model_dump(), "available": Path(row.path).is_file()} for row in self.settings.recent_projects]
+        return await self._blocking(listing)
+
+    async def _projects_forget(self, actor: str, path: str) -> dict:
+        def forget():
+            updated = self.settings.model_copy(update={"recent_projects": [row for row in self.settings.recent_projects if row.path != path]})
+            save_settings(updated)
+            self.settings = updated
+            return {"forgotten": True}
+        return await self._blocking(forget)
+
     async def _session_open(self, actor: str, path: str, expected_revision: DocumentRevision | None = None,
                             discard_unsaved: DiscardUnsaved = False) -> dict:
         p = _user_path(path)
@@ -780,6 +818,7 @@ class CoreApp:
             self.session, self.path = self._own(session), None if _in_autosave_folder(p) else p
             self._changed()
             self._saved_revision = self._document_revision
+            self._remember_project()
 
         return await self._switch(load, "the user opened another session", expected_revision, discard_unsaved)
 
@@ -805,6 +844,7 @@ class CoreApp:
                 raise EngineError("this session has no project file yet", hint="use Save As to pick one")
             saved = project.save(self.session, self.path)
             self._saved_revision = self._document_revision
+            self._remember_project()
             return saved
 
         return {"path": str(await self._blocking(save))}
@@ -821,6 +861,7 @@ class CoreApp:
                                   hint="pick another folder for the project")
             self.path = project.save(self.session, p)
             self._saved_revision = self._document_revision
+            self._remember_project()
             return self.path
 
         return {"path": str(await self._blocking(save))}
@@ -857,7 +898,8 @@ class CoreApp:
     async def _library_import(self, actor: str, id: str) -> dict:
         def restore():
             self._check_idle()
-            return self.library.restore(self.session, id)
+            with branches.manual_edit(self.session, "import saved material"):
+                return self.library.restore(self.session, id)
         return await self._blocking(restore)
 
     async def _library_remove(self, actor: str, id: str) -> dict:
@@ -1040,7 +1082,10 @@ class CoreApp:
             raise EngineError('a recipe batch is running')
         raw = params or {}
         if runner.is_trusted(actor):
-            step = await self._blocking(lambda: self.session.run_tool(tool, raw, actor))
+            def manual_run():
+                with branches.manual_edit(self.session, tool):
+                    return self.session.run_tool(tool, raw, actor)
+            step = await self._blocking(manual_run)
             return step.model_dump(mode="json")
         return await self._cli_call(actor, tool, raw)
 
@@ -1133,11 +1178,11 @@ class CoreApp:
                 raise
             return session.reject(step_id, f"the edited parameters were refused: {e.message}")
 
-    async def _steps_preview(self, actor: str, step_id: str, params: dict) -> list[str]:
+    async def _steps_preview(self, actor: str, step_id: str, params: dict, final_result: bool = False) -> list[str]:
         def preview() -> list[str]:
             self._check_idle()
             return [base64.b64encode(record.data).decode("ascii")
-                    for record in self.session.preview_edit(step_id, params)]
+                    for record in self.session.preview_edit(step_id, params, final_result=final_result)]
         return await self._blocking(preview)
 
     async def _steps_controls(self, actor: str, step_id: str,
@@ -1162,11 +1207,16 @@ class CoreApp:
                 self.session.replay_from(step_id)
             self._changed()
             return self._snapshot()
-        return await self._blocking(change)
+        def tracked_change():
+            with branches.manual_edit(self.session, "change effect controls"):
+                change()
+            return self._snapshot()
+        return await self._blocking(tracked_change)
 
     async def _steps_edit(self, actor: str, step_id: str, params: dict) -> dict:
         def edit() -> tuple[Session, list[Step], list[Step]]:
-            return self.session, self.session.data.steps, self.session.edit(step_id, params)
+            with branches.manual_edit(self.session, "edit step"):
+                return self.session, self.session.data.steps, self.session.edit(step_id, params)
 
         session, timeline, stale = await self._blocking(edit)
         if self.settings.auto_replay and stale:
@@ -1188,8 +1238,17 @@ class CoreApp:
         return [s.model_dump(mode="json") for s in steps]
 
     async def _steps_delete(self, actor: str, step_id: str) -> dict:
-        await self._blocking(lambda: self.session.delete_last(step_id))
+        def remove():
+            with branches.manual_edit(self.session, "delete step"):
+                self.session.delete_last(step_id)
+        await self._blocking(remove)
         return {"deleted": step_id}
+
+    async def _history_undo(self, actor: str, expected_revision: DocumentRevision | None = None) -> dict:
+        return await self._change_branch(lambda: branches.manual_restore(self.session), expected_revision)
+
+    async def _history_redo(self, actor: str, expected_revision: DocumentRevision | None = None) -> dict:
+        return await self._change_branch(lambda: branches.manual_restore(self.session, redo=True), expected_revision)
 
     async def _approval_respond(self, actor: str, step_id: str, decision: Verdict, params: dict | None = None,
                                 note: str | None = None) -> dict:
@@ -1230,7 +1289,8 @@ class CoreApp:
             if self.session is not session or session.data.steps is not timeline:
                 raise EngineError("the session changed while the image was being read",
                                   hint="import the image again into the current session")
-            working = self.session.import_image(_decode_paste(data) if blob is None else blob, label, source)
+            with branches.manual_edit(self.session, "import image"):
+                working = self.session.import_image(_decode_paste(data) if blob is None else blob, label, source)
             return working, self.session.artifacts.meta.get(working.original_id or "", working)
 
         working, original = await self._blocking(do)

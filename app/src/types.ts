@@ -10,6 +10,7 @@ export type ApprovalMode = "auto" | "ask_changes" | "ask_all";
 export type NoveltyMode =
   "different-format" | "change-setting" | "another-era" | "avoid-recent";
 export interface Session {
+  manual_history?: { undo: string | null; redo: string | null };
   batch_running?: boolean;
   undo_branch_id?: string | null;
   pause_before_finish?: boolean;
@@ -67,6 +68,8 @@ export interface Profile {
   capability_overrides: Record<string, boolean>;
 }
 export interface Settings {
+  saved_designs?: Recipe[];
+  export_presets?: { name: string; params: Params }[];
   creative_defaults?: CreativePreferences;
   no_remote?: boolean;
   remember_history?: boolean;
@@ -98,7 +101,11 @@ interface ArtifactPayload {
   data: string;
 }
 export interface MethodMap {
-  "artifacts.frame": [{ id: string; frame: number }, ArtifactPayload];
+  "projects.recent": [undefined, { path: string; name: string; opened_at: number; thumbnail: string | null; available: boolean }[]];
+  "projects.forget": [{ path: string }, { forgotten: boolean }];
+  "history.undo": [{ expected_revision?: number }, Session];
+  "history.redo": [{ expected_revision?: number }, Session];
+  "artifacts.frame": [{ id: string; frame: number; max_px?: number }, ArtifactPayload];
   "sources.key": [{ source: string; api_key: string }, { saved: boolean }];
   "cache.status": [
     undefined,
@@ -113,8 +120,8 @@ export interface MethodMap {
   "recipes.save": [{ recipe: Recipe }, Recipe];
   "recipes.remove": [{ name: string }, { removed: boolean }];
   "recipes.run": [
-    { recipe: Recipe; inputs: string[] },
-    { completed: string[]; errors: { message: string }[]; cancelled: boolean },
+    { recipe: Recipe; inputs: (string | Record<string, string>)[] },
+    { completed: string[]; errors: { message: string }[]; cancelled: boolean; rows?: RecipeRowResult[] },
   ];
   "recipes.stop": [undefined, { stopped: boolean }];
   "credits.get": [
@@ -154,7 +161,9 @@ export interface MethodMap {
   ];
   "media.preview": [
     {
-      path: string;
+      path?: string;
+      data?: string;
+      name?: string;
       kind: "video" | "document";
       start?: number;
       end?: number;
@@ -163,6 +172,8 @@ export interface MethodMap {
     },
     MediaPreview,
   ];
+  "media.capture": [undefined, MediaPreview | null];
+  "media.discard": [{ preview_id: string }, { discarded: boolean }];
   "media.status": [undefined, { video: boolean; pdf: boolean }];
   "media.cancel": [undefined, { cancelled: boolean }];
   "media.import": [
@@ -260,7 +271,7 @@ export interface MethodMap {
   "tools.run": [{ tool: string; params: Params }, Step];
   "tools.preview": [{ tool: string; params: Params; expected_revision: number }, string[]];
   "steps.edit": [{ step_id: string; params: Params }, { stale: string[] }];
-  "steps.preview": [{ step_id: string; params: Params }, string[]];
+  "steps.preview": [{ step_id: string; params: Params; final_result?: boolean }, string[]];
   "steps.controls": [{ step_id: string; locked_fields?: string[]; bypassed?: boolean }, Session];
   "chat.pause": [undefined, { requested: boolean }];
   "chat.undo": [undefined, Session];
@@ -335,7 +346,9 @@ export interface Recipe {
   version: number;
   name: string;
   steps: { tool: string; params: Params }[];
+  inputs?: Record<string, { kind: "image" | "text"; default?: string | null }>;
 }
+export interface RecipeRowResult { index: number; status: string; output_id: string | null; error: string | null; step_ids: string[] }
 export interface CoreEvent {
   method: string;
   params: Params;

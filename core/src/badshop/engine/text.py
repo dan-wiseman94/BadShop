@@ -14,7 +14,7 @@ from badshop.engine import assets
 from badshop.engine.common import check_size, font, rgb, to_rgb
 from badshop.engine.errors import EngineError
 from badshop.engine.result import EngineResult, Output
-from badshop.engine.types import Color, ImageRef, Params, Point
+from badshop.engine.types import Box, Color, ImageRef, Params, Point
 
 SYSTEM_FONT_DIRS = [
     Path("C:/Windows/Fonts"), Path("/Library/Fonts"), Path("/System/Library/Fonts"),
@@ -106,6 +106,8 @@ def _find_font_file(style: str, explicit: str | None, data_dir: str) -> tuple[st
 
 
 def load_font(style: str, size: int, explicit: str | None = None) -> tuple[FreeTypeFont, str]:
+    if explicit == "bundled":
+        return font(size), "bundled Aileron"
     path = find_font_file(style, explicit)
     if path is None:
         return font(size), "built-in"
@@ -142,7 +144,7 @@ def rainbow(size) -> Image.Image:
     return Image.merge("HSV", (hue, full, full)).convert("RGBA")
 
 
-def render_text(lines, fnt, style, color, budget: int = 0) -> Image.Image:
+def render_text(lines, fnt, style, color, budget: int = 0, align: str = "center", hard_edges: bool = False) -> Image.Image:
     """RGBA layer with the text, tight around it. `budget` is check_size's floor: the pixels of the image
     the text goes on, which the layer may use even past MAX_WORK_PIXELS."""
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
@@ -158,13 +160,26 @@ def render_text(lines, fnt, style, color, budget: int = 0) -> Image.Image:
     check_size(W, H, floor=budget)
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
+    if hard_edges:
+        d.fontmode = "1"
+    def line_x(width, offset):
+        if align == "left":
+            return stroke + 2
+        if align == "right":
+            return W - offset - width - stroke - 2
+        return (W - offset - width) / 2
     if style == "wordart":
         outer, inner = Image.new("L", (W, H), 0), Image.new("L", (W, H), 0)
         do, di = ImageDraw.Draw(outer), ImageDraw.Draw(inner)
+        if hard_edges:
+            do.fontmode = di.fontmode = "1"
         for i, line in enumerate(lines):
-            x, y = (W - off - widths[i]) / 2, stroke + i * lh
+            x, y = line_x(widths[i], off), stroke + i * lh
             do.text((x, y), line, font=fnt, fill=255, stroke_width=stroke, stroke_fill=255)
             di.text((x, y), line, font=fnt, fill=255)
+        if hard_edges:
+            outer = outer.point(lambda a: 255 if a >= 128 else 0)
+            inner = inner.point(lambda a: 255 if a >= 128 else 0)
         side = Image.new("RGBA", (W, H), rgb(color) + (255,))
         for k in range(depth, 0, -1):  # solid extrusion down and to the right
             layer.paste(side, (0, 0), ImageChops.offset(outer, k, k))
@@ -172,9 +187,16 @@ def render_text(lines, fnt, style, color, budget: int = 0) -> Image.Image:
         layer.paste(rainbow((W, H)), (0, 0), inner)
         return layer
     for i, line in enumerate(lines):
-        x, y = (W - shadow - widths[i]) / 2, stroke + i * lh
+        x, y = line_x(widths[i], shadow), stroke + i * lh
         if style == "impact":
-            d.text((x, y), line, font=fnt, fill="white", stroke_width=stroke, stroke_fill="black")
+            if hard_edges:
+                outer, inner = Image.new("1", (W, H)), Image.new("1", (W, H))
+                ImageDraw.Draw(outer).text((x, y), line, font=fnt, fill=1, stroke_width=stroke, stroke_fill=1)
+                ImageDraw.Draw(inner).text((x, y), line, font=fnt, fill=1)
+                layer.paste((0, 0, 0, 255), (0, 0), outer)
+                layer.paste((255, 255, 255, 255), (0, 0), inner)
+            else:
+                d.text((x, y), line, font=fnt, fill="white", stroke_width=stroke, stroke_fill="black")
         else:
             d.text((x + shadow, y + shadow), line, font=fnt, fill="black")
             d.text((x, y), line, font=fnt, fill=color)
@@ -205,16 +227,42 @@ class TextParams(Params):
         None, description="paint text color (default red), or wordart extrusion color (default purple)")
     rotate: float = Field(0, description="degrees counter-clockwise")
     margin: int = Field(20, ge=0, le=10_000, description="gap from the edge in px")
-    font: FontRef | None = Field(None, description="path or name of a font file to use instead")
+    font: FontRef | None = Field(None, description="bundled uses portable Latin-1 Aileron without downloads; otherwise a font file name or path")
     fit_exact: bool = Field(False, description="shrink until all caption words fit inside the image; refuse clipping")
+    preserve_case: bool = Field(False, description="keep the typed capitalization, including with Impact")
+    preserve_line_breaks: bool = Field(False, description="keep exact lines and spaces instead of automatic wrapping")
+    box: Box | None = Field(None, description="text area inside the image; margin is inset inside this box")
+    align: Literal["left", "center", "right"] = "center"
+    overflow: Literal["clip", "shrink", "error"] = Field("clip", description="clip keeps legacy placement; shrink fits all words; error refuses overflow")
+    frame: Literal["none", "box", "bubble"] = "none"
+    frame_padding: int = Field(8, ge=0, le=200)
+    frame_color: Color = "#ffffff"
+    frame_border: Color = "#000000"
+    frame_width: int = Field(2, ge=0, le=40)
+    tail: Point | None = Field(None, description="optional speech-bubble tail tip in image coordinates; attaches to the bottom edge")
 
 
 def caption(p: TextParams, image: Image.Image) -> EngineResult:
     # reference/badshop.py cmd_text
     im = to_rgb(image)
+    if p.font == "bundled":
+        try:
+            p.text.encode("latin-1")
+        except UnicodeEncodeError:
+            raise EngineError("the bundled font supports Latin-1 text", hint="choose a local font for other scripts") from None
     W, H = im.size
+    x1, y1, x2, y2 = p.box or (0, 0, W, H)
+    if not (0 <= x1 < x2 <= W and 0 <= y1 < y2 <= H):
+        raise EngineError("text box must be inside the image with positive width and height")
+    padding = p.frame_padding + p.frame_width if p.frame != "none" else 0
+    frame_color = rgb(p.frame_color) if p.frame != "none" else None
+    frame_border = rgb(p.frame_border) if p.frame != "none" else None
+    available_width, available_height = x2 - x1 - 2 * (p.margin + padding), y2 - y1 - 2 * (p.margin + padding)
+    if (p.box or p.fit_exact or p.overflow != "clip" or padding) and (available_width <= 0 or available_height <= 0):
+        raise EngineError("text margins leave no room for the caption")
+    exact = p.fit_exact or p.overflow == "shrink"
     # split before upper-casing: Impact would turn a typed \n into \N, which no longer breaks the line
-    text = "\n".join(s.upper() for s in LINE_BREAK.split(p.text)) if p.style == "impact" else p.text
+    text = "\n".join(s.upper() for s in LINE_BREAK.split(p.text)) if p.style == "impact" and not p.preserve_case else p.text
     probe = ImageDraw.Draw(im)
     if p.color:
         rgb(p.color)  # a clean error up front: the paint style hands the color straight to PIL
@@ -225,37 +273,68 @@ def caption(p: TextParams, image: Image.Image) -> EngineResult:
             raise EngineError("the image is too small for this caption",
                               hint="give size, or caption a bigger image")
         fnt, used = load_font(p.style, size, p.font)
-        lines = wrap_text(probe, text, fnt, W - 2 * p.margin)
+        lines = LINE_BREAK.split(text) if p.preserve_line_breaks else wrap_text(probe, text, fnt, available_width)
         if p.size or len(lines) <= 3 or size <= W // 22:  # auto-size: shrink until it fits in 3 lines
             break
         size = int(size * 0.85)
-    if not lines:
+    if not lines or not any(line.strip() for line in lines):
         raise EngineError("nothing to write", hint="give some words")
     # a caption as big as the photo it goes on is never too big, even when the photo is over the budget
-    layer = render_text(lines, fnt, p.style, color, budget=im.width * im.height)
+    hard_edges = p.font == "bundled" or p.frame != "none"
+    layer = render_text(lines, fnt, p.style, color, budget=im.width * im.height, align=p.align, hard_edges=hard_edges)
     if p.rotate:
-        layer = layer.rotate(p.rotate, resample=Image.NEAREST if p.fit_exact else Image.BICUBIC, expand=True)
-    if p.fit_exact:
-        while layer.width > W - 2 * p.margin or layer.height > H - 2 * p.margin:
+        layer = layer.rotate(p.rotate, resample=Image.NEAREST if exact or hard_edges else Image.BICUBIC, expand=True)
+    if exact:
+        while layer.width > available_width or layer.height > available_height:
             size = int(size * 0.85)
             if size < 4:
                 raise EngineError("these words cannot fit at a readable size", hint="use fewer words or a larger image")
             fnt, used = load_font(p.style, size, p.font)
-            lines = wrap_text(probe, text, fnt, W - 2 * p.margin)
-            layer = render_text(lines, fnt, p.style, color, budget=im.width * im.height)
+            lines = LINE_BREAK.split(text) if p.preserve_line_breaks else wrap_text(probe, text, fnt, available_width)
+            layer = render_text(lines, fnt, p.style, color, budget=im.width * im.height, align=p.align, hard_edges=hard_edges)
             if p.rotate:
                 layer = layer.rotate(p.rotate, resample=Image.NEAREST, expand=True)
+    if p.overflow == "error" and (layer.width > available_width or layer.height > available_height):
+        raise EngineError("caption placement would clip words", hint="shrink the text or increase its box")
+    if p.frame != "none":
+        check_size(layer.width + 2 * padding, layer.height + 2 * padding, floor=W * H)
+        framed = Image.new("RGBA", (layer.width + 2 * padding, layer.height + 2 * padding))
+        draw = ImageDraw.Draw(framed)
+        rect = (0, 0, framed.width - 1, framed.height - 1)
+        if p.frame == "bubble":
+            draw.rounded_rectangle(rect, radius=min(16, padding), fill=frame_color,
+                outline=frame_border if p.frame_width else None, width=p.frame_width)
+        else:
+            draw.rectangle(rect, fill=frame_color, outline=frame_border if p.frame_width else None, width=p.frame_width)
+        framed.paste(layer, (padding, padding), layer)
+        layer = framed
     if p.at:
         x, y = p.at[0] - layer.width // 2, p.at[1] - layer.height // 2
-    elif p.bottom:
-        x, y = (W - layer.width) // 2, H - layer.height - p.margin
     else:
-        x, y = (W - layer.width) // 2, p.margin
-    if p.fit_exact and not (0 <= x and 0 <= y and x + layer.width <= W and y + layer.height <= H):
+        x = x1 + (x2 - x1 - layer.width) // 2
+        if p.align == "left":
+            x = x1 + p.margin
+        elif p.align == "right":
+            x = x2 - p.margin - layer.width
+        y = y2 - layer.height - p.margin if p.bottom else y1 + p.margin
+    if (exact or p.overflow == "error") and not (x1 <= x and y1 <= y and x + layer.width <= x2 and y + layer.height <= y2):
         raise EngineError("caption placement would clip words", hint="move the caption inside the image")
+    bounds = [x, y, x + layer.width, y + layer.height]
+    if p.frame == "bubble" and p.tail:
+        tx, ty = p.tail
+        if not (0 <= tx < W and 0 <= ty < H):
+            raise EngineError("speech bubble tail must be inside the image")
+        center, bottom = x + layer.width // 2, y + layer.height - 1
+        half = max(2, min(12, layer.width // 4))
+        draw = ImageDraw.Draw(im)
+        draw.polygon([(center - half, bottom), (tx, ty), (center + half, bottom)], fill=frame_color)
+        if p.frame_width:
+            draw.line([(center - half, bottom), (tx, ty), (center + half, bottom)], fill=frame_border, width=p.frame_width)
+        bounds = [min(x, tx), min(y, ty), max(bounds[2], tx + 1), max(bounds[3], ty + 1)]
     im.paste(layer, (x, y), layer)
     return EngineResult(
         outputs=[Output("result", im, "result.png")],
         lines=[f"text: {len(lines)} line(s), {p.style} style, font {used}, size {size}px, "
                f"at top-left ({x}, {y})"],
+        data={"element_bounds": bounds},
     )

@@ -1,5 +1,6 @@
 # PyInstaller onedir: large native runtimes stay unpacked alongside the core.
 import os
+import sys
 from pathlib import Path
 from importlib.metadata import distributions
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
@@ -7,8 +8,13 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'True'
 root = Path(SPECPATH).parent
 binaries, datas, hidden = [], [], []
-for package in ('badshop', 'rembg', 'onnxruntime', 'keyring', 'mcp'):
+for package in ('badshop', 'rembg', 'onnxruntime', 'keyring', 'mcp', 'pillow_heif', 'pypdfium2', 'pypdfium2_raw', 'av'):
     d, b, h = collect_all(package, filter_submodules=lambda n: not n.startswith(('mcp.cli', 'rembg.cli')))
+    datas += d
+    binaries += b
+    hidden += h
+if sys.platform == 'linux':
+    d, b, h = collect_all('dbus_fast')
     datas += d
     binaries += b
     hidden += h

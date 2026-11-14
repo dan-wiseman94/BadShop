@@ -10,7 +10,7 @@ from badshop.tools import REGISTRY
 from badshop.tools.registry import llm_schema, ui_schema, user_only_fields
 from conftest import load_reference
 from test_params import BASE
-RETRO_TOOLS = {'retro_layout', 'canvas', 'pattern', 'palette', 'bitmap_text', 'animate_sticker', 'export_profile', 'collection_items'}
+RETRO_TOOLS = {'retro_layout', 'canvas', 'pattern', 'palette', 'bitmap_text', 'animate_sticker', 'animation_edit', 'export_profile', 'collection_items'}
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:

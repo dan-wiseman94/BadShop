@@ -5,7 +5,7 @@ export type Artifact = {
   label: string;
   width: number;
   height: number;
-  format: "PNG" | "JPEG" | "GIF" | "WEBP" | "BMP" | "TIFF" | "AVIF";
+  format: "PNG" | "JPEG" | "GIF" | "WEBP" | "BMP" | "TIFF" | "AVIF" | "HEIF";
   mime: string;
   frames?: number;
   produced_by?: string | null;

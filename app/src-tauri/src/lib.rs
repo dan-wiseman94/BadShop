@@ -17,6 +17,11 @@ fn smoke_probe_enabled() -> bool {
 }
 
 #[tauri::command]
+fn smoke_capture_enabled() -> bool {
+    smoke_probe_enabled() && std::env::var("BADSHOP_SMOKE_CAPTURE").as_deref() == Ok("1")
+}
+
+#[tauri::command]
 fn renderer_ready(
     core: State<'_, Core>,
     ready: bool,
@@ -27,6 +32,7 @@ fn renderer_ready(
     close_pending: bool,
     tool_count: usize,
     clipboard_pixels: bool,
+    capture_pixels: Option<bool>,
 ) -> Result<(), String> {
     // Only the isolated native harness supplies this path. No connection token
     // or project contents are exported; ordinary startup performs no probe I/O.
@@ -42,6 +48,9 @@ fn renderer_ready(
                     .into(),
             );
         }
+        if smoke_capture_enabled() && capture_pixels != Some(true) {
+            return Err("Native capture probe has not verified screenshot pixels".into());
+        }
         let Some(connection) = core.0.current_connection() else {
             let _ = std::fs::remove_file(path);
             return Ok(());
@@ -50,6 +59,7 @@ fn renderer_ready(
             "nonce": std::env::var("BADSHOP_SMOKE_NONCE").map_err(|e| e.to_string())?,
             "tool_count": tool_count,
             "clipboard_pixels": clipboard_pixels,
+            "capture_pixels": capture_pixels,
             "shell_pid": std::process::id(), "port": connection.port,
             "session_id": session_id, "revision": revision,
             "unsaved": unsaved, "welcome": welcome, "close_pending": close_pending,
@@ -161,6 +171,7 @@ pub fn run() {
             core_restart,
             renderer_ready,
             smoke_probe_enabled,
+            smoke_capture_enabled,
             updates::update_check,
             updates::update_download,
             updates::update_cancel,

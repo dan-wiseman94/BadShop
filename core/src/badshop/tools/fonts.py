@@ -7,7 +7,7 @@ from badshop.engine.text import SYSTEM_FONT_DIRS
 
 
 def font_names() -> list[str]:
-    names = set()
+    names = {"bundled"}
     for folder in [*SYSTEM_FONT_DIRS, assets.data_dir() / "fonts"]:
         try:
             for path in folder.rglob("*"):
@@ -25,7 +25,7 @@ def model_font_schema() -> dict:
     bounded hint; runner.validate still checks the complete discovered-name allowlist.
     """
     names = font_names()
-    description = "A discovered font name; omit to use the style's default font."
+    description = "A discovered font name, or bundled for portable Latin-1 text; omit to use the style's default font."
     if len(names) <= 32:
         choices = [{"type": "string", "enum": names}] if names else []
     else:

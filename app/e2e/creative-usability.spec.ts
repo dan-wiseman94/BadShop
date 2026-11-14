@@ -17,6 +17,7 @@ test("quick idea uses the photo added from its own import button", async ({ page
   await page.getByRole("button", { name: /An error with no solution/ }).click();
   const picker = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Add my own image" }).click();
+  await page.getByRole("dialog", { name: "Add material" }).getByRole("button", { name: "Choose files" }).click();
   await (await picker).setFiles(path.join(root, "core/tests/fixtures/lincoln.png"));
   await expect.poll(async () => Object.keys((await emptyCore.call("session.get") as Session).artifacts).length).toBeGreaterThan(0);
   const imported = await emptyCore.call("session.get") as Session;

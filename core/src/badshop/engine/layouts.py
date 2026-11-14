@@ -86,14 +86,21 @@ class LayoutParams(Params):
     captions: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=12)
     slots: list[Box] | None = Field(None, max_length=12, description="Optional replacement image boxes in canvas pixels; keep default order")
     fit: Literal["contain", "cover", "stretch"] = "contain"
+    focal_points: list[tuple[Annotated[float, Field(ge=0, le=1)], Annotated[float, Field(ge=0, le=1)]]] = Field(
+        default_factory=list, max_length=12, description="Crop focus per slot, normalized x/y from 0 to 1; defaults to center")
     background: Color | None = None
     accent: Color | None = None
+    panel_border: int = Field(3, ge=0, le=30, description="border width around each image slot")
+    panel_padding: int = Field(0, ge=0, le=100, description="empty margin inside each image slot")
+    exact_text: bool = Field(False, description="preserve caption lines and refuse truncation when words cannot fit")
 
     @model_validator(mode="after")
     def valid_slots(self):
         definition = LAYOUTS[self.template]
         count = len(definition["slots"])
         if len(self.images) > count or len(self.captions) > count:
+            raise ValueError(f"{self.template} has {count} slots")
+        if len(self.focal_points) > count:
             raise ValueError(f"{self.template} has {count} slots")
         if self.image_slots is not None:
             if len(self.image_slots) != len(self.images) or len(set(self.image_slots)) != len(self.image_slots) or any(i >= count for i in self.image_slots):
@@ -111,47 +118,61 @@ def definitions():
     return [{"id": key, **deepcopy(value), "max_images": len(value["slots"])} for key, value in LAYOUTS.items()]
 
 
-def _caption(draw, box, text, color, size=34):
+def _caption(draw, box, text, color, size=34, exact=False):
     """Wrap and shrink into a bounded text region; never write over an adjacent image slot."""
     if not text:
         return
+    if exact:
+        try:
+            text.encode("latin-1")
+        except UnicodeEncodeError:
+            raise EngineError("exact layout captions use a portable Latin-1 font",
+                hint="leave this caption blank and add text with a local font for other scripts") from None
     x1, y1, x2, y2 = box
     width, height = x2 - x1 - 12, y2 - y1 - 10
     if width < 1 or height < 1:
+        if exact:
+            raise EngineError("caption region has no room for text")
         return
-    text = " ".join(text.split())
+    paragraphs = text.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n").split("\n") if exact else [" ".join(text.split())]
     lines = []
     for px in range(size, 7, -2):
         f = font(px)
         lines, line = [], ""
         # Character wrapping also handles URLs and unspaced words.
-        for char in text:
-            if draw.textbbox((0, 0), line + char, font=f)[2] > width and line:
-                lines.append(line.rstrip())
-                line = char.lstrip()
-            else:
-                line += char
-        if line:
-            lines.append(line)
+        for paragraph in paragraphs:
+            line = ""
+            for char in paragraph:
+                if draw.textbbox((0, 0), line + char, font=f)[2] > width and line:
+                    lines.append(line if exact else line.rstrip())
+                    line = char if exact else char.lstrip()
+                else:
+                    line += char
+            if line or exact:
+                lines.append(line)
         line_h = px + 3
         if len(lines) * line_h <= height:
             break
     max_lines = max(1, height // line_h)
     if len(lines) > max_lines:
+        if exact:
+            raise EngineError("caption cannot fit without truncation", hint="shorten the words or increase the caption area")
         lines = lines[:max_lines]
         lines[-1] = lines[-1][:-3] + "..."
     for i, line in enumerate(lines):
+        if exact and draw.textbbox((0, 0), line, font=f)[2] > width:
+            raise EngineError("caption cannot fit without truncation")
         draw.text((x1 + 6, y1 + 5 + i * line_h), line, font=f, fill=color, anchor="lt")
 
 
-def _paste(canvas, image, box, fitting, shape):
+def _paste(canvas, image, box, fitting, shape, focal=(0.5, 0.5)):
     x1, y1, x2, y2 = box
     size = (x2 - x1, y2 - y1)
     image = image.convert("RGBA")
     if fitting == "stretch":
         piece = image.resize(size, Image.Resampling.NEAREST)
     elif fitting == "cover":
-        piece = ImageOps.fit(image, size, method=Image.Resampling.NEAREST)
+        piece = ImageOps.fit(image, size, method=Image.Resampling.NEAREST, centering=focal)
     else:
         fitted = ImageOps.contain(image, size, method=Image.Resampling.NEAREST)
         piece = Image.new("RGBA", size)
@@ -245,17 +266,24 @@ def render(p: LayoutParams, images: list[Image.Image]) -> EngineResult:
     _decoration(draw, p.template, canvas.size, bg, accent)
     title_color = "white" if p.template in ("desktop-error", "tabloid-cover") else accent
     _caption(draw, definition.get("title_box", (24, 20, canvas.width - 24, 90)),
-             p.title or definition["name"].upper(), title_color, 45)
+             p.title or definition["name"].upper(), title_color, 45, exact=p.exact_text)
     mapped = dict(zip(p.image_slots if p.image_slots is not None else range(len(images)), images, strict=True))
     for index, item in enumerate(definition["slots"]):
         x1, y1, x2, y2 = item["box"]
-        draw.rectangle((x1 - 3, y1 - 3, x2 + 2, y2 + 2), outline=accent, width=3)
+        if p.panel_border:
+            draw.rectangle((x1 - p.panel_border, y1 - p.panel_border,
+                x2 + p.panel_border - 1, y2 + p.panel_border - 1), outline=accent, width=p.panel_border)
+        pad = p.panel_padding
+        inner = (x1 + pad, y1 + pad, x2 - pad, y2 - pad)
+        if inner[0] >= inner[2] or inner[1] >= inner[3]:
+            raise EngineError("panel padding leaves no room for its picture")
         if index in mapped:
-            _paste(canvas, mapped[index], item["box"], p.fit, item["mask"])
+            _paste(canvas, mapped[index], inner, p.fit, item["mask"],
+                   p.focal_points[index] if index < len(p.focal_points) else (0.5, 0.5))
         else:
             _caption(draw, item["box"], item["name"], accent, 22)
         caption = p.captions[index] if index < len(p.captions) else ""
-        _caption(draw, item["caption_box"], caption, accent, item.get("caption_size", 28))
+        _caption(draw, item["caption_box"], caption, accent, item.get("caption_size", 28), exact=p.exact_text)
     return EngineResult(outputs=[Output("layout", canvas, f"{p.template}.png")],
         lines=[f"{definition['name']}: {len(images)} images in {len(definition['slots'])} editable slots"],
         data={"layout": {"id": p.template, **definition}})

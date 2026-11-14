@@ -29,7 +29,7 @@ test("oversized image paste keeps the socket and waiting approval usable", async
     clipboardData.items.add(image);
     element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData }));
   });
-  await expect(page.getByText(/exceeds the 47 MiB paste limit/)).toBeVisible();
+  await expect(page.getByText(/exceeds the 47 MiB upload limit/)).toBeVisible();
   expect(await core.call("session.get")).toEqual(before);
   await expect(approval).toBeVisible();
 
@@ -57,6 +57,17 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   page,
   core,
 }) => {
+  let holdReplay = false;
+  let releaseReplay: () => void = () => { throw new Error("Replay request was not intercepted"); };
+  await page.routeWebSocket(`ws://127.0.0.1:${core.port}/`, client => {
+    const server = client.connectToServer();
+    client.onMessage(frame => {
+      if (holdReplay && JSON.parse(String(frame)).method === "steps.replay_from") {
+        holdReplay = false;
+        releaseReplay = () => server.send(frame);
+      } else server.send(frame);
+    });
+  });
   await page.addInitScript(() => {
     localStorage.setItem("badshop.welcome", "1");
     localStorage.setItem("badshop.theme", "dark");
@@ -81,7 +92,10 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await seed.fill("11");
   await steps.getByRole("button", { name: "Apply & replay" }).click();
   await expect(steps.getByText("edited", { exact: true })).toBeVisible();
+  holdReplay = true;
   await steps.getByRole("button", { name: "Replay from here" }).click();
+  await expect(steps.getByRole("button", { name: "Replay from here" })).toBeDisabled();
+  releaseReplay();
   await expect(steps.getByRole("button", { name: "Replay from here" })).toBeEnabled();
   await page
     .getByRole("button", { name: "Coordinate grid", exact: true })

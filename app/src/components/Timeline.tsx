@@ -62,8 +62,8 @@ export function cliCommand(step: Step, tool?: Tool) {
     const format = typeof schema === "object" ? schema.format : undefined;
     if (Array.isArray(value) && !format?.startsWith("badshop-")) {
       for (const item of value) {
-        if (Array.isArray(item)) flags.push(flag, ...item.map(String));
-        else flags.push(`${flag}=${String(item)}`);
+        if (Array.isArray(item) && item.every(value => typeof value === "number")) flags.push(flag, ...item.map(String));
+        else flags.push(`${flag}=${typeof item === "object" ? JSON.stringify(item) : String(item)}`);
       }
     } else if (words.length === 1) flags.push(`${flag}=${words[0]}`);
     else flags.push(flag, ...words);
@@ -92,7 +92,16 @@ export function Timeline() {
   const selected = useUI((s) => s.selectedStep);
   const step = session?.steps.find((s) => s.id === selected);
   const tool = tools?.find((t) => t.name === step?.tool);
-  const busy = session?.turn_running;
+  const [changing, setChanging] = useState(false);
+  const changePending = useRef(false);
+  const busy = session?.turn_running || changing || session?.steps.some(item => item.status === "running");
+  const change = async (work: () => Promise<unknown>) => {
+    if (changePending.current) return;
+    changePending.current = true;
+    setChanging(true);
+    try { await work(); }
+    finally { changePending.current = false; setChanging(false); }
+  };
   return (
     <section className="timeline pane" aria-label="Steps timeline">
       <div className="pane-heading">
@@ -104,7 +113,7 @@ export function Timeline() {
           className="quiet"
           title="Replay all steps"
           disabled={!session?.steps.length || busy}
-          onClick={() => run(() => action("steps.replay_from", { step_id: session!.steps[0].id }))}
+          onClick={() => run(() => change(() => action("steps.replay_from", { step_id: session!.steps[0].id })))}
         >
           <ThemeIcon name="replay" size={16} />
         </button>
@@ -197,7 +206,7 @@ export function Timeline() {
             submitLabel={
               session?.pending_approvals.includes(step.id) ? "Approve with changes" : "Apply & replay"
             }
-            onSubmit={async (params) => {
+            onSubmit={async (params) => change(async () => {
               if (session?.pending_approvals.includes(step.id))
                 return action("approval.respond", {
                   step_id: step.id,
@@ -207,7 +216,7 @@ export function Timeline() {
               await action("steps.edit", { step_id: step.id, params });
               const settings = await action("settings.get");
               if (!settings.auto_replay) await action("steps.replay_from", { step_id: step.id });
-            }}
+            })}
           />
           <div className="detail-actions">
             {session?.bypass_tools?.includes(step.tool) &&
@@ -230,7 +239,7 @@ export function Timeline() {
             </details>
             <Button
               disabled={busy}
-              onClick={() => run(() => action("steps.replay_from", { step_id: step.id }))}
+              onClick={() => run(() => change(() => action("steps.replay_from", { step_id: step.id })))}
               label="Replay from here"
               icon="replay"
               iconSize={13}

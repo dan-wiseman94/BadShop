@@ -37,11 +37,40 @@ Local only blocks tool downloads, asset downloads, cloud/custom/CLI model provid
 
 ## Recipes, comparison and export
 
-Capture a completed local tool step in Recipes. Change its name and exposed parameters, save it in the project, then select up to 12 input images. Recipes use declarative steps with `$input` and earlier `$step0`, `$step1` references. Network and file-writing tools are refused. A batch has at most 60 steps. Stop retains completed outputs; failed inputs report their errors. Closing the app, losing its last user connection or cancelling the request stops owned batch work. Multi-input captures bind each input to `$input`; edit the recipe when a composition needs a different arrangement.
+Capture a completed local tool step in Recipes. New captures use version 2 with
+separate named image roles (`$input:base`, `$input:piece`, or numbered slots), and
+named text values (`$text:title`) with editable defaults. Earlier `$step0`,
+`$step1` outputs can feed later steps. Version-1 recipes keep their `$input`
+behavior; recapture a multi-image composition to give each image its own role.
+
+**Save recipe** keeps the design in the project. **Save to design library** keeps
+up to 50 designs in local settings for reuse across projects. Image roles are
+chosen in the destination project; no old project image identifiers become defaults.
+Each design can declare up to 32 roles and 40 steps. Text defaults travel with it.
+
+Version-2 batches show editable rows with separate images and text. Each result
+has its preview or error and a **Retry row** action. Batches allow up to 12 rows
+and 60 total steps. Stop retains completed outputs and marks unfinished rows as
+cancelled. Retrying a row creates new recorded steps without replacing previous
+outputs. Network and file-writing tools are refused. Closing the app, losing its
+last user connection or cancelling the request stops owned batch work.
 
 Compare displays up to four branch results. The Export panel prepares 88×31 buttons, 150×20 blinkies, 500×150 signatures, 100×100 avatars or 1024×768 wallpaper. The source image remains stored. JPEG size limits try bounded quality values; PNG/GIF limits fail explicitly when the encoded result is too large. Export selected image + credits writes a unique image filename and JSON ancestry sidecar. Unknown creators or rights remain unknown.
 
 Worse applies seeded deep-fry strength or repeated JPEG compression from the clean base you choose, so adjusting a setting does not accidentally compound the previous preview's damage.
+
+The image export dialog also accepts custom dimensions (1–2000 pixels per side),
+fit/crop/stretch, an opaque background, and a file-size limit in KB or MB. Optional
+dimension reduction tries smaller nearest-neighbor outputs when the limit cannot
+be met. Keeping animation produces GIF with per-frame timing and loop count;
+animated preparation is limited to 200 frames and 20 million output pixels.
+**Prepare and save** exports the newly prepared output. The preview reports exact
+encoded bytes. Named export settings are saved across projects (up to 30 presets),
+without retaining references to a project's images.
+Choose up to twelve presets and **Prepare selected sizes** to create multiple
+outputs from the same source. Each result has a preview and Save button. **Stop
+after current size** keeps completed outputs. For an imported GIF's still working
+copy, **Use animated original** selects its stored animation before exporting.
 
 ## Verification scope
 

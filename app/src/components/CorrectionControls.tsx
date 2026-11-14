@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { action, imageUrl, run, useArtifact } from "../data";
 import type { Params } from "../types";
+import { CutoutRepair } from "./CutoutRepair";
+import { AnimationEditor } from "./AnimationEditor";
 
 export function CorrectionControls({ tool, stepId, value, change, disabled }: {
   tool: string; stepId?: string; value: Params; change: (value: Params) => void; disabled: boolean;
@@ -34,6 +36,12 @@ export function CorrectionControls({ tool, stepId, value, change, disabled }: {
       Math.round((event.clientY - rect.top) * (data?.meta.height ?? 1) / rect.height)];
   };
   return <section aria-label="Quick corrections">
+    {tool === "text" && <label>Font source<select disabled={disabled} value={value.font === "bundled" ? "bundled" : "local"}
+      onChange={event => update({ font: event.target.value === "bundled" ? "bundled" : undefined })}>
+      <option value="bundled">Portable bundled font (Latin-1)</option><option value="local">Style default / local font</option>
+    </select><small>The bundled font replays without system fonts or downloads. Local font files must exist on the other machine.</small></label>}
+    {tool === "animation_edit" && <AnimationEditor value={value} change={change} disabled={disabled} />}
+    {tool === "cutout" && <CutoutRepair value={value} change={change} disabled={disabled} />}
     {tool === "text" && <label>Exact caption
       <textarea disabled={disabled} value={String(value.text ?? "")}
         onChange={(event) => update({ text: event.target.value })} />

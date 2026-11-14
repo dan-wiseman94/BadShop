@@ -41,11 +41,41 @@ def test_layout_preserves_hard_source_colors_and_binary_alpha():
     assert output.getpixel((190, 250)) == (0, 170, 251)
 
 
+def test_panel_border_padding_and_exact_caption_overflow():
+    params = LayoutParams(images=["source"], slots=[[100, 200, 200, 300]], fit="stretch",
+        panel_padding=10, panel_border=5, background="white", accent="black", exact_text=True,
+        captions=["Hello  World\n\nAgain"])
+    source = Image.new("RGB", (2, 2), "red")
+    result = render(params, [source]).outputs[0].image
+    assert result.getpixel((96, 240)) == (0, 0, 0)
+    assert result.getpixel((105, 240)) == (255, 255, 255)
+    assert result.getpixel((110, 240)) == (255, 0, 0)
+    with pytest.raises(EngineError, match="padding"):
+        render(params.model_copy(update={"panel_padding": 50}), [source])
+    with pytest.raises(EngineError, match="truncation"):
+        render(params.model_copy(update={"captions": ["word\n" * 100]}), [source])
+    with pytest.raises(EngineError, match="Latin-1"):
+        render(params.model_copy(update={"captions": ["你好"]}), [source])
+
+
 def test_empty_middle_slots_do_not_shift_images():
     p = LayoutParams(template="comic", images=["x"], image_slots=[1], fit="stretch")
     image = render(p, [Image.new("RGB", (2, 2), "red")]).outputs[0].image
     assert image.getpixel((750, 200)) == (255, 0, 0)
     assert image.getpixel((200, 200)) != (255, 0, 0)
+
+
+def test_layout_crop_focus_selects_source_region_with_hard_pixels():
+    source = Image.new("RGB", (300, 100), "red")
+    source.paste("blue", (150, 0, 300, 100))
+    params = LayoutParams(images=["source"], fit="cover", slots=[[100, 200, 200, 300]], focal_points=[(0, 0.5)])
+    left = render(params, [source]).outputs[0].image
+    right = render(params.model_copy(update={"focal_points": [(1, 0.5)]}), [source]).outputs[0].image
+    assert left.getpixel((150, 250)) == (255, 0, 0)
+    assert right.getpixel((150, 250)) == (0, 0, 255)
+    assert set(right.crop((100, 200, 200, 300)).getdata()) == {(0, 0, 255)}
+    with pytest.raises(ValidationError):
+        LayoutParams(focal_points=[(1.1, 0.5)])
 
 
 @pytest.mark.parametrize("params", [dict(slots=[[0, 0, 9000, 9000]]), dict(images=["a", "b"]),

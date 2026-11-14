@@ -6,6 +6,10 @@ requires-python = ">=3.12,<3.14"
 license = "MIT"
 dependencies = [
     "pillow>=13.0,<14",  # fixes decoder memory-safety/resource advisories in 12.3
+    "pillow-heif>=1.8.1,<2",  # bundled libheif: phone photos use the isolated image decoder
+    "pypdfium2>=5.15.2,<6",  # bundled PDF renderer in the isolated media worker
+    "av>=19.0.2,<20",  # bundled FFmpeg libraries; no separate video tools required
+    "dbus-fast>=5.2,<6; sys_platform == 'linux'",  # Wayland screenshot permission portal
     "filelock>=4.2.9,<5",  # security floor for transitive model-cache locking
     "numpy>=2.5; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     # Intel macOS wheels stop at these inference runtimes; numba requires NumPy <2.4.

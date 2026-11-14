@@ -714,6 +714,20 @@ button.primary {
   user-select: none;
   pointer-events: none;
 }
+.recorded-element {
+  position: absolute;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  border: 1px dashed #ff00ff;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.recorded-element:hover, .recorded-element:focus-visible, .recorded-element[aria-pressed="true"] {
+  background: #ff00ff22;
+  outline: 2px solid #ff00ff;
+}
 .image-overlay {
   position: absolute;
   inset: 0;
@@ -827,6 +841,7 @@ button.primary {
 }
 .artifact-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 13px;
   min-height: 88px;
@@ -849,8 +864,13 @@ button.primary {
   gap: 7px;
   overflow-x: auto;
   flex: 1;
+  min-width: 0;
   scrollbar-width: thin;
 }
+.artifact-strip > .artifact-list { flex-basis: 100%; }
+.artifact-strip label { min-width: 0; flex: 1; }
+.artifact-strip input { width: 100%; min-width: 0; }
+.viewer > .material-library .studio-thumb { width: 80px; height: 60px; object-fit: contain; }
 .artifact-thumb {
   padding: 0;
   width: 48px;
@@ -2224,9 +2244,20 @@ button.primary {
 .share-image details > * { margin-bottom: 10px; }
 .share-image button { white-space: normal; }
 .share-preview { max-width: 320px; width: 100%; max-height: 340px; object-fit: contain; background: var(--stage); image-rendering: pixelated; }
-.viewer-tools, .viewer-toggles { flex-wrap: wrap; height: auto; }
-.manual-tools { padding: 10px 16px; border-top: 1px solid var(--line); max-height: 38vh; overflow: auto; }
-.manual-tools summary { cursor: pointer; font-weight: 600; }
+.viewer-tools { flex-wrap: nowrap; height: auto; min-height: 46px; overflow-x: auto; flex-shrink: 0; }
+.viewer-tools > *, .viewer-toggles > * { flex-shrink: 0; }
+.viewer-toggles { flex-wrap: nowrap; height: auto; }
+.viewer[data-picking="true"] > .manual-tools,
+.viewer[data-picking="true"] > .artifact-strip,
+.viewer[data-picking="true"] > .material-library { display: none; }
+.manual-tools, .material-library { padding: 10px 16px; border-top: 1px solid var(--line); max-height: 38vh; overflow: auto; }
+.manual-tools summary, .material-library summary { cursor: pointer; font-weight: 600; }
+.project-home { width: min(850px, 95vw); max-height: 90vh; overflow: auto; }
+.project-home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
+.project-home-grid article { border: 1px solid var(--line); padding: 12px; min-width: 0; }
+.project-home-grid p { overflow-wrap: anywhere; }
+.project-home-open { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.project-home-open img { width: 128px; height: 96px; object-fit: contain; image-rendering: pixelated; }
 .detail-actions { flex-wrap: wrap; }
 .detail-actions > details { flex-basis: 100%; order: 2; padding: 8px 0; }
 .detail-actions > button { white-space: normal; }

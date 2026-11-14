@@ -27,6 +27,9 @@ from conftest import FIXTURES
 # Every field of every tool set away from its default, with the awkward values a model or user may give:
 # negative numbers, exponent floats, words that start with "-", new lines and non-ASCII text.
 RICH = {
+    "animation_edit": {"image": "a.png", "frames": [{"index": 0, "duration": 240}],
+                       "crop": [1, 2, 40, 50], "speed": 2, "loop": 3,
+                       "captions": [{"text": "--Hi", "start": 0, "end": 1, "x": 1, "y": 2, "scale": 2, "color": "red"}]},
     "transform": {"image": "a.png", "crop": [0, 0, 40, 50], "width": 100, "height": 80, "rotate": 90, "flip_horizontal": True, "flip_vertical": True},
     'retro_layout': {'style':'forum','images':['a.png'],'title':'Hi','caption':'Hello','seed':7,'density':'chaotic','text_scale':2,'exact_text':False,'fit':'cover'},
     'canvas': {'image':'a.png','width':200,'height':100,'background':'red','tile':True},
@@ -73,6 +76,13 @@ RICH = {
                 "at": [5, 6], "hold": 0, "fry": 2, "colors": 32, "seed": 9, "name": "zoomy"},
     "export": {"image": "a.png", "name": "keep"},
 }
+
+RICH["export_profile"].update(width=120, height=80, background="white", preserve_animation=True, shrink_to_fit=True)
+RICH["layout"].update(focal_points=[[0.2, 0.7]], panel_border=4, panel_padding=5, exact_text=True)
+RICH["text"].update(preserve_case=True, preserve_line_breaks=True, box=[0, 0, 100, 200], align="left",
+                    overflow="error", frame="bubble", frame_padding=4, frame_color="red", frame_border="blue",
+                    frame_width=3, tail=[40, 250])
+RICH["cutout"].update(keep_regions=[[[10, 20], [20, 20], [20, 30]]], remove_regions=[[[30, 40], [40, 40], [40, 50]]])
 
 
 def png_bytes(size: tuple[int, int], color: str) -> bytes:
