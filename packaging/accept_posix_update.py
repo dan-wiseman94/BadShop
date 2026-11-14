@@ -140,7 +140,9 @@ def upgrade(candidate, root, output, label, installed_app=None):
 
     try:
         with UpdateServer(candidate, root, output) as server:
-            smoke([str(executable)], output / 'update.png', exercise=exercise)
+            # update_install restarts through Tauri, not the native Quit menu.
+            # The callback verifies the installed hash and old process cleanup.
+            smoke([str(executable)], output / 'update.png', exercise=exercise, exit_via_update=True)
             # Identify only the restarted instance of this temporary installation.
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:

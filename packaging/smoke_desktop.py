@@ -237,6 +237,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
           webview_profile: Path | None = None,
           project_to_open: Path | None = None,
           clipboard_output: Path | None = None,
+          exit_via_update: bool = False,
           exercise: Callable[[int, int, Callable[[], None]], None] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='badshop-native-smoke-') as folder:
         root = Path(folder)
@@ -466,7 +467,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                         pass
                 assert not survivors, f'Children survived native close: {survivors}'
                 check_native_log(log_path.read_text(errors='replace'))
-                if sys.platform == 'darwin':
+                if sys.platform == 'darwin' and not exit_via_update:
                     assert 'native Quit routed through project close guard' in log_path.read_text(), \
                         'Native Quit bypassed the unsaved-project close guard'
                 metrics['status'] = 'passed'
