@@ -58,7 +58,7 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   core,
 }) => {
   let holdReplay = false;
-  let releaseReplay = () => { throw new Error("Replay request was not intercepted"); };
+  let releaseReplay: () => void = () => { throw new Error("Replay request was not intercepted"); };
   await page.routeWebSocket(`ws://127.0.0.1:${core.port}/`, client => {
     const server = client.connectToServer();
     client.onMessage(frame => {
