@@ -182,3 +182,50 @@ def test_receipt_reply_eviction_retains_identity_and_committed_outcome(tmp_path,
     restored = recovery.operation(path, receipt['id'])
     assert restored == {**receipt, 'result': None}
     assert recovery.record_intent(path, {**receipt, 'status': 'pending'}) == restored
+
+
+def test_damaged_previous_receipts_do_not_disable_a_fresh_owned_document(env):
+    async def body(app):
+        damaged = project.autosave_path().parent / 'previous.sqlite'
+        damaged.parent.mkdir(parents=True, exist_ok=True)
+        evidence = b'damaged previous launch'
+        damaged.write_bytes(evidence)
+        app._restorable = damaged
+        context = app._document_context()
+        request = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools.run',
+                   'params': {'tool': 'canvas', 'params': {'width': 8, 'height': 8, 'background': 'red'}},
+                   'operation_id': uuid.uuid4().hex}
+        legacy = json.loads(await app.dispatcher.handle(json.dumps(request), 'user'))
+        assert 'damaged' in legacy['error']['message']
+        stale = {**request, 'context': {**context, 'core_instance_id': 'previous-launch'}}
+        rejected = json.loads(await app.dispatcher.handle(json.dumps(stale), 'user'))
+        assert 'error' in rejected and not app.session.data.steps
+        owned = {**request, 'context': context}
+        accepted = json.loads(await app.dispatcher.handle(json.dumps(owned), 'user'))
+        assert accepted.get('result', {}).get('status') == 'done', accepted
+        assert len(app.session.data.steps) == 1
+        assert damaged.read_bytes() == evidence and app._restorable == damaged
+        repeated = json.loads(await app.dispatcher.handle(json.dumps(owned), 'user'))
+        assert repeated == accepted and len(app.session.data.steps) == 1
+    run(body)
+
+
+def test_terminal_storage_oserror_reports_failure_and_releases_run(env, monkeypatch):
+    async def body(app):
+        client = Client(app)
+        await client.call('settings.set', values={'fake_provider_script': script(env, [{'text': 'Finished.'}])})
+        original = project.autosave
+        def fail_terminal(session):
+            if app._run and app._run.outcome:
+                raise OSError('injected directory failure')
+            return original(session)
+        monkeypatch.setattr(project, 'autosave', fail_terminal)
+        await client.call('chat.send', text='Hello')
+        outcome = await client.event('turn.finished')
+        assert outcome['reason'] == 'error'
+        assert 'injected directory failure' in outcome['error']
+        assert app._run.task is None and app._dirty
+        monkeypatch.setattr(project, 'autosave', original)
+        result = await client.call('tools.run', tool='canvas', params={'width': 8, 'height': 8, 'background': 'red'})
+        assert result['status'] == 'done'
+    run(body)

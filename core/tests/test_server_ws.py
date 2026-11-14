@@ -20,7 +20,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from badshop import __version__
-from badshop.agent.provider import Reply
+from badshop.agent.provider import Provider, Reply
 from badshop.engine import assets, manifest
 from badshop.server import app as server_app
 from badshop.server import main as core_main
@@ -286,7 +286,7 @@ def test_fast_chat_stream_keeps_websocket_open_and_saves_full_reply(env, monkeyp
     async def scenario(app):
         release = asyncio.Event()
 
-        class BurstyProvider:
+        class BurstyProvider(Provider):
             actor = "agent:fake"
 
             async def complete(self, messages, tools, on_delta):

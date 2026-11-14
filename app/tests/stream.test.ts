@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { applyCoreEvent, queries, reconcileSessionSnapshot } from "../src/data";
 import type { Message, Session } from "../src/types";
+import { useUI } from '../src/store';
 import { useStream } from '../src/stream';
 const reply = (id: string, text: string): Message => ({
   id,
@@ -114,4 +115,19 @@ it("does not carry transient text into another session", () => {
       session([], "old text"),
     ).stream_text,
   ).toBe("");
+});
+
+
+it('offers continuation only for retryable provider outcomes', () => {
+  for (const retryable of [false, true]) {
+    useStream.setState({ text: '', context });
+    queries.setQueryData(['session.get'], { ...session([]), context });
+    applyCoreEvent({ method: 'turn.finished', params: { reason: 'provider_error', error: 'Safe advice',
+      error_category: retryable ? 'timeout' : 'authentication', retryable },
+      context: { ...context, event_seq: 21 } });
+    expect(useUI.getState().error).toBe('Safe advice');
+    expect(useUI.getState().errorAction).toBe(retryable ? 'retry-turn' : null);
+    queries.clear();
+  }
+  useUI.getState().set({ error: null, errorAction: null });
 });

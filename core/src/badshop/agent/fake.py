@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.engine.errors import EngineError
 from badshop.tools.runner import explain
 
@@ -33,7 +33,7 @@ class _ScriptReply(BaseModel):
     error: str | None = None  # the provider fails with this message instead of replying
 
 
-class ScriptedProvider:
+class ScriptedProvider(Provider):
     """Plays `replies` in order, one per completion. A ProviderError in the list is raised at its turn."""
 
     actor = "agent:fake"

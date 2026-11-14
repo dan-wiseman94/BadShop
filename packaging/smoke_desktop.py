@@ -363,7 +363,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                     assert sys.platform == 'linux', 'Use the platform-specific file-dialog driver'
                     state = wait_renderer(proc, ready_path, ports, nonce)
                     if state['welcome']:
-                        native_keys(window, 'Return')
+                        native_keys(window, 'Tab', 'Return')
                         wait_renderer(proc, ready_path, ports, nonce, welcome=False)
                     with zipfile.ZipFile(project_to_open) as source:
                         identity = json.loads(source.read('session.json'))['id']
@@ -377,7 +377,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                 if exercise_close:
                     state = wait_renderer(proc, ready_path, ports, nonce)
                     if state['welcome']:
-                        native_keys(window, 'Return')  # Welcome: Start with a quick idea
+                        native_keys(window, 'Tab', 'Return')  # Welcome: Connect AI → Start with a quick idea
                         wait_renderer(proc, ready_path, ports, nonce, welcome=False)
                     # Exercise native paste on this private display without relying
                     # on screen coordinates that change with the workspace layout.

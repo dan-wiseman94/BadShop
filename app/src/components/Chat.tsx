@@ -21,6 +21,9 @@ export function Chat({
   onAttachments,
   onImport,
   onPaste,
+  onConnect,
+  onViewImage,
+  onViewStep,
   draft,
   onDraftConsumed,
 }: {
@@ -28,6 +31,9 @@ export function Chat({
   onAttachments: (next: string[]) => void;
   onImport: () => void;
   onPaste: (event: React.ClipboardEvent) => void;
+  onConnect?: () => void;
+  onViewImage?: () => void;
+  onViewStep?: () => void;
   draft?: { id: string; text: string };
   onDraftConsumed?: (id: string) => void;
 }) {
@@ -73,6 +79,10 @@ export function Chat({
     enabled: false,
   });
   const ready = useUI((s) => s.status === "ready");
+  const hasProvider = !!session?.provider_profile_id;
+  const needsProvider = ready && !!session && !hasProvider && !session.scripted_provider;
+  const canResume = session?.last_turn_outcome?.reason === "paused" ||
+    (session?.last_turn_outcome?.reason === "stopped" && !!session?.undo_branch_id);
   useEffect(() => {
     const node = history.current;
     if (!node) return;
@@ -86,7 +96,7 @@ export function Chat({
   }, [session?.id, session?.messages.length, stream, session?.pending_approvals.length, virtual.getTotalSize()]);
   const send = (takes: 1 | 3 = 1) =>
     run(async () => {
-      if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready) return;
+      if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready || needsProvider) return;
       following.current = true;
       setSending(true);
       const generation = useUI.getState().documentGeneration;
@@ -106,25 +116,26 @@ export function Chat({
     });
   return (
     <section className="chat pane" aria-label="Chat">
-      <div className="manual-turn-controls">
-        <button disabled={!session?.turn_running} onClick={() => run(() => action("chat.pause"))}>Pause after operation</button>
-        <button disabled={session?.turn_running || !session?.undo_branch_id}
-          onClick={() => run(() => action("chat.undo"))}>Undo last AI turn</button>
-        <button disabled={session?.turn_running} onClick={() => run(async () => {
-          if (session?.pause_before_finish) await action("chat.finish_checkpoint", { enabled: false });
-          await action("chat.send", {
-            text: "Resume the previous request using the current corrected images and locked settings. Finishing effects are now allowed."
-          });
-        })}>Resume and allow finishing</button>
-        <label><input type="checkbox" checked={session?.pause_before_finish ?? false} disabled={session?.turn_running}
-          onChange={(event) => run(() => action("chat.finish_checkpoint", { enabled: event.target.checked }))} />Pause before finishing effects</label>
-      </div>
       <div className="pane-heading">
         <span>Art direction</span>
-        <span className={`connection-dot ${ready ? "online" : ""}`}>
-          {ready ? "Ready" : "Connecting"}
+        <span className={`connection-dot ${ready && !needsProvider ? "online" : ""}`}>
+          {!ready ? "Connecting" : needsProvider ? "AI not connected" : "Ready"}
         </span>
       </div>
+      {(session?.turn_running || session?.undo_branch_id || canResume) && (
+        <div className="manual-turn-controls">
+          {session?.turn_running && <button onClick={() => run(() => action("chat.pause"))}>Pause after operation</button>}
+          {!session?.turn_running && session?.undo_branch_id && <button onClick={() => run(() => action("chat.undo"))}>Undo last AI turn</button>}
+          {!session?.turn_running && canResume && !needsProvider && (
+            <button disabled={sending} onClick={() => run(async () => {
+              if (session?.pause_before_finish) await action("chat.finish_checkpoint", { enabled: false });
+              await action("chat.send", {
+                text: "Resume the previous request using the current corrected images and locked settings. Finishing effects are now allowed."
+              });
+            })}>Resume and allow finishing</button>
+          )}
+        </div>
+      )}
       <div
         className="chat-history"
         ref={history}
@@ -139,7 +150,11 @@ export function Chat({
           if (node) following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 40;
         }}
       >
-        {!session?.messages.length && (
+        {needsProvider && <div className="chat-provider">
+          <p>Connect a provider to direct edits from chat.</p>
+          <button className="primary" onClick={onConnect}>Connect AI</button>
+        </div>}
+        {!needsProvider && !session?.messages.length && (
           <div className="chat-welcome">
             <div className="welcome-label">The cut &amp; paste department</div>
             <h1>
@@ -195,7 +210,7 @@ export function Chat({
                 <ArtifactThumb
                   key={i}
                   id={part.artifact_id}
-                  onClick={() => useUI.getState().set({ selectedArtifact: part.artifact_id! })}
+                  onClick={() => { useUI.getState().set({ selectedArtifact: part.artifact_id! }); onViewImage?.(); }}
                 />
               ) : null,
             )}
@@ -206,7 +221,7 @@ export function Chat({
                   return (
                     <button
                       key={id}
-                      onClick={() => useUI.getState().set({ selectedStep: id, selectedArtifact: null })}
+                      onClick={() => { useUI.getState().set({ selectedStep: id, selectedArtifact: null }); onViewStep?.(); }}
                     >
                       {step?.status === "done" ? <Check size={12} /> : <SlidersHorizontal size={12} />}{" "}
                       {step?.tool ?? id}
@@ -260,7 +275,7 @@ export function Chat({
                   iconSize={14}
                 />
                 <Button
-                  onClick={() => useUI.getState().set({ selectedStep: id, selectedArtifact: null })}
+                  onClick={() => { useUI.getState().set({ selectedStep: id, selectedArtifact: null }); onViewStep?.(); }}
                   label="Edit"
                   icon={SlidersHorizontal}
                   iconSize={14}
@@ -304,6 +319,11 @@ export function Chat({
         <div aria-hidden="true" />
       </div>
       <div className="composer">
+        <details className="chat-options">
+          <summary>Direction options</summary>
+          <label><input type="checkbox" checked={session?.pause_before_finish ?? false}
+            disabled={!ready || needsProvider || session?.turn_running}
+            onChange={(event) => run(() => action("chat.finish_checkpoint", { enabled: event.target.checked }))} /> Pause before finishing effects</label>
         <SelectField
           label="Novelty"
           labelClassName="creative-direction"
@@ -331,6 +351,7 @@ export function Chat({
             ...creativeStyles.map((item) => [item.id, item.name] as const),
           ]}
         />
+        </details>
         {session?.provider_usage && <details>
           <summary>Last model request</summary>
           <p>{session.provider_usage.actual_model ?? session.provider_usage.requested_model ?? 'Model not reported'}
@@ -341,6 +362,7 @@ export function Chat({
           {!!session.provider_usage.omitted_turns && <p>{session.provider_usage.omitted_turns} older turns were omitted
             {' '}to stay within the context budget. The complete history remains in your project.</p>}
         </details>}
+
         <div className="attachments">
           {attachments.map((id) => (
             <div key={id}>
@@ -375,7 +397,7 @@ export function Chat({
           <Button
             type="button"
             title="Make three different compositions; uses more steps"
-            disabled={!ready || (!text.trim() && !attachments.length) || sending || session?.turn_running}
+            disabled={!ready || needsProvider || (!text.trim() && !attachments.length) || sending || session?.turn_running}
             onClick={() => send(3)}
             label="Three takes"
           />
@@ -388,7 +410,7 @@ export function Chat({
             <button
               className="send"
               aria-label="Send message"
-              disabled={!ready || (!text.trim() && !attachments.length) || sending}
+              disabled={!ready || needsProvider || (!text.trim() && !attachments.length) || sending}
               onClick={() => send()}
             >
               <ArrowUp size={19} />
@@ -400,7 +422,7 @@ export function Chat({
         <span>You can change every step.</span>
         {errorAction === "retry-turn" && (
           <Button
-            disabled={session?.turn_running || sending}
+            disabled={needsProvider || session?.turn_running || sending}
             title="Retry failed provider turn"
             onClick={() => run(() => action("chat.retry"))}
             label="Retry turn"

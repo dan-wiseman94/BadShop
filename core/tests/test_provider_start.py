@@ -7,7 +7,7 @@ import threading
 import pytest
 
 from badshop.agent.fake import ScriptedProvider
-from badshop.agent.provider import Reply
+from badshop.agent.provider import Provider, Reply
 from badshop.engine.errors import EngineError
 from badshop.server.app import CoreApp
 from badshop.server.settings import Settings
@@ -21,7 +21,7 @@ def test_finished_run_callbacks_cannot_stream_into_a_later_run(env):
         callbacks, events = [], []
         entered, release = asyncio.Event(), asyncio.Event()
 
-        class Provider:
+        class DelayedProvider(Provider):
             actor = 'agent:delayed-callback'
 
             async def complete(self, messages, tools, on_delta):
@@ -35,7 +35,7 @@ def test_finished_run_callbacks_cannot_stream_into_a_later_run(env):
         async def receive(raw):
             events.append(json.loads(raw))
 
-        app._provider = Provider()
+        app._provider = DelayedProvider()
         unsubscribe = app.subscribe(receive)
         try:
             await app._chat_send('user', 'first')

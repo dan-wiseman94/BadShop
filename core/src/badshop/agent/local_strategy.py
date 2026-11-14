@@ -8,7 +8,7 @@ from copy import deepcopy
 
 import httpx
 
-from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.agent.provider import Provider, ContextPolicy, ProviderError, Reply, ToolCallRequest
 from badshop.providers.local_vision import LocalVisionProvider
 from badshop.session.session import Session
 
@@ -24,8 +24,8 @@ If the edit is outside your tools, explain that and suggest using BadShop's tool
 
 
 
-class LocalEditStrategy:
-    full_image_ids = True
+class LocalEditStrategy(Provider):
+    context_policy = ContextPolicy(full_image_ids=True)
 
     def __init__(self, transport: LocalVisionProvider, session: Session):
         self.transport, self.session = transport, session

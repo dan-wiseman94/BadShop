@@ -5,7 +5,7 @@ text through `on_delta` as it arrives and returns the whole reply; a failed call
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 @dataclass
@@ -25,11 +25,29 @@ class Reply:
     actual_model: str | None = None
 
 
+ErrorCategory = Literal['unknown', 'authentication', 'permission', 'unavailable', 'rate_limit', 'context', 'timeout', 'connection', 'request']
+
+
 class ProviderError(Exception):
-    """The model call failed (auth, rate limit, context too long, network). The turn ends with its message."""
+    """Safe advice with adapter-classified failure and explicit continuation policy."""
+
+    def __init__(self, message: str, *, category: ErrorCategory = 'unknown', retryable: bool = True):
+        super().__init__(message)
+        self.category, self.retryable = category, retryable
+
+
+@dataclass(frozen=True)
+class ContextPolicy:
+    full_image_ids: bool = False
+    continuation_metadata: bool = False
 
 
 class Provider(Protocol):
+    # Concrete adapters inherit these explicit safe defaults. Projection policy
+    # is independent of remote model capability discovery or authorization.
+    context_policy = ContextPolicy()
+    model: str | None = None
+
     actor: str  # the actor its steps are recorded under: "agent:<provider>", e.g. "agent:fake"
 
     async def complete(self, messages: list[dict], tools: list[dict],

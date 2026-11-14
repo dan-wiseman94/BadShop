@@ -2,7 +2,8 @@
 
 Implementation baseline: `fb1ad675546bd466d5578fbf324a72361458a619`.
 The five audit documents were inherited task material, retained in checkpoint `2f8316c`. The full W0–W14
-plan remains authorized; this ledger does not mark it complete.
+plan remains authorized. Earlier sections below are chronological checkpoints; the final
+continuation records current implementation and distinguishes external acceptance gates.
 
 ## Implemented
 
@@ -453,3 +454,67 @@ are not represented as validation of edits made afterward.
 
 The user explicitly retained paid/live-model testing on 2026-11-14. It is excluded
 from this implementation PR, rather than represented as fixture-verified compatibility.
+
+
+### Upstream reconciliation and second-pass review
+
+Fetched main advanced from `105f37e` to `b4f6fcccea37f3a9ebc5a536069daf89a0b7e245`:
+#57 adds onboarding/compact workflows; #36 adds fuzz/mutation coverage. The merge
+preserves compact-view navigation with invocation/output selection, Settings tab
+selection with storage restoration, and scripted-provider availability alongside
+usage and read-only snapshot fields. Wire contracts were regenerated.
+
+The new fuzz test uses one real saved archive per test session: random artifact
+identities otherwise changed compressed size between Hypothesis replays. It still
+mutates archive bytes, checks clean refusal or exact saved state/pixels, and verifies
+that the original stays unchanged. Restored artifact stores close explicitly.
+
+The separate review traced changed entry points and found concrete regressions:
+concurrent media responses could over-admit cache bytes before query settlement;
+terminal events preceded the final durable revision; corrupt previous-launch
+receipts blocked fresh owned documents; and raw filesystem failures could omit a
+terminal outcome. Focused regressions cover byte admission/URL cleanup, persisted
+assistant content followed by an owned edit, preserved corrupt evidence with
+stale/legacy refusal and duplicate receipt reuse, and terminal error/run release.
+The active receipt store always fails closed. Old-context requests cannot bypass
+an unreadable previous store. Local face-edit policy now resolves geometry through
+the recorded invocation rather than parsing result prose.
+
+Final Linux verification moved to the isolated
+`badshop-linux-test/worktrees/architecture-completion-final` checkout. The older
+`20261114T162817Z-722` run is invalid environment evidence: dependencies disappeared;
+subsequently WSL was unavailable during user disk maintenance. It is not reported
+as a passing check or an application regression. The fresh checkout has a separate
+verified editable environment and retains the exact transferred-file manifest.
+
+- `20261114T163622Z-991`: 15 focused checks passed; the newly merged fuzz strategy
+  failed due to changing archive lengths. The fixed fixture passed in the full run.
+- `focused-frontend.log`: nine media/Settings/chat component checks and build passed.
+- `20261114T163742Z-733`: 1,545 core tests passed, 51 platform/opt-in skips;
+  94 frontend and 13 Rust tests passed, plus workflow checks, Ruff, Rust format and
+  production build. Gzipped frontend JavaScript is 324.47 KB. This predates the two
+  final storage-error review fixes; their follow-up is below.
+- `20261114T164557Z-770`: all ten receipt tests passed, including both review fixes.
+- `completion-ownership-probe`: the document-ownership test passed with the guard
+  and failed with the expected missing exception when the guard was removed.
+- `completion-negative-controls`: recovery isolation and concurrent media admission
+  each passed normally and failed the intended assertion with its guard removed.
+  Temporary mutations were restored and checked before further verification.
+
+
+The final W9 follow-up replaces optional provider context flags with an immutable
+`ContextPolicy` on the provider contract. Real adapters and scripted test adapters
+use the same safe defaults; local strategy requests full IDs and Perplexity opts
+into scoped continuation metadata. SDK failures carry safe typed categories and
+retry advice; authentication/permission/context/request failures do not offer
+continuation, while transient timeout/connection/rate-limit advice can. No raw
+SDK error body is exposed. Unknown adapters retain the existing explicit unknown
+category; no live support claim is inferred from a fixture.
+
+- `20261114T164632Z-1254`: full browser run passed 113, skipped one, and failed one
+  material-reuse test's assumed artifact count. The test now checks the new use
+  directly and retains equal-byte identity, composition inputs and reopen checks.
+- `20261114T165717Z-748`: 160 provider/agent/receipt checks passed; one test double
+  shadowed the new provider base name. `20261114T165812Z-1853` passed all 11 checks
+  in that file after renaming it. One opt-in engine-model journey was deselected.
+- `provider-advice-ui-final.log`: 12 component checks passed, including retry advice.

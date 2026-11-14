@@ -197,6 +197,7 @@ class _Turn:
         self.unanswered: dict[str, str | None] = {}  # its call ids without a result -> their step ids
         self.inflight: asyncio.Task | None = None  # the session call under way
         self.stopping: threading.Event | None = None  # the executing step's own stop signal: Stop sets it
+        self.error_details: dict = {}
         self.error: str | None = None  # the provider's error message
 
     async def call(self, fn: Callable, *args: Any) -> Any:
@@ -237,22 +238,22 @@ class _Turn:
         # Continuation envelopes are optional and tied to this exact adapter,
         # configured model and branch. They never authorize document operations.
         scope = json.dumps([type(self.provider).__module__, type(self.provider).__qualname__,
-                            self.provider.actor, getattr(self.provider, 'model', None),
+                            self.provider.actor, self.provider.model,
                             self.session.data.id, self.session.data.active_branch_id, 1])
         self.continuation_scope = hashlib.sha256(scope.encode()).hexdigest()
         while True:
             if self.cfg.pause_requested:
                 return "paused"
             messages = await self.call(build_messages, self.session,
-                                       getattr(self.provider, "full_image_ids", False),
-                                       getattr(self.provider, "thought_signatures", False), self.continuation_scope)
+                                       self.provider.context_policy.full_image_ids,
+                                       self.provider.context_policy.continuation_metadata, self.continuation_scope)
             try:
                 validate_request_budget(messages, tools)
                 if self.cfg.before_request is not None:
                     self.cfg.before_request()
                 started = time.monotonic()
                 reply = await self.provider.complete(messages, tools, self.delta)
-                self.completion = {'requested_model': getattr(self.provider, 'model', None),
+                self.completion = {'requested_model': self.provider.model,
                     'actual_model': reply.actual_model, 'input_tokens': reply.input_tokens,
                     'output_tokens': reply.output_tokens, 'duration_ms': (time.monotonic() - started) * 1000,
                     'request_bytes': len(json.dumps({'messages': messages, 'tools': tools}, ensure_ascii=True).encode('ascii'))}
@@ -262,6 +263,8 @@ class _Turn:
                     - sum(entry.get('role') == 'user' for entry in bounded_history(history)))
             except ProviderError as e:
                 self.error = str(e)
+                if e.category != 'unknown' or not e.retryable:
+                    self.error_details = {'error_category': e.category, 'retryable': e.retryable}
                 return "provider_error"
             reason = await self.handle(reply)
             if reason:
@@ -366,5 +369,5 @@ async def run_turn(session: Session, provider: Provider, gate: ApprovalGate, tex
         finally:
             emit("turn.finished", {"reason": "error", "error": f"{type(e).__name__}: {e}"})
         raise
-    emit("turn.finished", {"reason": reason, **({"error": turn.error} if turn.error else {})})
+    emit("turn.finished", {"reason": reason, **({"error": turn.error} if turn.error else {}), **turn.error_details})
     return reason

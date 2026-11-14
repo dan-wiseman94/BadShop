@@ -38,7 +38,7 @@ function reserveMedia(bytes: number, key: readonly unknown[]) {
 function showTurnOutcome(outcome: Params) {
   if (outcome.error)
     useUI.getState().set({ error: String(outcome.error),
-      errorAction: outcome.reason === "provider_error" ? "retry-turn" : null });
+      errorAction: outcome.reason === "provider_error" && outcome.retryable !== false ? "retry-turn" : null });
   else if (outcome.reason === "budget")
     useUI.getState().set({ error: "The agent reached the step limit for this turn. Send another message to continue, or raise Maximum steps per turn in Settings.", errorAction: null });
   else if (outcome.reason === "invalid_calls")

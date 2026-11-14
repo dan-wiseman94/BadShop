@@ -6,7 +6,7 @@ import json
 import pytest
 
 from badshop.agent.fake import ScriptedProvider
-from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
+from badshop.agent.provider import Provider, ProviderError, Reply, ToolCallRequest
 from badshop.engine.errors import EngineError
 from badshop.providers import profiles
 from badshop.server.app import CoreApp
@@ -241,7 +241,7 @@ def test_corrupt_profiles_do_not_prevent_session_access_or_get_overwritten(env):
 
 
 def test_provider_test_is_offline_unless_probe_requested(env, monkeypatch):
-    class ProbeProvider:
+    class ProbeProvider(Provider):
         calls = 0
 
         def check_capabilities(self):

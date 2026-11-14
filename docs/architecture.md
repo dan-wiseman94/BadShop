@@ -249,3 +249,11 @@ against an isolated real core with fixture providers. Native Linux checks use a
 private Xvfb display for the shell and OS integrations. Browser screenshots prove
 rendering of the web UI, not native dialogs, live provider quality or installer
 behavior. Choose the smallest relevant checks in [development](development.md).
+
+
+Provider context projection uses an explicit immutable `ContextPolicy` contract;
+capability probing does not grant tool authority. Adapter-classified failures carry
+safe categories and continuation advice. Authentication, access, request and context
+errors require a corrected configuration/request; transient failures can offer the
+existing transcript continuation. SDK response bodies and credentials stay out of
+error advice. Unknown failures are labeled unknown instead of inventing a diagnosis.

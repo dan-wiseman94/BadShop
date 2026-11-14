@@ -18,6 +18,7 @@ from badshop.session.preferences import CreativePreferences
 from badshop.session.recipes import Recipe
 from badshop.session.library import LibraryEntry
 from badshop.session.conversation import CompletionInfo
+from badshop.agent.provider import ErrorCategory
 
 
 def record(name: str, /, **fields):
@@ -26,13 +27,14 @@ def record(name: str, /, **fields):
                            for key, value in fields.items()})
 
 
-TurnOutcome = record('TurnOutcome', run_id=str | None, reason=str, error=(str | None, None))
+TurnOutcome = record('TurnOutcome', run_id=str | None, reason=str, error=(str | None, None),
+                     error_category=(ErrorCategory | None, None), retryable=(bool | None, None))
 SessionSnapshot = create_model('SessionSnapshot', __base__=SessionData,
     context=(DocumentContext, ...), path=(str | None, ...), document_revision=(int, ...),
     unsaved_changes=(bool, ...), turn_running=(bool, ...), batch_running=(bool, ...),
     pending_approvals=(list[str], ...), restorable=(str | None, ...), bypass_tools=(list[str], ...),
     run_id=(str | None, ...), last_turn_outcome=(TurnOutcome | None, ...), recipes=(list[Recipe], ...),
-    stream_text=(str, ...),
+    stream_text=(str, ...), scripted_provider=(bool, False),
     read_only_reason=(str | None, ...),
     provider_usage=(CompletionInfo | None, None),
     manual_history=(record('ManualHistory', undo=str | None, redo=str | None), ...),
@@ -180,7 +182,8 @@ EVENTS.update({
     'message.delta': record('MessageDelta', text=str, run_id=(str | None, None)),
     'message.done': record('MessageDone', message=Message, run_id=(str | None, None)),
     'turn.started': record('TurnStarted', run_id=str),
-    'turn.finished': record('TurnFinished', run_id=str, reason=str, error=(str | None, None)),
+    'turn.finished': record('TurnFinished', run_id=str, reason=str, error=(str | None, None),
+                     error_category=(ErrorCategory | None, None), retryable=(bool | None, None)),
     'approval.resolved': record('ApprovalResolved', step_id=str, decision=Literal['approve', 'reject', 'edit'], note=(str | None, None)),
     'asset.progress': record('AssetProgress', name=str, done=int, total=int | None),
     'provider.status': ProviderStatus,

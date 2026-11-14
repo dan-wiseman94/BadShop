@@ -10,7 +10,6 @@ LABEL = "On-device AI"
 
 class LocalVisionProvider:
     actor = f"agent:{PROFILE_ID}"
-    full_image_ids = True
     warnings: list[str] = []
 
     def __init__(self, endpoint: Callable[[], Awaitable[tuple[str, str]]],

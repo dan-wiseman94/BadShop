@@ -397,7 +397,16 @@ class CoreApp:
             if self._restorable and self._restorable.suffix == '.sqlite':
                 paths.append(self._restorable)
             for path in paths:
-                found = recovery.operation(path, identity)
+                try:
+                    found = recovery.operation(path, identity)
+                except EngineError:
+                    # A damaged previous launch must not disable a newly owned
+                    # document. Old/legacy requests cannot prove that boundary
+                    # and remain fail-closed; the active receipt store never skips.
+                    if path == project.autosave_path() or owner is None:
+                        raise
+                    self._check_request_context(owner)
+                    continue
                 if found is not None:
                     return found
             if owner:
@@ -655,6 +664,7 @@ class CoreApp:
                 "provider_usage": CompletionInfo.model_validate(usage).model_dump(mode='json') if usage else None,
                 "run_id": self._run.id if self._run else None,
                 "last_turn_outcome": self._run.outcome if self._run else None,
+                "scripted_provider": bool(self.settings.fake_provider_script or os.environ.get("BADSHOP_FAKE_PROVIDER")),
                 "stream_text": self._run.stream_text if self._run and self._run.outcome is None else '',
                 "manual_history": {
                     "undo": self.session.data.manual_undo[-1].name if self.session.data.manual_undo else None,
@@ -815,7 +825,7 @@ class CoreApp:
             finished = finished or method == "turn.finished"
             if method == "turn.finished":
                 terminal = dict(params)
-                self._retry_session = session if params.get("reason") == "provider_error" else None
+                self._retry_session = session if params.get("reason") == "provider_error" and params.get("retryable") is not False else None
                 return  # publish only after the final document revision commits
             self._emit(method, {**params, 'run_id': run.id})
             if method == "turn.started":
@@ -840,8 +850,8 @@ class CoreApp:
         finally:
             try:
                 await self._blocking(session.on_change)  # retain task ownership through the final commit
-            except EngineError as error:
-                terminal = {'reason': 'error', 'error': f'The final state could not be saved: {error.message}'}
+            except (EngineError, OSError) as error:
+                terminal = {'reason': 'error', 'error': f'The final state could not be saved: {getattr(error, "message", str(error))}'}
                 run.outcome = {**terminal, 'run_id': run.id}
             finally:
                 run.task = None

@@ -81,7 +81,11 @@ test("material roles and a reusable library picture feed manual composition and 
   await page.getByLabel("Find material", { exact: true }).fill("Recurring");
   await page.getByRole("button", { name: /Recurring Lincoln/ }).click();
   const viewer = page.getByRole("region", { name: "Image viewer" });
-  await expect.poll(async () => Object.keys((await emptyCore.call('session.get') as Session).artifacts).length).toBeGreaterThan(2);
+  await expect.poll(async () => {
+    const state = await emptyCore.call('session.get') as Session;
+    return Object.values(state.artifacts).some(item => item.id !== imported.working.id
+      && item.blob_id === state.artifacts[imported.working.id].blob_id);
+  }).toBe(true);
   const withReuse = await emptyCore.call('session.get') as Session;
   const reuse = Object.values(withReuse.artifacts).find(item => item.id !== imported.working.id && item.blob_id === withReuse.artifacts[imported.working.id].blob_id)!;
   expect(reuse.id).not.toBe(imported.working.id);
