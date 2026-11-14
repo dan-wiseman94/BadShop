@@ -16,7 +16,12 @@ test("long history keeps bounded rows and keyboard access to every step", async 
   const rows = page.locator(".step-list .step");
   await expect(rows.first()).toBeVisible();
   expect(await rows.count()).toBeLessThan(40);
-  await rows.first().focus();
+  // Scrolling without selecting must not remove the list from the Tab order.
+  await page.getByRole("button", { name: "Replay all steps", exact: true }).focus();
+  await page.locator(".step-list").evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await expect(page.getByRole("button", { name: "Step 250 of 250: info, done", exact: true })).toBeInViewport();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Step 1 of 250: info, done", exact: true })).toBeFocused();
   await page.keyboard.press("End");
   const last = page.getByRole("button", { name: "Step 250 of 250: info, done", exact: true });
   await expect(last).toBeFocused();

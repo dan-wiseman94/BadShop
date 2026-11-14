@@ -347,3 +347,9 @@ The full browser CI passed 111 journeys and failed Y2K selected-row contrast: th
 new `aria-pressed` state matched a generic glossy-button rule. The fix includes
 timeline rows in the existing readable selection rule. All 11 theme workflows
 passed in `20261114T065813Z-346304`, retaining contrast and byte-identity assertions.
+
+The long-history regression additionally scrolls before making any selection and
+enters the timeline using Tab. It failed because no mounted row remained tabbable
+(`20261114T070622Z-349191`). Keeping the first row as the initial roving Tab stop
+fixed the failure; the same test passed (`20261114T070729Z-349733`) with bounded
+mounted rows, full keyboard navigation and all 250 core steps preserved.

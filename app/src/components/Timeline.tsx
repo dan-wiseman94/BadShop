@@ -112,8 +112,8 @@ export function Timeline() {
     getItemKey: index => steps[index].id,
     overscan: 5,
     useFlushSync: false,
-    // Keep the selected/focused row mounted when scrolling away from it.
-    rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...(selectedIndex < 0 ? [] : [selectedIndex])])].sort((a, b) => a - b),
+    // Preserve the roving Tab stop even before the user selects their first row.
+    rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), Math.max(0, selectedIndex)])].sort((a, b) => a - b),
   });
   useEffect(() => {
     if (windowed && selectedIndex >= 0) virtual.scrollToIndex(selectedIndex, { align: "auto" });
