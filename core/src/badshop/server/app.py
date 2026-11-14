@@ -502,6 +502,7 @@ class CoreApp:
                 "context": self._document_context(),
                 "run_id": self._run.id if self._run else None,
                 "last_turn_outcome": self._run.outcome if self._run else None,
+                "scripted_provider": bool(self.settings.fake_provider_script or os.environ.get("BADSHOP_FAKE_PROVIDER")),
                 "stream_text": self._run.stream_text if self._run and self._run.outcome is None else '',
                 "manual_history": {
                     "undo": self.session.data.manual_undo[-1].name if self.session.data.manual_undo else None,

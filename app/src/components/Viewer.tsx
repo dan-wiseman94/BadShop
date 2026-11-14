@@ -2,7 +2,7 @@ import { Button } from "./Button";
 import { ManualTools } from "./ManualTools";
 import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
-import { Grid2X2, ScanFace, Maximize, ChevronDown } from "lucide-react";
+import { Grid2X2, ScanFace, ChevronDown, MousePointer2, Undo2, Redo2 } from "lucide-react";
 import { action, imageUrl, useArtifact, useSession, useCoreQuery, run } from "../data";
 import { LibraryImage } from "./LibraryImage";
 import { useOperation } from "../useOperation";
@@ -91,7 +91,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
     setSelection(null);
   }, [selectedStep]);
   const scale = meta
-    ? zoom === "fit"
+    ? pick || zoom === "fit"
       ? Math.max(0.001, Math.min(Math.max(1, size.width - 24) / meta.width, Math.max(1, size.height - 24) / meta.height, 1))
       : zoom
     : 1;
@@ -118,26 +118,27 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         </span>
         <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
       </div>
-      <div className="viewer-tools">
-        <button aria-pressed={selectElements} disabled={!elements.length || !!pick}
-          onClick={() => setSelectElements(!selectElements)}>Select elements</button>
-        <button disabled={!session?.manual_history?.undo || session.turn_running || !!session.pending_approvals.length}
+      {(meta || session?.manual_history?.undo || session?.manual_history?.redo) && <div className="viewer-tools">
+        <button aria-label="Select elements" title="Select elements" aria-pressed={selectElements} disabled={!elements.length || !!pick}
+          onClick={() => setSelectElements(!selectElements)}><MousePointer2 size={16} /></button>
+        <button aria-label="Undo" disabled={!session?.manual_history?.undo || session.turn_running || !!session.pending_approvals.length}
           title={session?.manual_history?.undo ? `Undo ${session.manual_history.undo}` : "No manual change to undo"}
-          onClick={() => run(() => action("history.undo", { expected_revision: session?.document_revision }))}>Undo</button>
-        <button disabled={!session?.manual_history?.redo || session.turn_running || !!session.pending_approvals.length}
+          onClick={() => run(() => action("history.undo", { expected_revision: session?.document_revision }))}><Undo2 size={16} /></button>
+        <button aria-label="Redo" disabled={!session?.manual_history?.redo || session.turn_running || !!session.pending_approvals.length}
           title={session?.manual_history?.redo ? `Redo ${session.manual_history.redo}` : "No manual change to redo"}
-          onClick={() => run(() => action("history.redo", { expected_revision: session?.document_revision }))}>Redo</button>
+          onClick={() => run(() => action("history.redo", { expected_revision: session?.document_revision }))}><Redo2 size={16} /></button>
         {id && <CopyImage id={id} frame={paused ? frame : 0} animated={(meta?.frames ?? 1) > 1} />}
-        <div className="segmented">
+        {meta && <div className="segmented">
           <Button
             disabled={!inputId}
+            aria-pressed={before}
             className={before ? "active" : ""}
             onClick={() => setBefore(true)}
             label="Before"
           />
-          <Button className={!before ? "active" : ""} onClick={() => setBefore(false)} label="After" />
-        </div>
-        <div className="viewer-toggles">
+          <Button aria-pressed={!before} className={!before ? "active" : ""} onClick={() => setBefore(false)} label="After" />
+        </div>}
+        {meta && <div className="viewer-toggles">
           {(meta?.frames ?? 1) > 1 && (
             <>
               <Button onClick={() => setPlaying(paused)} label={paused ? "Play preview" : "Pause preview"} />
@@ -168,9 +169,6 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           >
             <ScanFace size={17} />
           </button>
-          <button title="Fit image" onClick={() => setZoom("fit")}>
-            <Maximize size={16} />
-          </button>
           <select
             aria-label="Zoom"
             value={zoom}
@@ -182,8 +180,8 @@ export function Viewer({ onImport }: { onImport: () => void }) {
             <option value="2">200%</option>
             <option value="4">400%</option>
           </select>
-        </div>
-      </div>
+        </div>}
+      </div>}
       <div className={`viewer-stage ${pick ? "picking" : ""}`} ref={stage}>
         {meta ? (
           <div
@@ -295,8 +293,8 @@ export function Viewer({ onImport }: { onImport: () => void }) {
                 goes here.
               </span>
             </div>
-            <p>Drop an image, paste one, or let your agent find it.</p>
-            <Button onClick={onImport} label="Add images" icon="images" iconSize={16} />
+            <Button className="primary" onClick={onImport} label="Add images" icon="images" iconSize={16} />
+            <p>Drop or paste an image to start.</p>
             {error && <p className="error-text">{error.message}</p>}
           </div>
         )}

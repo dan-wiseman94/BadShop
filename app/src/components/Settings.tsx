@@ -13,6 +13,7 @@ import {
   Monitor,
   Globe,
   ArrowRight,
+  ChevronDown,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { action, queries, run, useCoreQuery, useSession } from "../data";
@@ -569,8 +570,11 @@ function ProviderChecks({ profile }: { profile: Profile }) {
   </div>;
 }
 
-export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }) {
-  const [tab, setTab] = useState(updates.info?.version ? "updates" : "providers");
+export function Settings({ updates, initialTab }: {
+  updates: ReturnType<typeof useUpdates>;
+  initialTab?: "providers" | "updates";
+}) {
+  const [tab, setTab] = useState<string>(initialTab ?? (updates.info?.version ? "updates" : "providers"));
   const [edit, setEdit] = useState<Profile | null | undefined>(undefined);
   const [detected, setDetected] = useState<CLIDetection[] | null>(null);
   const { data: profiles } = useCoreQuery("providers.list");
@@ -619,6 +623,7 @@ export function Settings({ updates }: { updates: ReturnType<typeof useUpdates> }
               <Button
                 key={id}
                 className={id === tab ? "active" : ""}
+                aria-pressed={id === tab}
                 onClick={() => setTab(id)}
                 label={label}
               />
@@ -974,7 +979,7 @@ export function Welcome({ onQuick, onAdvanced }: { onQuick: () => void; onAdvanc
         </h2>
         <p>
           {step === 1
-            ? "Start with a quick idea and a free sample. Add your own punchline, then copy it straight into the group chat."
+            ? "Connect an AI to direct edits from your prompts. Watch each step and tweak the result."
             : step === 2
               ? "The model directs the edit. badshop changes the pixels. Choose the service you already use, then enter its connection details."
               : "Your provider is saved, but its connection has not been tested. Check it below, or continue and test it later in Settings → Providers."}
@@ -982,60 +987,72 @@ export function Welcome({ onQuick, onAdvanced }: { onQuick: () => void; onAdvanc
         <ErrorNotice />
         {step === 1 ? (
           <>
-            <button className="primary" onClick={onQuick}>Start with a quick idea<ArrowRight size={16} /></button>
-            <p className="field-description">Pick a ready-made format and change the caption. No account, AI provider, or model download required.</p>
-            <button onClick={onAdvanced}>
-              Edit a photo without AI
-              <ArrowRight size={16} />
-            </button>
-            <p className="field-description">Opens Art director. Import a photo and choose Run tool to edit it yourself using parameter controls.</p>
-            <details open={aiExpanded} onToggle={e => setAIExpanded(e.currentTarget.open)}><summary>Connect AI (optional)</summary>
-            {!!profiles?.length && (
-              <div className="saved-provider-choice">
-                <h3>Use a saved provider</h3>
-                {profiles.map((profile) => (
-                  <button
-                    key={profile.id}
-                    disabled={choosing}
-                    aria-label={`Use ${profile.label}`}
-                    onClick={() => run(() => chooseProfile(profile))}
-                  >
-                    <strong>{profile.label}</strong>
-                    {profile.id !== ON_DEVICE && <span>{profile.model || profile.cli}</span>}
-                    <ArrowRight size={15} />
-                  </button>
-                ))}
-                <p>Or connect another provider below.</p>
+            <details className="welcome-ai" open={aiExpanded} onToggle={e => setAIExpanded(e.currentTarget.open)}>
+              <summary className="primary">
+                Connect AI
+                <ChevronDown size={20} aria-hidden="true" />
+              </summary>
+              <div className="welcome-ai-content">
+                {!!profiles?.length && (
+                  <div className="saved-provider-choice">
+                    <h3>Use a saved provider</h3>
+                    {profiles.map((profile) => (
+                      <button
+                        key={profile.id}
+                        disabled={choosing}
+                        aria-label={`Use ${profile.label}`}
+                        onClick={() => run(() => chooseProfile(profile))}
+                      >
+                        <strong>{profile.label}</strong>
+                        {profile.id !== ON_DEVICE && <span>{profile.model || profile.cli}</span>}
+                        <ArrowRight size={15} />
+                      </button>
+                    ))}
+                    <p>Or connect another provider below.</p>
+                  </div>
+                )}
+                <LocalVisionDownload onLater={onQuick} onReady={() => { if (active.current) onAdvanced(); }} />
+                <h3>Connect your own AI service</h3>
+                <p className="field-description">Choose one option below. You can add or change providers later in Settings → Providers.</p>
+                <div className="kind-grid">
+                  {Object.entries(kindNames).map(([value, label]) => {
+                    const Icon = icons[value as Profile["kind"]];
+                    return (
+                      <button
+                        key={value}
+                        className={kind === value ? "selected" : ""}
+                        aria-pressed={kind === value}
+                        onClick={() => {
+                          if (kind !== value) setEditorVersion(version => version + 1);
+                          setKind(value as Profile["kind"]);
+                        }}
+                      >
+                        <Icon size={23} />
+                        <strong>{label}</strong>
+                        <span>{kindHints[value as Profile["kind"]]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button className="primary" onClick={() => setStep(2)}>
+                  Continue with {kindNames[kind]}
+                  <ArrowRight size={16} />
+                </button>
               </div>
-            )}
-            <LocalVisionDownload onLater={onQuick} onReady={() => { if (active.current) onAdvanced(); }} />
-            <h3>Connect your own AI service</h3>
-            <p className="field-description">Choose one option below. You can add or change providers later in Settings → Providers.</p>
-            <div className="kind-grid">
-              {Object.entries(kindNames).map(([value, label]) => {
-                const Icon = icons[value as Profile["kind"]];
-                return (
-                  <button
-                    key={value}
-                    className={kind === value ? "selected" : ""}
-                    aria-pressed={kind === value}
-                    onClick={() => {
-                      if (kind !== value) setEditorVersion(version => version + 1);
-                      setKind(value as Profile["kind"]);
-                    }}
-                  >
-                    <Icon size={23} />
-                    <strong>{label}</strong>
-                    <span>{kindHints[value as Profile["kind"]]}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={() => setStep(2)}>
-              Continue with {kindNames[kind]}
-              <ArrowRight size={16} />
-            </button>
             </details>
+            <section className="welcome-alternatives" aria-labelledby="welcome-alternatives-label">
+              <h3 id="welcome-alternatives-label">Start without AI</h3>
+              <div className="welcome-choices">
+                <button className="welcome-choice" aria-label="Start with a quick idea" onClick={onQuick}>
+                  <strong>Start with a quick idea</strong>
+                  <span>Pick a format and add your caption.</span>
+                </button>
+                <button className="welcome-choice" aria-label="Edit a photo without AI" onClick={onAdvanced}>
+                  <strong>Edit a photo</strong>
+                  <span>Add captions, cutouts and effects by hand.</span>
+                </button>
+              </div>
+            </section>
           </>
         ) : step === 3 ? (
           <>

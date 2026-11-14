@@ -148,6 +148,7 @@ it("finishing on-device setup after leaving onboarding preserves the chosen work
       : <p>{workspace}</p>;
   }
   render(<Workspace />, { wrapper });
+  fireEvent.click(screen.getByText("Connect AI", { exact: true }));
   fireEvent.click(screen.getByRole("button", { name: "Use on-device AI" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Setting up…" })).toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: "Start with a quick idea" }));

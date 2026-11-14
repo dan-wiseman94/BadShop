@@ -95,7 +95,7 @@ function RunningTime({ step }: { step: Step }) {
   }, []);
   return <span>{Math.max(0, Math.floor(now - (step.started_at ?? now)))}s elapsed</span>;
 }
-export function Timeline() {
+export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
   const { data: session } = useSession();
   const { data: tools } = useCoreQuery("tools.list");
   const selected = useUI((s) => s.selectedStep);
@@ -358,7 +358,7 @@ export function Timeline() {
               <div key={id} className="provenance">
                 <ArtifactThumb
                   id={id}
-                  onClick={() => useUI.getState().set({ selectedArtifact: { stepId: step.id, outputIndex } })}
+                  onClick={() => { useUI.getState().set({ selectedArtifact: { stepId: step.id, outputIndex } }); onViewImage?.(); }}
                 />
                 <div>
                   <strong>{artifact?.label}</strong>

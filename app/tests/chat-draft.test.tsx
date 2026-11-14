@@ -8,7 +8,7 @@ import { useUI } from "../src/store";
 vi.mock("../src/data", () => ({
   action: vi.fn(),
   run: (work: () => Promise<unknown>) => { void work(); },
-  useSession: () => ({ data: { id: "s", messages: [], pending_approvals: [], steps: [], turn_running: false } }),
+  useSession: () => ({ data: { id: "s", provider_profile_id: "test-provider", messages: [], pending_approvals: [], steps: [], turn_running: false } }),
 }));
 vi.mock("../src/components/Viewer", () => ({ ArtifactThumb: ({ id }: { id: string }) => <span>{id}</span> }));
 
