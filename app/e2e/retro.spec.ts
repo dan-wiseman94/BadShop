@@ -88,6 +88,7 @@ for (const [theme, name] of [
   ["dark", "Dark"],
   ["light", "Light"],
   ["classic", "Classic Desktop"],
+  ["xp", "XP"],
   ["terminal", "Terminal"],
   ["geocities", "GeoCities"],
   ["y2k", "Y2K"],
@@ -114,6 +115,7 @@ for (const [theme, name] of [
   await page.locator(".theme-card").filter({ has: page.getByText(name, { exact: true }) }).click();
   await expect(page.getByRole("combobox", { name: "Theme", exact: true })).toHaveValue(theme);
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  await page.evaluate(() => document.fonts.ready);
   await page.locator(".theme-grid").screenshot({ path: test.info().outputPath(`theme-${theme}-picker.png`) });
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await expect(page.getByRole("button", { name: "Settings", exact: true }).locator("svg")).toHaveAttribute("data-icon-skin", theme);
@@ -121,9 +123,21 @@ for (const [theme, name] of [
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Run a tool", exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath(`theme-${theme}-tools.png`) });
+  // Exercise real form controls and keyboard focus, then cancel without making a step.
+  await page.getByLabel("Search tools").fill("cutout");
+  await page.getByRole("button", { name: /^cutout crop/ }).click();
+  const noAI = page.getByRole("dialog", { name: "Run a tool" }).getByLabel("No Ai", { exact: false });
+  await noAI.check();
+  await noAI.press("Space");
+  await expect(noAI).not.toBeChecked();
+  await expect(noAI).toBeFocused();
+  await expect(noAI).not.toHaveCSS("outline-style", "none");
+  await page.screenshot({ path: test.info().outputPath(`theme-${theme}-form.png`) });
   await page.getByRole("button", { name: "Close tools", exact: true }).click();
+  expect(((await core.call("session.get")) as Session).steps).toEqual(before.steps);
   await page.getByRole("button", { name: "Images & directions", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Images & directions", exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath(`theme-${theme}-studio.png`) });
   await page.getByRole("button", { name: "Close images and directions", exact: true }).click();
   await expect(artwork).toHaveAttribute("src", source!);
   // A theme must not tint, blur or fade the image through any ancestor.
@@ -150,6 +164,7 @@ for (const [theme, name] of [
   await page.getByRole("combobox", { name: "Motion", exact: true }).selectOption("reduced");
   await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("130");
   await page.getByRole("combobox", { name: "Interface density", exact: true }).selectOption("compact");
+  await page.setViewportSize({ width: 1100, height: 820 });
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
@@ -165,4 +180,34 @@ for (const [theme, name] of [
   expect(((await core.call("session.get")) as Session).artifacts).toEqual(
     before.artifacts,
   );
+  // Selected list text must stay legible when the pointer remains over the row.
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await core.call("tools.run", { tool: "info", params: { image: artifactId } });
+  const step = page.locator(".step").last();
+  await step.click();
+  await step.hover();
+  const contrast = await step.evaluate(row => {
+    const luminance = (color: string) => {
+      const rgb = color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(value => {
+        const channel = value / 255;
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      });
+      return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+    };
+    // Canvas normalizes CSS color-mix()/color(srgb ...) to RGB for the calculation.
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext("2d")!;
+    const normalize = (color: string) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, 1, 1);
+      return `rgb(${Array.from(ctx.getImageData(0, 0, 1, 1).data).slice(0, 3).join(",")})`;
+    };
+    const style = getComputedStyle(row);
+    const foreground = luminance(normalize(style.color));
+    const background = luminance(normalize(style.backgroundColor));
+    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+  });
+  expect(contrast, "Selected step text contrast on hover").toBeGreaterThanOrEqual(4.5);
+  await page.screenshot({ path: test.info().outputPath(`theme-${theme}-selected-step.png`) });
 });

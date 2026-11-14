@@ -102,6 +102,17 @@ export function ThemeIcon({ name, size = 18, theme }: { name: ThemeIconName; siz
         <rect x="1" y="1" width="22" height="22" rx="6" fill={`url(#${id})`} stroke="#4e5a8a" />
         <path d="M5 3h14" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" />
         <path className="icon-gel" d={icon.gel} transform="translate(4 4) scale(.66)" />
+      </> : skin === "xp" ? <>
+        <defs>
+          <linearGradient id={id} x2="0" y2="1">
+            <stop stopColor="#fff8dc" /><stop offset=".4" stopColor="var(--icon-color, #3769ac)" />
+            <stop offset="1" stopColor="var(--icon-edge, #25436b)" />
+          </linearGradient>
+        </defs>
+        <path className="icon-outline" d={icon.silhouette} />
+        <path fill={`url(#${id})`} d={icon.color} />
+        <path className="icon-detail" d={icon.detail} />
+        <path className="icon-ink" d={icon.ink} />
       </> : <g shapeRendering="crispEdges">
         <path className="icon-outline" d={icon.silhouette} />
         <path className="icon-color" d={icon.color} />
