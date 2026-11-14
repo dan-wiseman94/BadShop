@@ -171,6 +171,8 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path)
     def edit(page: Page, pid: int, window: int, close: Callable[[], None], trace: Path) -> None:
         nonlocal output_hash
         page.get_by_role('button', name='Attach images', exact=True).click()
+        page.get_by_role('dialog', name='Add material', exact=True).get_by_role(
+            'button', name='Choose files', exact=True).click()
         choose_file(pid, window, fixture)
         imported_hash = viewer_hash(page)
         page.get_by_role('button', name='Run tool', exact=True).click()
