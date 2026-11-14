@@ -21,6 +21,17 @@ def key(code, flags=0):
     time.sleep(.2)
 
 
+def activate(pid):
+    import AppKit
+    application = AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    application.activateWithOptions_(AppKit.NSApplicationActivateIgnoringOtherApps)
+    deadline = time.monotonic() + 5
+    while not application.isActive() and time.monotonic() < deadline:
+        time.sleep(.1)
+    assert application.isActive(), 'The owned Mac application did not become active'
+    time.sleep(.5)
+
+
 def text(value):
     import Quartz
     for char in value:
@@ -65,9 +76,7 @@ def editing(pid, window, close, output):
         screenshot(window, output / 'mac-dialog-failure.png')
         raise AssertionError(f'Native Mac state did not reach {expected}: {value}')
 
-    AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid).activateWithOptions_(
-        AppKit.NSApplicationActivateIgnoringOtherApps)
-    time.sleep(.5)
+    activate(pid)
     if state()['welcome']:
         key(36)
         state(welcome=False)
@@ -115,15 +124,14 @@ def editing(pid, window, close, output):
 
 
 def open_existing(pid, window, project, output, *, reject_future=False):
-    import AppKit
     import Quartz
     from accept_native_visual import NativeLabels
-    AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid).activateWithOptions_(
-        AppKit.NSApplicationActivateIgnoringOtherApps)
+    activate(pid)
     ready = Path(psutil.Process(pid).environ()['BADSHOP_SMOKE_READY_FILE'])
     if json.loads(ready.read_text())['welcome']:
         key(36)
         time.sleep(1)
+    activate(pid)
     key(31, Quartz.kCGEventFlagMaskCommand)
     file_dialog(project, window, output)
     if reject_future:
