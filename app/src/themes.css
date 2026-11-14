@@ -357,6 +357,7 @@
   border: 1px var(--skin-rule) var(--line);
   border-radius: var(--skin-radius);
   background: var(--skin-field);
+  color: var(--skin-field-text);
 }
 :root .approval-card { border-left-width: 4px; }
 :root .step { box-shadow: none; background: transparent; }

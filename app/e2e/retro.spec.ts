@@ -180,13 +180,16 @@ for (const [theme, name] of [
   expect(((await core.call("session.get")) as Session).artifacts).toEqual(
     before.artifacts,
   );
-  // Selected list text must stay legible when the pointer remains over the row.
+  // Selected rows and their tool results must stay legible in every skin.
   await page.getByRole("button", { name: "History", exact: true }).click();
   await core.call("tools.run", { tool: "info", params: { image: artifactId } });
   const step = page.locator(".step").last();
   await step.click();
   await step.hover();
-  const contrast = await step.evaluate(row => {
+  await expect(page.locator(".result[open] pre")).toContainText(
+    `${before.artifacts[artifactId].width}x${before.artifacts[artifactId].height}`,
+  );
+  const contrasts = await page.locator(".step.selected, .result[open] pre").evaluateAll(elements => {
     const luminance = (color: string) => {
       const rgb = color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(value => {
         const channel = value / 255;
@@ -203,11 +206,14 @@ for (const [theme, name] of [
       ctx.fillRect(0, 0, 1, 1);
       return `rgb(${Array.from(ctx.getImageData(0, 0, 1, 1).data).slice(0, 3).join(",")})`;
     };
-    const style = getComputedStyle(row);
-    const foreground = luminance(normalize(style.color));
-    const background = luminance(normalize(style.backgroundColor));
-    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+    return elements.map(element => {
+      const style = getComputedStyle(element);
+      const foreground = luminance(normalize(style.color));
+      const background = luminance(normalize(style.backgroundColor));
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+    });
   });
-  expect(contrast, "Selected step text contrast on hover").toBeGreaterThanOrEqual(4.5);
+  expect(contrasts).toHaveLength(2);
+  expect(Math.min(...contrasts), "Selected step and tool result text contrast").toBeGreaterThanOrEqual(4.5);
   await page.screenshot({ path: test.info().outputPath(`theme-${theme}-selected-step.png`) });
 });
