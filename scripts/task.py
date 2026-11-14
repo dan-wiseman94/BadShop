@@ -69,6 +69,9 @@ def finish(root: Path, target: Path) -> dict:
     for path in sorted((root / 'artifacts/verification').glob('**/summary.json')):
         try:
             evidence = json.loads(path.read_text(encoding='utf-8-sig'))
+            if not isinstance(evidence, dict) or not isinstance(evidence.get('source', {}), dict):
+                report['evidence'].append({'path': str(path), 'error': 'Unsupported evidence summary format'})
+                continue
             source = evidence.get('source', {})
             report['evidence'].append({'path': str(path), 'matches_current_inputs':
                                       source.get('fingerprint') == current['fingerprint']

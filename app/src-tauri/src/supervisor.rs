@@ -2,13 +2,62 @@
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{mpsc, Arc, Condvar, Mutex},
     thread,
     time::{Duration, Instant},
 };
+
+const LOG_LIMIT: u64 = 2 * 1024 * 1024;
+static LOG_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+fn drain_log(reader: &mut impl Read, path: &std::path::Path) -> std::io::Result<()> {
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let count = reader.read(&mut chunk)?;
+        if count == 0 {
+            return Ok(());
+        }
+        // A previous process's pipe may still be draining after restart. Open
+        // the current file under the same lock instead of retaining a rotated fd.
+        let _guard = LOG_WRITE_LOCK.lock().unwrap();
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        let size = file.metadata()?.len();
+        if size + count as u64 > LOG_LIMIT {
+            if size > LOG_LIMIT {
+                // Upgrade from older versions that allowed unbounded logs.
+                let mut old = fs::File::open(path)?;
+                old.seek(SeekFrom::End(-(LOG_LIMIT as i64)))?;
+                let mut tail = Vec::new();
+                old.take(LOG_LIMIT).read_to_end(&mut tail)?;
+                file.set_len(0)?;
+                file.write_all(&tail)?;
+            }
+            drop(file);
+            let previous = path.with_extension("previous.log");
+            if previous.exists() {
+                fs::remove_file(&previous)?;
+            }
+            fs::rename(path, previous)?;
+            file = OpenOptions::new().create(true).append(true).open(path)?;
+        }
+        file.write_all(&chunk[..count])?;
+    }
+}
+
+pub fn log_tail(path: &std::path::Path) -> std::io::Result<String> {
+    let mut file = fs::File::open(path)?;
+    let start = file.metadata()?.len().saturating_sub(64 * 1024);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::new();
+    file.take(64 * 1024).read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines = text.lines().rev().take(200).collect::<Vec<_>>();
+    lines.reverse();
+    Ok(lines.join("\n"))
+}
 
 #[derive(Clone)]
 pub struct Launch {
@@ -121,27 +170,11 @@ impl Supervisor {
                         if let Some(parent) = launch.log_path.parent() {
                             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                         }
-                        if launch
-                            .log_path
-                            .metadata()
-                            .map(|m| m.len() > 2 * 1024 * 1024)
-                            .unwrap_or(false)
-                        {
-                            let _ = fs::rename(
-                                &launch.log_path,
-                                launch.log_path.with_extension("previous.log"),
-                            );
-                        }
-                        let log = OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(&launch.log_path)
-                            .map_err(|e| e.to_string())?;
                         let mut cmd = Command::new(&launch.program);
                         cmd.args(&launch.args)
                             .stdin(Stdio::piped())
                             .stdout(Stdio::piped())
-                            .stderr(log);
+                            .stderr(Stdio::piped());
                         #[cfg(unix)]
                         {
                             use std::os::unix::process::CommandExt;
@@ -155,6 +188,14 @@ impl Supervisor {
                         let mut child =
                             cmd.spawn().map_err(|e| format!("Can't start core: {e}"))?;
                         let stdout = child.stdout.take().unwrap();
+                        let mut stderr = child.stderr.take().unwrap();
+                        let log_path = launch.log_path.clone();
+                        thread::spawn(move || {
+                            if drain_log(&mut stderr, &log_path).is_err() {
+                                // A full/unwritable log disk must not block the core's stderr pipe.
+                                let _ = std::io::copy(&mut stderr, &mut std::io::sink());
+                            }
+                        });
                         let (ready_tx, ready_rx) = mpsc::channel();
                         thread::spawn(move || {
                             let mut reader = BufReader::new(stdout);
@@ -314,6 +355,40 @@ impl Drop for Supervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn logs_rotate_during_one_process_and_diagnostics_read_only_a_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shell.log");
+        let mut bytes = vec![b'x'; (LOG_LIMIT * 3) as usize];
+        bytes.extend_from_slice(b"\nlast diagnostic\n");
+        drain_log(&mut bytes.as_slice(), &path).unwrap();
+        assert!(path.metadata().unwrap().len() <= LOG_LIMIT);
+        assert!(
+            path.with_extension("previous.log")
+                .metadata()
+                .unwrap()
+                .len()
+                <= LOG_LIMIT
+        );
+        assert!(log_tail(&path).unwrap().ends_with("last diagnostic"));
+        let mut large = fs::File::create(&path).unwrap();
+        large.set_len(100 * LOG_LIMIT).unwrap();
+        large.seek(SeekFrom::End(0)).unwrap();
+        large.write_all(b"\xff\nrecent\n").unwrap();
+        let tail = log_tail(&path).unwrap();
+        assert!(tail.len() < 65540 && tail.ends_with("recent"));
+        drop(large);
+        drain_log(&mut b"after upgrade\n".as_slice(), &path).unwrap();
+        assert_eq!(log_tail(&path).unwrap(), "after upgrade");
+        assert_eq!(
+            path.with_extension("previous.log")
+                .metadata()
+                .unwrap()
+                .len(),
+            LOG_LIMIT
+        );
+    }
+
     #[test]
     fn handshake_rejects_invalid_and_attaches_log() {
         let path = PathBuf::from("log.txt");

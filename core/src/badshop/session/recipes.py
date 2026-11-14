@@ -170,7 +170,8 @@ def credits(session, artifact_id):
     pending = [session.artifacts.resolve(artifact_id)]
     seen = set()
     sources = []
-    all_steps = [*session.data.steps, *(s for b in session.data.branches.values() for s in b.steps)]
+    all_steps = [*session.data.steps, *(s for b in session.data.branches.values()
+                                      for s in session.data.branch_state(b).steps)]
     while pending:
         aid = pending.pop()
         if aid in seen:

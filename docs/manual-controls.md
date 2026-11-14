@@ -64,6 +64,11 @@ and replay path. The AI sees the updated timeline and manual-change notes.
 - **Undo last AI turn** restores its checkpoint and preserves the attempt as a
   direction. Visiting a checkpoint creates an editable copy. Undo is unavailable
   for turns started while an independent caller owns a pending operation.
+  The app retains up to ten automatic before/after directions, always keeping
+  the active direction and latest undo checkpoint. Rename a direction or switch
+  to it to keep it permanently. Explicitly created directions and directions
+  from older projects are never removed by this automatic retention policy.
+
 - The viewer's **Undo** and **Redo** restore manual imports, tool runs, edits with
   their dependent replay, effect controls, creative settings and recipe batches.
   Up to 30 entries persist in the project. A new manual change clears redo;

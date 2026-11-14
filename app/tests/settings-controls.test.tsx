@@ -107,7 +107,7 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith("providers.test", {
       profile_id: profile.id,
-    }),
+    }, undefined, undefined),
   );
   await waitFor(() =>
     expect(screen.getByText(/No test request was sent/)).toBeVisible(),
@@ -118,7 +118,7 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
     expect(request).toHaveBeenCalledWith("providers.test", {
       profile_id: profile.id,
       probe: true,
-    }),
+    }, undefined, undefined),
   );
   await waitFor(() =>
     expect(screen.getByText("Connection succeeded.")).toBeVisible(),

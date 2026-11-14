@@ -15,6 +15,8 @@ interface UIState {
   viewerBefore: boolean;
   viewerZoom: "fit" | number;
   documentGeneration: number;
+  chatDraft: string;
+  setChatDraft: (value: string | ((previous: string) => string)) => void;
   settingsOpen: boolean;
   paletteOpen: boolean;
   pick: PickRequest | null;
@@ -34,6 +36,8 @@ export const useUI = create<UIState>()((set) => ({
   viewerBefore: false,
   viewerZoom: "fit",
   documentGeneration: 0,
+  chatDraft: "",
+  setChatDraft: (value) => set(state => ({ chatDraft: typeof value === "function" ? value(state.chatDraft) : value })),
   settingsOpen: false,
   paletteOpen: false,
   pick: null,
@@ -46,7 +50,7 @@ export const useUI = create<UIState>()((set) => ({
   motion: ["reduced", "full"].includes(readPreference("motion", "system")) ? readPreference("motion", "system") as Motion : "system",
   set: (patch) => set({
     ...(("selectedArtifact" in patch || "selectedStep" in patch) && { viewerBefore: false }),
-    ...("documentGeneration" in patch && { viewerZoom: "fit" as const }),
+    ...("documentGeneration" in patch && { viewerZoom: "fit" as const, chatDraft: "" }),
     ...patch,
   }),
 }));

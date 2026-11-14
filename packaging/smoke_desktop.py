@@ -146,12 +146,25 @@ def native_keys(window: int, *keys: str) -> None:
 
 def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
     """Require durable pixels, not merely a renderer's recovery notification."""
+    from badshop.engine.errors import EngineError
     with Image.open(io.BytesIO(image)) as expected:
         expected_size = expected.size
         expected_pixels = expected.convert('RGBA').tobytes()
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         try:
+            if path.suffix == '.sqlite':
+                from badshop.session.recovery import load
+                recovered = load(path)
+                if recovered.data.id == session_id:
+                    for digest, meta in recovered.artifacts.meta.items():
+                        if meta.format != 'PNG' or (meta.width, meta.height) != expected_size:
+                            continue
+                        with Image.open(io.BytesIO(recovered.artifacts.data(digest))) as restored:
+                            if restored.convert('RGBA').tobytes() == expected_pixels:
+                                return recovered.data.model_dump(mode='json', by_alias=True)
+                time.sleep(.1)
+                continue
             with zipfile.ZipFile(path) as archive:
                 session = json.loads(archive.read('session.json'))
                 if session['id'] == session_id:
@@ -163,7 +176,7 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
                         with Image.open(io.BytesIO(data)) as restored:
                             if restored.size == expected_size and restored.convert('RGBA').tobytes() == expected_pixels:
                                 return session
-        except (OSError, zipfile.BadZipFile):
+        except (OSError, zipfile.BadZipFile, EngineError):
             pass  # The first atomic autosave may still be in flight.
         time.sleep(.1)
     raise AssertionError(f'Project did not persist the expected session and image: {path}; '
@@ -353,7 +366,7 @@ def smoke(command: list[str], screenshot: Path | None, startup_timeout: float = 
                         clipboard.wait(timeout=5)
                     session_id = state['session_id']
                     expected_pixels = pasted.read_bytes()
-                    autosave = root / 'core-data/autosave/session.badshop'
+                    autosave = root / 'core-data/autosave/session.sqlite'
                     wait_project_pixels(autosave, session_id, expected_pixels)
                 if restart_core:
                     old_pid = core.pid

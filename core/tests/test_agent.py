@@ -276,7 +276,8 @@ def test_an_edit_the_session_refuses_is_a_rejection(tmp_path):
     reason, _ = turn(session, provider, ev, mode="ask_all",
                      decide=lambda gate, step: gate.respond(step["id"], "edit", params=unknown))
     assert reason == "done" and session.data.steps[0].status == "rejected"
-    assert tool_entries(session)["c1"].startswith("rejected by user: their edited parameters were refused")
+    assert tool_entries(session)["c1"] == model_result(session.data.steps[0])
+    assert "the edited parameters were refused" in session.data.steps[0].result_text
 
 
 def test_mode_switched_mid_turn_applies_to_the_next_call(tmp_path):
@@ -409,6 +410,26 @@ def test_gate_respond_checks_its_input(tmp_path):
     # The decision carries the user's params as sent: the session resolves them when the step runs.
     assert asyncio.run(main()) == Decision("edit", {"image": img.id[:8], "rect": [[1, 1, 9, 9]]}, None)
     assert ev.names() == ["approval.needed", "approval.resolved"]
+
+
+def test_old_waiter_cleanup_cannot_cancel_reused_step_id():
+    async def main():
+        gate = ApprovalGate(lambda *_: None)
+        old = Step(id="s1", index=1, tool="info", params={}, actor="cli:codex", status="proposed")
+        new = old.model_copy(deep=True)
+        first = asyncio.create_task(gate.request(old))
+        await asyncio.sleep(0)
+        gate.cancel_all()
+        second = asyncio.create_task(gate.request(new))
+        await asyncio.sleep(0)
+        gate.cancel(old.id, expected=old)
+        assert gate.pending() == [new.id]
+        assert not second.done()
+        gate.respond(new.id, "approve")
+        assert (await first).decision == "reject"
+        assert (await second).decision == "approve"
+        assert not gate._waiting
+    asyncio.run(main())
 
 
 def test_gate_cancel_all_rejects_everything_waiting():

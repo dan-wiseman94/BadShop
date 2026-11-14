@@ -13,6 +13,13 @@ entries and diagnostics on your computer. Credentials use the OS keychain or nam
 variables. Provider secrets are not saved in project archives. Projects can contain original
 pictures, prompts, replies, source URLs, filenames and credits: inspect what you share.
 
+Session and preview image bytes use private temporary directories, removed when
+their owner closes. Abrupt process termination can leave scratch files for OS
+cleanup. Recovery keeps SQLite metadata and immutable image files in the app-data
+`autosave` directory; current and previous recovery remain available. Unreferenced
+recovery images receive a 24-hour cleanup grace period. Legacy recovery archives
+and corrupt recovery evidence are preserved rather than silently deleted.
+
 **Export → Let someone remix this** creates a separate, limited project with the selected
 image's local edit chain and dependency pictures. It strips original containers, embedded
 photo metadata, private filename hints, conversations and unrelated directions. Inspect

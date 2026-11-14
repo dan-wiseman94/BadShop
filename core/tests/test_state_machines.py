@@ -184,7 +184,7 @@ def test_queued_auto_replay_does_not_run_in_another_branch(env):
             first = await app._tools_run("user", "filter", {"image": image, "names": ["invert"]})
             await app._branches_create("user", "variant")
             original = next(id for id, b in app.session.data.branches.items() if b.name == "Original")
-            saved_step = app.session.data.branches[original].steps[0].model_dump()
+            saved_step = app.session.data.branch_state(app.session.data.branches[original]).steps[0].model_dump()
             await app._lock.acquire()
             editing = asyncio.create_task(app._steps_edit("user", first["id"],
                                                          {"image": image, "names": ["sepia"]}))
@@ -196,6 +196,27 @@ def test_queued_auto_replay_does_not_run_in_another_branch(env):
             await asyncio.gather(*list(app._tasks))
             assert app.session.data.active_branch_id == original
             assert app.session.data.steps[0].model_dump() == saved_step
+        finally:
+            await app.close()
+
+    asyncio.run(scenario())
+
+
+def test_explicit_replay_does_not_compete_with_automatic_replay(env):
+    async def scenario():
+        app = make_app(auto_replay=True)
+        try:
+            imported = await app._artifacts_import('user', data=base64.b64encode(IMAGE).decode())
+            image = imported['working']['id']
+            first = await app._tools_run('user', 'filter', {'image': image, 'names': ['invert']})
+            await app._steps_edit('user', first['id'], {'image': image, 'names': ['grayscale']}, auto_replay=False)
+            await asyncio.gather(*list(app._tasks))
+            assert app.session.step(first['id']).status == 'stale'
+            assert app.session.step(first['id']).outputs == first['outputs']
+            result = await app._steps_replay_from('user', first['id'])
+            assert result[0]['status'] == 'done'
+            assert result[0]['outputs'] != first['outputs']
+            assert len(app.session.data.steps) == 1
         finally:
             await app.close()
 
@@ -235,6 +256,56 @@ def test_disconnect_during_cli_proposal_cannot_leave_an_orphan_approval(env, mon
                 await asyncio.gather(pending, return_exceptions=True)
             await app.close()
 
+    asyncio.run(scenario())
+
+
+def test_old_cli_cleanup_preserves_replacement_step_cancellation(env, monkeypatch):
+    async def scenario():
+        app = make_app(approval_mode="ask_all")
+        user = Client(app)
+        entered, release = asyncio.Event(), asyncio.Event()
+        old_session = app.session
+        settle = app._settle_owned
+        tasks = []
+
+        async def delayed_settle(session, step, note):
+            if session is old_session:
+                entered.set()
+                await release.wait()
+            return await settle(session, step, note)
+
+        monkeypatch.setattr(app, "_settle_owned", delayed_settle)
+        try:
+            image = (await app._artifacts_import("user", data=base64.b64encode(IMAGE).decode()))["working"]["id"]
+            old = asyncio.create_task(app._cli_call("cli:codex", "info", {"image": image}))
+            tasks.append(old)
+            old_id = await user.waiting()
+            await app._session_new("user", "replacement")
+            await asyncio.wait_for(entered.wait(), 2)
+            image = (await app._artifacts_import("user", data=base64.b64encode(IMAGE).decode()))["working"]["id"]
+            new = asyncio.create_task(app._cli_call("cli:codex", "info", {"image": image}))
+            tasks.append(new)
+            async with asyncio.timeout(2):
+                while not app._cli_gate.pending():
+                    await asyncio.sleep(0)
+            new_id = app._cli_gate.pending()[0]
+            assert old_id == new_id
+            new_step = app.session.step(new_id)
+            release.set()
+            assert (await old)["status"] == "rejected"
+            assert any(step is new_step and not cancel.is_set() for step, cancel in app._cli_cancels.values())
+            assert app._cli_gate.pending() == [new_id]
+            app._cli_gate.respond(new_id, "approve")
+            assert (await new)["status"] == "done"
+            assert not app._cli_cancels
+        finally:
+            release.set()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            user.unsubscribe()
+            await app.close()
     asyncio.run(scenario())
 
 

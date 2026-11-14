@@ -287,9 +287,11 @@ def test_uploaded_media_uses_existing_worker_and_cleans_staging_files(env, tmp_p
         assert imported["artifacts"][0]["width"] == 1000
         with pytest.raises(Failed):
             await user.call("media.preview", kind="document", data=base64.b64encode(b"invalid").decode(), name="bad.pdf")
-        assert not list(scratch.iterdir())
+        assert set(scratch.iterdir()) == {app.session.artifacts._blobs.root}
+        assert set(app.session.artifacts._blobs.root.iterdir()) == set(app.session.artifacts._data.values())
         assert len(app.session.visible_artifact_ids()) > 0
     run(scenario)
+    assert not list(scratch.iterdir())  # closing the core releases its remaining session blobs
 
 
 def test_reindex_drops_descriptions_when_pixels_change(tmp_path):

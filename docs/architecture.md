@@ -49,7 +49,7 @@ The MCP proxy forwards tool requests to that same core and does not own a projec
 | --- | --- | --- |
 | Layout, selection, drafts and forms | [App.tsx](../app/src/App.tsx), [components](../app/src/components), [store.ts](../app/src/store.ts) | UI state; no second project model |
 | Request lifecycle and cached core state | [rpc.ts](../app/src/rpc.ts), [data.ts](../app/src/data.ts) | Match replies by ID; reconcile snapshots and events |
-| Shared serialized types | [session/models.py](../core/src/badshop/session/models.py), [wire.generated.ts](../app/src/wire.generated.ts) | Python schemas own the generated artifact, step and message types; generation does not replace runtime validation |
+| Shared serialized types | [server/contracts.py](../core/src/badshop/server/contracts.py), [wire.generated.ts](../app/src/wire.generated.ts) | Handler signatures own parameters; Python models own response/event schemas. The dispatcher and client validate the wire boundary. |
 | Native dialogs, clipboard, startup and recovery | [native.ts](../app/src/native.ts), [Tauri library](../app/src-tauri/src/lib.rs), [supervisor](../app/src-tauri/src/supervisor.rs) | OS integration; no image algorithms |
 | RPC dispatch, active session, turn and approval coordination | [server/app.py](../core/src/badshop/server/app.py), [ws.py](../core/src/badshop/server/ws.py), [rpc.py](../core/src/badshop/server/rpc.py) | Authenticate clients and serialize document mutations |
 | Artifacts, steps, replay and persistence | [session/session.py](../core/src/badshop/session/session.py), [artifacts.py](../core/src/badshop/session/artifacts.py), [project.py](../core/src/badshop/session/project.py) | Authoritative project state |
@@ -132,7 +132,7 @@ active document. Saves use atomic replacement to protect the last good file.
 | Stored data | Location/owner | Included in a project? |
 | --- | --- | --- |
 | Chat, steps, referenced images, branches, correction controls, checkpoints and project creative settings | Session archive | Yes |
-| Recovery copy | App data `autosave/session.badshop`; previous run offered as `previous.badshop` | A separate recovery archive |
+| Recovery copy | App data `autosave/session.sqlite`, `previous.sqlite` and shared `blobs/` | Local recovery; explicit Save still exports a portable archive |
 | Provider profiles and application settings | Config directory | Credentials are not embedded |
 | Provider/source secrets | OS keychain or named environment variables | No |
 | Models, fonts, reusable assets and local caches | App data directory | Separate from the project; referenced project images are retained |
@@ -142,6 +142,30 @@ active document. Saves use atomic replacement to protect the last good file.
 Tests set private locations and never borrow the user's settings or credentials.
 Autosave is recovery, not an explicit project save. See [privacy](privacy.md) and
 [project compatibility](compatibility.md#project-compatibility-and-recovery).
+
+Encoded images live in immutable temporary disk blobs during a session. Preview
+forks own separate directories and retain independent links to their inputs.
+Dropping an artifact removes its owned file; releasing a store removes its scratch
+directory. No long-lived dictionary retains every encoded image as Python bytes.
+
+Recovery publishes hash-verified blobs before committing metadata in SQLite.
+Metadata uses content-addressed nodes and bounded list chunks, sharing unchanged
+branch and manual-history records. SQLite uses DELETE journaling and EXTRA sync;
+startup settles a hot journal before moving the closed database to the previous
+recovery slot. Initial database creation uses a separate staging file. These rules
+follow SQLite's [rollback journal protocol](https://www.sqlite.org/atomiccommit.html)
+and [sync modes](https://www.sqlite.org/pragma.html#pragma_synchronous).
+Both recovery slots are garbage-collection roots; unreferenced blobs receive a
+24-hour grace period, and unreadable metadata prevents collection.
+
+The in-memory session remains the mutation owner, and events may precede the
+recovery commit. This is not yet a durable operation-receipt protocol. Portable
+schema 5 and live branch/undo snapshots use content-addressed immutable records
+and bounded shared list chunks. Activation materializes an independent mutable
+timeline; inactive histories are excluded from normal UI snapshots. The active
+timeline still has a materialized representation in the document. Schema 1–4
+archives import through the same validators; overwriting them requires a verified,
+non-overwriting pre-v5 backup.
 
 ## Provider paths
 

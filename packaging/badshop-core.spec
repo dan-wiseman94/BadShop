@@ -7,7 +7,13 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 
 os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'True'
 root = Path(SPECPATH).parent
+from badshop.build_identity import source_identity
+
+identity_file = Path(workpath) / 'build-identity.txt'
+identity_file.parent.mkdir(parents=True, exist_ok=True)
+identity_file.write_text(source_identity(root / 'core/src/badshop'), encoding='utf-8')
 binaries, datas, hidden = [], [], []
+datas.append((str(identity_file), 'badshop'))
 for package in ('badshop', 'rembg', 'onnxruntime', 'keyring', 'mcp', 'pillow_heif', 'pypdfium2', 'pypdfium2_raw', 'av'):
     d, b, h = collect_all(package, filter_submodules=lambda n: not n.startswith(('mcp.cli', 'rembg.cli')))
     datas += d
