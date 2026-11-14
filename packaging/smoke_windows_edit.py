@@ -1,6 +1,5 @@
 """Exercise editing and native file dialogs in the installed Windows application."""
 
-import base64
 import contextlib
 import ctypes
 import hashlib
@@ -18,7 +17,7 @@ from pywinauto import Desktop
 
 from badshop.session.project import open_project
 from native_windows import screenshot as capture_window
-from smoke_desktop import smoke
+from smoke_desktop import smoke, viewer_pixel_hash
 
 
 def choose_file(pid: int, window: int, path: Path, *, saving: bool = False) -> None:
@@ -73,19 +72,6 @@ def choose_file(pid: int, window: int, path: Path, *, saving: bool = False) -> N
     while user.IsWindowVisible(hwnd):
         assert time.monotonic() < deadline, f'Native file dialog did not close for {path.name}'
         time.sleep(.2)
-
-
-def viewer_hash(page: Page) -> str:
-    image = page.locator('.canvas-image')
-    expect(image).to_be_visible(timeout=20000)
-    expect(image).to_have_attribute('src', re.compile(r'^(blob:|data:image/)'))
-    page.wait_for_function("image => image.complete && image.naturalWidth > 0", arg=image.element_handle())
-    source = image.get_attribute('src')
-    if source.startswith('data:'):  # Older installed clients use inline bytes; CSP need not permit fetching data URLs.
-        return hashlib.sha256(base64.b64decode(source.split(',', 1)[1])).hexdigest()
-    encoded = image.evaluate('''async image => Array.from(new Uint8Array(
-        await (await fetch(image.src)).arrayBuffer()))''')
-    return hashlib.sha256(bytes(encoded)).hexdigest()
 
 
 def debugger_url(profile: Path) -> str:
@@ -182,7 +168,7 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
             page.get_by_role('dialog', name='Add material', exact=True).get_by_role(
                 'button', name='Choose files', exact=True).click()
         choose_file(pid, window, fixture)
-        imported_hash = viewer_hash(page)
+        imported_hash = viewer_pixel_hash(page)
         page.get_by_role('button', name='Run tool', exact=True).click()
         palette = page.get_by_role('dialog', name='Run a tool')
         palette.get_by_role('textbox', name='Search tools').fill('deepfry')
@@ -191,13 +177,13 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
         step = page.get_by_role('region', name='Steps timeline').locator('.step').filter(has_text='deepfry')
         expect(step).to_contain_text('done', ignore_case=True, timeout=20000)
         expect(page.locator('.canvas-image')).to_have_attribute('alt', re.compile(r'_deepfried$'))
-        output_hash = viewer_hash(page)
+        output_hash = viewer_pixel_hash(page)
         assert output_hash != imported_hash, 'The deterministic edit did not change the displayed image'
         close()
         guard = page.get_by_role('dialog', name=re.compile(r'^Save changes to'))
         guard.get_by_role('button', name='Cancel', exact=True).click()
         expect(guard).to_be_hidden()
-        assert viewer_hash(page) == output_hash and not project.exists()
+        assert viewer_pixel_hash(page) == output_hash and not project.exists()
         summary['stages'].append('edited and cancelled native close')
         capture_window(window, screenshot.with_name('native-edited.png').resolve())
         close()
@@ -227,7 +213,7 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
         expect(step).to_contain_text('done', ignore_case=True, timeout=20000)
         step.click()
         expect(page.locator('.canvas-image')).to_have_attribute('alt', re.compile(r'_deepfried$'))
-        assert viewer_hash(page) == output_hash, 'Reopened viewer did not show the saved image'
+        assert viewer_pixel_hash(page) == output_hash, 'Reopened viewer did not show the saved image'
         if clipboard_output:
             from accept_clipboard import paste_into_browser
             page.get_by_role('button', name='Copy image', exact=True).click()
@@ -247,10 +233,12 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
         saved = open_project(project, output_dir=root)
         step, = saved.data.steps
         assert (step.tool, step.status, len(step.outputs)) == ('deepfry', 'done', 1)
-        assert saved.artifacts.meta[step.outputs[0]].blob_id == output_hash
-        assert hashlib.sha256(saved.artifacts.data(saved.data.steps[0].outputs[0])).hexdigest() == output_hash
+        stored = saved.artifacts.data(step.outputs[0])
+        assert hashlib.sha256(stored).hexdigest() == saved.artifacts.meta[step.outputs[0]].blob_id
+        with saved.artifacts.image(step.outputs[0]) as image, image.convert('RGBA') as rgba:
+            assert hashlib.sha256(rgba.tobytes()).hexdigest() == output_hash
         summary['stages'].append('saved project via native dialog and closed cleanly')
-        summary['output_sha256'] = output_hash
+        summary['output_pixel_sha256'] = output_hash
         run(screenshot.with_name('native-relaunch.png'), reopen)
         summary['stages'].append('reopened via native dialog, verified output and closed cleanly')
         summary['status'] = 'passed'

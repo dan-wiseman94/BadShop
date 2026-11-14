@@ -28,6 +28,22 @@ from native_windows import screenshot as capture_window
 from PIL import Image
 
 
+def viewer_pixel_hash(page) -> str:
+    """Hash decoded viewer pixels without fetching URLs outside the packaged CSP."""
+    from playwright.sync_api import expect
+    image = page.locator('.canvas-image')
+    expect(image).to_be_visible(timeout=20000)
+    page.wait_for_function("image => image.complete && image.naturalWidth > 0", arg=image.element_handle())
+    pixels = image.evaluate('''image => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        return Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    }''')
+    return hashlib.sha256(bytes(pixels)).hexdigest()
+
+
 def close_window(window: int) -> None:
     """Send the window manager's close request; xdotool windowclose destroys the drawable."""
     class Data(ctypes.Union):
