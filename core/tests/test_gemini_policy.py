@@ -52,7 +52,7 @@ def test_actual_gemini_policy_allows_only_badshop_mcp(tmp_path):
                                    executable=str(executable)), "ws://127.0.0.1:1234", "test-secret")
     try:
         settings_path = str(Path(provider.env["GEMINI_CLI_HOME"]) / ".gemini/settings.json")
-        command = provider.command("offline policy probe")
+        command = provider.command()
         policy_dir = command[command.index("--policy") + 1]
         script = '''
 import fs from 'node:fs';

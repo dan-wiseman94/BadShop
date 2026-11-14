@@ -30,12 +30,12 @@ export function parameterSummary(params: Params) {
     )
     .join(" / ");
 }
-export function cliArguments(step: Step, tool?: Tool): string[] {
+function cliArguments(step: Step, tool: Tool): string[] {
   const positional: string[] = [];
   const flags: string[] = [];
-  const normalized = tool ? normalizeSchema(tool.schema) : undefined;
+  const normalized = normalizeSchema(tool.schema);
   for (const [name, value] of Object.entries(step.params)) {
-    const schema = normalized?.properties?.[name];
+    const schema = normalized.properties?.[name];
     if (
       value === null ||
       value === undefined ||
@@ -45,11 +45,11 @@ export function cliArguments(step: Step, tool?: Tool): string[] {
     const words = Array.isArray(value)
       ? value.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v)))
       : [String(value)];
-    if (tool?.cli_positionals?.includes(name)) {
+    if (tool.cli_positionals?.includes(name)) {
       positional.push(...words);
       continue;
     }
-    const flag = tool?.cli_flags?.[name] ?? `--${name.replaceAll("_", "-")}`;
+    const flag = tool.cli_flags?.[name] ?? `--${name.replaceAll("_", "-")}`;
     if (value === false) {
       if (typeof schema === "object" && schema.default === true)
         flags.push(`--no-${flag.replace(/^--/, "")}`);
@@ -76,16 +76,15 @@ export function cliArguments(step: Step, tool?: Tool): string[] {
       : [...positional, ...flags]),
   ];
 }
-export function cliCommand(
+export function cliClipboardText(
   step: Step,
-  tool?: Tool,
-  shell: "posix" | "powershell" = /Win/i.test(navigator.platform) ? "powershell" : "posix",
+  tool: Tool,
+  format: "posix" | "argv",
 ) {
-  const quote = (value: string) =>
-    `'${value.replaceAll("'", shell === "powershell" ? "''" : "'\\''")}'`;
-  return cliArguments(step, tool)
-    .map((word, i) => (i < 2 ? word : quote(word)))
-    .join(" ");
+  if (step.tool !== tool.name) throw new Error("This step does not match a registered CLI tool.");
+  const [command, ...args] = cliArguments(step, tool);
+  if (format === "argv") return JSON.stringify([command, ...args]);
+  return [command, ...args.map(word => `'${word.replaceAll("'", "'\\''")}'`)].join(" ");
 }
 function RunningTime({ step }: { step: Step }) {
   const [now, setNow] = useState(Date.now() / 1000);
@@ -126,6 +125,8 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
   const rows = windowed ? virtual.getVirtualItems() : steps.map((item, index) => ({ key: item.id, index, start: 0 }));
   const step = session?.steps.find((s) => s.id === selected);
   const tool = tools?.find((t) => t.name === step?.tool);
+  const copyArgv = /Win/i.test(navigator.platform);
+  const copyCliLabel = copyArgv ? "Copy CLI arguments (JSON)" : "Copy CLI command (POSIX sh)";
   const [changing, setChanging] = useState(false);
   const changePending = useRef(false);
   const busy = session?.turn_running || changing || session?.steps.some(item => item.status === "running");
@@ -298,8 +299,8 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
               iconSize={13}
             />
             <Button
-              title="Copy CLI command"
-              aria-label="Copy CLI command"
+              title={copyCliLabel}
+              aria-label={copyCliLabel}
               onClick={() =>
                 run(async () => {
                   const params = { ...step.params };
@@ -315,13 +316,13 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
                         ),
                       );
                   }
-                  await copyText(cliCommand({ ...step, params }, tool));
+                  await copyText(cliClipboardText({ ...step, params }, tool, copyArgv ? "argv" : "posix"));
                   useUI.getState().set({
-                    notice: "CLI command copied. Input images exported to your output folder.",
+                    notice: `${copyArgv ? "CLI arguments copied as JSON." : "CLI command copied for POSIX sh."} Input images exported to your output folder.`,
                   });
                 })
               }
-              label="CLI"
+              label={copyArgv ? "CLI args (JSON)" : "CLI (POSIX sh)"}
               icon={Code}
               iconSize={14}
             />

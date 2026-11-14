@@ -31,15 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, output_root: Path | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     a = build_parser().parse_args(argv)
     if a.cmd == "chat":
         return chat.run_command(a)
     if a.cmd in recipes.RECIPE_COMMANDS:
-        return recipes.run_command(a, main)
+        root = Path.cwd().resolve() if a.cmd == "run" and not a.allow_outside else None
+        return recipes.run_command(a, lambda step: main(step, output_root=root))
     raw = {k: v for k, v in vars(a).items() if k not in ("cmd", "_tool", "_out")}
-    store = FileStore(WORK_DIR, final_dir(), getattr(a, "_out", None))
+    store = FileStore(WORK_DIR, final_dir(), getattr(a, "_out", None), output_root=output_root)
     try:
         run = run_tool(a._tool, raw, store)
     except EngineError as e:

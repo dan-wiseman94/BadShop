@@ -38,8 +38,8 @@ async def connected(*, heartbeat=.03, timeout=5, mode="auto", logging_callback=N
     token = actor_token(token, "cli:claude")
     frozen = os.environ.get("BADSHOP_MCP_EXECUTABLE")
     params = StdioServerParameters(command=frozen or sys.executable, args=[
-        *([] if frozen else ["-m", "badshop.server"]), "mcp", "--connect", url, "--token", token, "--actor", "cli:claude",
-        "--heartbeat-seconds", str(heartbeat)], env=dict(os.environ))
+        *([] if frozen else ["-m", "badshop.server"]), "mcp", "--connect", url, "--actor", "cli:claude",
+        "--heartbeat-seconds", str(heartbeat)], env={**os.environ, "BADSHOP_MCP_TOKEN": token})
     try:
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write, read_timeout_seconds=timeout,

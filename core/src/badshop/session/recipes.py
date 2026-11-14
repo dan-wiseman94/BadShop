@@ -141,13 +141,15 @@ def run(session, recipe, inputs, cancel):
 
             try:
                 params = registry.map_image_refs(registry.get(item.tool).params, params, resolve)
+                # Validate the materialized parameters too: named text inputs can fill a font field.
+                runner.validate(item.tool, params, "recipe")
                 step = session.propose(item.tool, params, "user", reason="Recipe: " + recipe.name)
             except EngineError as error:
                 row.update(status="error", error=error.message)
                 errors.append({"input": source, "row": row_index, "message": error.message})
                 break
             step.batch_row, step.batch_item = row_index, item_index
-            step = session.run(step.id, cancel=cancel)
+            step = session.run(step.id, cancel=cancel, portable=True)
             row["step_ids"].append(step.id)
             if step.status != "done" or not step.outputs:
                 row.update(status="error", error=step.error.message if step.error else "no output")

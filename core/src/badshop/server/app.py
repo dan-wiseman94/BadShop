@@ -554,7 +554,11 @@ class CoreApp:
     async def _close_cli(self, provider: CLIProvider) -> None:
         if grant := self._grants.get(getattr(provider, 'authorization_id', None)):
             self._grants.revoke(grant)
-        await provider.close()
+        await _to_the_end(provider.close())
+
+    async def _retire_clis(self, *, keep_profile: str | None = None) -> None:
+        retiring = [self._cli_providers.pop(key) for key in list(self._cli_providers) if key[1] != keep_profile]
+        await _to_the_end(asyncio.gather(*(self._close_cli(provider) for provider in retiring)))
 
     def _emit(self, method: str, params: dict) -> None:
         """Queue an event for every subscriber. Callable from any thread (session calls run in threads)."""
@@ -757,7 +761,7 @@ class CoreApp:
             grant = self._grants.issue(f'cli:{profile.cli}', self.session.incarnation, profile.id)
             register_secret(grant.token)
             try:
-                provider = CLIProvider(profile, url, grant.token)
+                provider = CLIProvider(profile, url, grant.token, managed=True)
             except BaseException:
                 self._grants.revoke(grant)
                 raise
@@ -1109,13 +1113,19 @@ class CoreApp:
             return {"forgotten": True}
         return await self._blocking(forget)
 
+    def _open_project(self, path: Path) -> Session:
+        session = project.open_project(path, **self._session_kw())
+        session.data.approval_mode = max(session.data.approval_mode, self.settings.approval_mode,
+                                         key=approval.MODES.index)
+        return session
+
     async def _session_open(self, actor: str, path: str, expected_revision: DocumentRevision | None = None,
                             discard_unsaved: DiscardUnsaved = False) -> dict:
         p = _user_path(path)
 
         def load() -> None:
             self._check_idle()
-            session = project.open_project(p, **self._session_kw())  # any failure: the session is untouched
+            session = self._open_project(p)  # any failure: the session is untouched
             # a file in the autosave folder is badshop's, not the user's project: Save must not write there
             self.session, self.path = self._own(session), None if _in_autosave_folder(p) else p
             self._changed()
@@ -1133,7 +1143,7 @@ class CoreApp:
             if self._restorable is None:
                 raise EngineError("there is no autosaved session to restore",
                                   hint="the last run left no autosaved session, or it was restored already")
-            session = project.open_project(self._restorable, **self._session_kw())
+            session = self._open_project(self._restorable)
             self.session, self.path, self._restorable = self._own(session), None, None
             self._changed()  # recovery is unsaved; from now on this run's autosave holds it
 
@@ -1346,8 +1356,6 @@ class CoreApp:
         if not retry:
             branches.begin_turn(session)
         self._run = run = RunState(session, cfg)
-        if isinstance(provider, CLIProvider) and (grant := self._grants.get(provider.authorization_id)):
-            grant.run_id, grant.branch_id = run.id, session.data.active_branch_id
         self._retry_session = None
         run.task = self._spawn(self._turn_main(run, provider, text, ids, retry))
         return {"started": True}
@@ -1405,7 +1413,12 @@ class CoreApp:
                     return self.session.run_tool(tool, raw, actor)
             step = await self._blocking(manual_run)
             return step.model_dump(mode="json")
-        return await self._cli_call(actor, tool, raw)
+        result = await self._cli_call(actor, tool, raw)
+        if owner := rpc.REQUEST_OWNERSHIP.get():
+            if grant := self._grants.get(owner.authorization_id):
+                if not grant.standalone and grant.run_id == owner.run_id and result["status"] == "done":
+                    grant.output_ids.update(result["outputs"])
+        return result
 
     async def _cli_call(self, actor: str, tool: str, raw: dict) -> dict:
         """A CLI agent's call: proposed as that actor (so the session applies the untrusted rules), then it
@@ -1425,7 +1438,9 @@ class CoreApp:
                     raise EngineError("this turn's tool budget is used up", hint="ask the user to continue")
             got["session"] = self.session  # read under the lock: the session the step really went into
             got["budget"] = self._turn_cfg.budget if actor == self._cli_turn_actor and self._turn_cfg else None
-            got["step"] = self.session.propose(tool, raw, actor)
+            owner = rpc.REQUEST_OWNERSHIP.get()
+            got["step"] = self.session.propose(tool, raw, actor,
+                                              visible_only=bool(owner and owner.authorization_id))
             if actor == self._cli_turn_actor and self._run and self._run.assistant_message_id:
                 message = next((m for m in self.session.data.messages if m.id == self._run.assistant_message_id), None)
                 if message:
@@ -1589,8 +1604,24 @@ class CoreApp:
     # --- methods: artifacts and files -----------------------------------------------------------
 
     async def _artifacts_get(self, actor: str, id: str, max_px: MaxPx | None = None) -> dict:
-        # Artifacts are immutable, so reading one needs no lock: the viewer stays live while a tool runs.
-        return await self._media_read(_artifact_payload, self.session, id, max_px)
+        # Artifacts are immutable, so the viewer stays live while a tool runs.
+        # A managed CLI must pass the tool gate before it can fetch result bytes.
+        owner = rpc.REQUEST_OWNERSHIP.get()
+        session = self.session
+        if owner and owner.authorization_id:
+            self._check_request_context(owner)
+            grant = self._grants.get(owner.authorization_id)
+            if grant is None:
+                raise RpcError(rpc.FORBIDDEN, "The CLI authorization has ended.")
+            if grant.standalone:
+                if session.artifacts.resolve(id) not in session.visible_artifact_ids():
+                    raise RpcError(rpc.FORBIDDEN, "This artifact is outside the CLI direction.")
+            elif id not in grant.output_ids:
+                raise RpcError(rpc.FORBIDDEN, "The artifact is not a completed CLI tool output.")
+        result = await self._media_read(_artifact_payload, session, id, max_px)
+        if owner and owner.authorization_id:
+            self._check_request_context(owner)
+        return result
 
     async def _media_read(self, function, *args):
         """Bound queued decoder buffers independently of document/control operations."""
@@ -1710,7 +1741,10 @@ class CoreApp:
             self._profile(profile_id)
             self.session.data.provider_profile_id = profile_id
             self._changed()
-        await self._blocking(select)
+        try:
+            await self._blocking(select)
+        finally:
+            await self._retire_clis(keep_profile=self.session.data.provider_profile_id)
         self._emit("provider.status", {"profile_id": profile_id, "status": "selected"})
         return self._snapshot()
 
@@ -1738,7 +1772,10 @@ class CoreApp:
                 self._profiles = updated
             self.session.data.provider_profile_id = profile.id
             self._changed()
-        await self._blocking(enable)
+        try:
+            await self._blocking(enable)
+        finally:
+            await self._retire_clis(keep_profile=self.session.data.provider_profile_id)
         self._emit("provider.status", {"profile_id": local_vision.PROFILE_ID, "status": "selected"})
         return self._snapshot()
 
@@ -1854,8 +1891,7 @@ class CoreApp:
                     self._cancel_approvals("Local only is being enabled")
                     await self._stop_turn("Local only is being enabled")
                     await asyncio.gather(*probes, return_exceptions=True)
-                    await asyncio.gather(*(p.close() for p in self._cli_providers.values()))
-                    self._cli_providers.clear()
+                    await self._retire_clis()
                     await asyncio.gather(*(download.task for download in downloads), return_exceptions=True)
                     try:
                         async with asyncio.timeout(UPDATE_STOP_TIMEOUT_S):

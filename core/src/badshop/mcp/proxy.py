@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from mcp.server import Server, ServerRequestContext
@@ -23,7 +24,7 @@ class CoreError(Exception):
 
 
 class CoreConnection:
-    def __init__(self, url: str, token: str, actor: str):
+    def __init__(self, url: str, token: str | Path, actor: str):
         parsed = urlsplit(url)
         if parsed.scheme != "ws" or parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
             raise ValueError("MCP must connect to the local badshop core")
@@ -32,13 +33,26 @@ class CoreConnection:
         self.url, self.token, self.actor = url, token, actor
         self._context: DocumentContext | None = None
 
-    async def call(self, method: str, params: dict | None = None):
+    def credential(self, method: str) -> str:
+        if isinstance(self.token, str):
+            return self.token
+        try:
+            key = "discovery" if method == "tools.list" else "run"
+            token = json.loads(self.token.read_text(encoding="utf-8"))[key]
+        except (OSError, ValueError, TypeError, KeyError):
+            raise CoreError("could not read the private MCP credential file") from None
+        if not isinstance(token, str) or not token:
+            raise CoreError("the CLI has no active run authorization")
+        return token
+
+    async def call(self, method: str, params: dict | None = None, *, token: str | None = None):
         if method not in CLI_METHODS:
             raise CoreError("method is outside the MCP tool scope")
+        token = token or self.credential(method)
         # A separate connection per request lets cancellation close precisely that tool call.
         # Closing its socket cancels the server request and rejects a pending approval.
         async with connect(self.url, max_size=64 * 2**20, compression=None) as ws:
-            request = {"type": "hello", "token": self.token, "actor": self.actor, "protocol": PROTOCOL_VERSION}
+            request = {"type": "hello", "token": token, "actor": self.actor, "protocol": PROTOCOL_VERSION}
             if self._context is not None:
                 request['context'] = self._context.model_dump(mode='json')
             await ws.send(json.dumps(request))
@@ -96,11 +110,14 @@ def build_server(connection: CoreConnection, *, heartbeat_s: float = 60) -> Serv
 
         beat = asyncio.create_task(heartbeat())
         try:
+            # Pin the bearer for the run and its subsequent output reads. A
+            # late result must never use the next turn's freshly issued token.
+            token = connection.credential("tools.run")
             step = await connection.call("tools.run", {"tool": params.name,
-                                                        "params": params.arguments or {}})
+                                                        "params": params.arguments or {}}, token=token)
             content = [TextContent(type="text", text=model_result(Step.model_validate(step)))]
             for aid in step.get("outputs", [])[:8]:
-                image = await connection.call("artifacts.get", {"id": aid, "max_px": 1024})
+                image = await connection.call("artifacts.get", {"id": aid, "max_px": 1024}, token=token)
                 content.append(ImageContent(type="image", data=image["data"], mime_type=image["mime"]))
             return CallToolResult(content=content, is_error=step["status"] in ("error", "rejected"))
         except CoreError as e:
@@ -115,7 +132,7 @@ def build_server(connection: CoreConnection, *, heartbeat_s: float = 60) -> Serv
     return Server("badshop", on_list_tools=listed, on_call_tool=called)
 
 
-async def run_stdio(url: str, token: str, actor: str, *, heartbeat_s: float = 60) -> None:
+async def run_stdio(url: str, token: str | Path, actor: str, *, heartbeat_s: float = 60) -> None:
     server = build_server(CoreConnection(url, token, actor), heartbeat_s=heartbeat_s)
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())

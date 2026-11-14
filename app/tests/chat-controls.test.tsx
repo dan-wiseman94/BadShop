@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Chat } from "../src/components/Chat";
 import * as data from "../src/data";
 import * as native from "../src/native";
 import { useUI } from "../src/store";
+import { useStream } from "../src/stream";
 import type { Session } from "../src/types";
 const message = (id: string, text: string) => ({
   id,
@@ -30,6 +31,7 @@ const session: Session = {
 beforeEach(() =>
   useUI.getState().set({ status: "starting", error: null, errorAction: null, chatDraft: "" }),
 );
+afterEach(() => useStream.setState({ text: "" }));
 function renderChat(value: Session, onConnect?: () => void) {
   const client = new QueryClient();
   client.setQueryData(["session.get"], value);
@@ -93,6 +95,22 @@ it("routes a Markdown http link through the native external opener", () => {
   fireEvent.click(screen.getByRole("link", { name: "source" }));
   expect(opener).toHaveBeenCalledWith("https://example.com/source");
   opener.mockRestore();
+});
+
+it("blocks streamed Markdown images and opens its HTTP links through the external opener", () => {
+  const opener = vi.spyOn(native, "openLink").mockResolvedValue();
+  try {
+    const { container } = renderChat({ ...session, turn_running: true });
+    act(() => useStream.setState({
+      text: "**Live reply** [source](https://example.com/source) ![probe](https://example.invalid/pixel)",
+    }));
+    expect(screen.getByText("Live reply", { selector: "strong" })).toBeVisible();
+    expect(container.querySelector("img")).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: "source" }));
+    expect(opener).toHaveBeenCalledWith("https://example.com/source");
+  } finally {
+    opener.mockRestore();
+  }
 });
 
 it("waits for a pending submission before acknowledging queued briefs and consumes them in order", async () => {

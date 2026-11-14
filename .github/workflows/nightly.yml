@@ -29,7 +29,6 @@ jobs:
   bundle:
     needs: prepare
     uses: ./.github/workflows/native-desktop.yml
-    secrets: inherit
     with:
       nightly: true
   stage:

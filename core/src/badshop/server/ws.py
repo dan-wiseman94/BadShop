@@ -43,7 +43,7 @@ class _Clients:
     users: int = 0  # open connections whose actor is "user"
 
 
-async def _hello(ws: ServerConnection, token: str, app: CoreApp) -> tuple[str, AdapterGrant | None] | None:
+async def _hello(ws: ServerConnection, token: str, app: CoreApp) -> tuple[str, AdapterGrant | None, str | None] | None:
     """The actor the first message names, or None once the connection is closed with 1008."""
     try:
         raw = await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT_S)
@@ -72,12 +72,15 @@ async def _hello(ws: ServerConnection, token: str, app: CoreApp) -> tuple[str, A
             return None
         grant = app.authenticate_cli(given, actor, token, context)
         if grant is not None:
-            return grant.execution_actor, grant
+            # Capture the run before sending welcome, while this exact bearer
+            # is still current. Discovery sockets never get a run assignment.
+            run_id = grant.run_id if given == grant.run_token else None
+            return grant.execution_actor, grant, run_id
         reason = 'bad token'
     elif not hmac.compare_digest(given.encode("utf-8", "surrogatepass"), actor_token(token, actor).encode("utf-8")):
         reason = 'bad token'
     else:
-        return actor, None
+        return actor, None, None
     await ws.close(CloseCode.POLICY_VIOLATION, reason)
     return None
 
@@ -101,11 +104,15 @@ async def _answer(app: CoreApp, raw: str, actor: str, enqueue: Callable[[str], N
             if isinstance(request, dict) and isinstance(request.get('method'), str):
                 candidate = request.get('id')
                 request_id = candidate if isinstance(candidate, (str, int)) and not isinstance(candidate, bool) else None
-                if not grant.standalone and request['method'] != 'tools.list' and grant.run_id != connection_run_id:
-                    raise rpc.RpcError(rpc.FORBIDDEN, 'This CLI connection belongs to another run.')
+                if not grant.standalone:
+                    if connection_run_id is not None and grant.run_id != connection_run_id:
+                        raise rpc.RpcError(rpc.FORBIDDEN, 'This CLI connection belongs to another run.')
+                    if connection_run_id is None and request['method'] != 'tools.list':
+                        raise rpc.RpcError(rpc.FORBIDDEN, 'This CLI connection has no active run authorization.')
                 context, run_id = app.authorize_cli(grant, request['method'])
                 request.pop('context', None)
                 request.pop('run_id', None)
+                request.pop('operation_id', None)
                 if context is not None:
                     request['context'] = context
                 if run_id is not None:
@@ -129,18 +136,17 @@ async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerCon
         identity = await _hello(ws, token, app)
         if identity is None:
             return
-        actor, grant = identity
+        actor, grant, connection_run_id = identity
         await ws.send(Welcome(actor=grant.actor if grant else actor, version=__version__, build_id=build_identity(),
                               core_instance_id=app.core_instance_id, event_seq=app._event_seq,
                               capabilities=['document-context', 'ordered-events', 'binary-artifact-v1'] +
                                            (['cli-session-grant'] if grant and not grant.standalone else []),
-                              context=app._document_context() if grant else None).model_dump_json())
+                              context=app._document_context() if grant and grant.standalone else None).model_dump_json())
     except ConnectionClosed:  # gone before the handshake finished
         if grant is not None and grant.standalone:
             app._grants.revoke(grant)
         return
     outbox = MessageQueue()
-    connection_run_id = grant.run_id if grant else None
     closing: asyncio.Task | None = None
 
     def overload() -> None:
@@ -157,17 +163,13 @@ async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerCon
             overload()
 
     async def send(message: str) -> None:
-        if grant is not None:
-            if grant.revoked or grant.document_incarnation != app.session.incarnation:
-                return
-            if not grant.standalone and (grant.run_id is None or grant.run_id != connection_run_id):
-                return
-        enqueue(message)
+        if actor == "user" or (actor == "updater" and json.loads(message)["method"] == "updates.cancel"):
+            enqueue(message)
 
     writer = asyncio.create_task(_write(ws, outbox))
     requests: set[asyncio.Task] = set()  # in flight; the strong refs keep them alive
     request_bytes = 0
-    unsubscribe = app.subscribe(send, on_overflow=overload)
+    unsubscribe = app.subscribe(send, on_overflow=overload) if actor in ("user", "updater") else None
     if actor == "user":
         clients.users += 1
     try:
@@ -193,7 +195,8 @@ async def _connection(app: CoreApp, token: str, clients: _Clients, ws: ServerCon
     finally:
         if grant is not None and grant.standalone:
             app._grants.revoke(grant)
-        unsubscribe()
+        if unsubscribe is not None:
+            unsubscribe()
         writer.cancel()
         pending = list(requests)
         for task in pending:  # nobody is left to read the answers

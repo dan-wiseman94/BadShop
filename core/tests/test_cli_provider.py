@@ -54,6 +54,45 @@ def profile(fake, cli="claude"):
     return Profile(kind="cli", cli=cli, label="test", executable=fake[cli])
 
 
+def test_rotating_cli_bearer_is_redacted_and_expires():
+    from badshop.diagnostics import redact
+    from badshop.server.grants import AdapterGrants
+
+    grants = AdapterGrants()
+    grant = grants.issue("cli:claude", "current-document")
+    delivered = []
+    grants.start_run(grant, "first", "current-direction", delivered.append)
+    first, = delivered
+    assert grants.authenticate(first, "cli:claude") is grant
+    assert grants.authenticate(first, "cli:codex") is None
+    assert redact({"detail": f"failed: {first}"}) == {"detail": "failed: [redacted]"}
+    grant.output_ids.add("first-output")
+    grants.end_run("first")
+    assert grants.authenticate(first, "cli:claude") is None
+    assert grant.run_token is None and not grant.output_ids
+    grants.start_run(grant, "second", "current-direction", delivered.append)
+    second = delivered[-1]
+    assert second != first and grants.authenticate(second, "cli:claude") is grant
+    assert redact({"detail": second}) == {"detail": "[redacted]"}
+    grants.revoke(grant)
+    assert grants.authenticate(second, "cli:claude") is None
+    assert grants.authenticate(grant.token, "cli:claude") is None
+
+
+def test_cli_response_redacts_split_credentials():
+    from badshop.providers.cli_turn import _redact_cli_output
+
+    secrets = ("run-ABCDEF", "discovery-XYZ")
+    emitted, pending = _redact_cli_output("result: run-AB", secrets)
+    assert emitted == "result: " and pending == "run-AB"
+    next_chunk, pending = _redact_cli_output(pending + "CDEF then discovery-", secrets)
+    assert next_chunk == "[redacted] then " and pending == "discovery-"
+    next_chunk, pending = _redact_cli_output(pending + "XYZ.", secrets)
+    assert next_chunk == "[redacted]." and not pending
+    answer, pending = _redact_cli_output("run-ABCDEF and discovery-X", secrets, final=True)
+    assert answer == "[redacted] and discovery-X" and not pending
+
+
 def test_profile_cli_validation_and_api_compatibility():
     assert Profile(kind="cli", cli="codex", label="subscription").model == ""
     assert Profile(label="API", model="openai/model").kind == "api"
@@ -70,6 +109,7 @@ def test_detection_and_streamed_multiturn_subprocess(fake, cli):
         assert info["supported"] and info["version"] == "fake-1.0"
         provider = CLIProvider(profile(fake, cli), "ws://127.0.0.1:1234", "test-secret")
         try:
+            assert "make meme" not in provider.command()
             chunks, events = [], []
             answer = await provider.turn("make meme", chunks.append, events.append)
             assert answer == "Made the meme." == "".join(chunks)
@@ -81,7 +121,7 @@ def test_detection_and_streamed_multiturn_subprocess(fake, cli):
                 assert provider.process is first  # long-lived stdin/stdout session
             else:
                 assert provider.process is not first
-                assert "resume" in provider.command("again") or "--resume" in provider.command("again")
+                assert "resume" in provider.command() or "--resume" in provider.command()
             if os.name != "nt":  # Windows privacy is inherited ACLs, not POSIX mode bits.
                 assert provider.cwd.stat().st_mode & 0o077 == 0
         finally:
@@ -149,12 +189,13 @@ def test_desktop_path_launches_discovered_cli(fake, tmp_path, monkeypatch):
         (folder / "gemini.cmd").write_text("@exit /b 42\n")
         (package / "package.json").write_text('{"bin":{"gemini":"cli.js"}}')
         (package / "cli.js").write_text(
+            'const fs = require("node:fs");\n'
             'const args = process.argv.slice(2);\n'
             'if (args.includes("--version")) console.log("fake-1.0");\n'
             'else if (args.includes("--help")) console.log("--output-format --resume '
             '--allowed-mcp-server-names --policy --skip-trust");\n'
             'else {\n'
-            '  console.log(JSON.stringify({type:"message", role:"assistant", content:args.at(-1)}));\n'
+            '  console.log(JSON.stringify({type:"message", role:"assistant", content:fs.readFileSync(0,"utf8")}));\n'
             '  console.log(JSON.stringify({type:"result", status:"success"}));\n'
             '}\n'
         )
@@ -200,10 +241,14 @@ def test_cli_scoped_configs_preserve_auth(fake, tmp_path, monkeypatch):
         for cli in ("claude", "codex", "gemini"):
             provider = CLIProvider(profile(fake, cli), "ws://127.0.0.1:1234", "test-secret")
             try:
-                command = provider.command("make meme")
+                command = provider.command()
+                assert "test-secret" not in " ".join(command)
                 assert not any(flag in command for flag in ("--yolo", "--bare", "--full-auto",
                                                            "--dangerously-bypass-approvals-and-sandbox"))
                 if cli == "claude":
+                    config_path = Path(command[command.index("--mcp-config") + 1])
+                    config = json.loads(config_path.read_text(encoding="utf-8"))
+                    mcp = config["mcpServers"]["badshop"]
                     assert command[command.index("--tools") + 1] == ""
                     assert "--strict-mcp-config" in command
                     assert provider.env["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] == "0"
@@ -214,6 +259,7 @@ def test_cli_scoped_configs_preserve_auth(fake, tmp_path, monkeypatch):
                     config = tomllib.loads((private / "config.toml").read_text(encoding="utf-8"))
                     assert Path(config["model_catalog_json"]) == private / "models.json"
                     assert set(config["mcp_servers"]) == {"badshop"}
+                    mcp = config["mcp_servers"]["badshop"]
                     assert config["sandbox_mode"] == "read-only" and config["web_search"] == "disabled"
                     model = json.loads((private / "models.json").read_text())["models"][0]
                     assert model["apply_patch_tool_type"] is None and model["shell_type"] == "disabled"
@@ -221,11 +267,18 @@ def test_cli_scoped_configs_preserve_auth(fake, tmp_path, monkeypatch):
                     config = json.loads((Path(provider.env["GEMINI_CLI_HOME"]) / ".gemini/settings.json").read_text())
                     assert config["tools"]["core"] == [] and config["mcp"]["allowed"] == ["badshop"]
                     assert config["tools"]["allowed"] == ["mcp_badshop_*"]
-                    assert config["mcpServers"]["badshop"]["trust"]
+                    mcp = config["mcpServers"]["badshop"]
+                    assert mcp["trust"]
                     assert "--skip-trust" in command
                     policy_dir = Path(command[command.index("--policy") + 1])
                     assert policy_dir.is_relative_to(provider.cwd)
                     assert not list(policy_dir.glob("*.toml"))
+                args = mcp["args"]
+                assert "test-secret" not in " ".join(args)
+                credentials = Path(args[args.index("--credential-file") + 1])
+                assert credentials.parent == provider.cwd and credentials.is_file()
+                if os.name != "nt":
+                    assert credentials.stat().st_mode & 0o077 == 0
             finally:
                 await provider.close()
         assert auth.read_text() == '{"subscription":"private"}'
@@ -335,10 +388,11 @@ def test_repeated_cancellation_waits_for_process_cleanup(fake, monkeypatch):
     asyncio.run(body())
 
 
-@pytest.mark.parametrize("mode", ["mcp", "budget"])
-def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, mode):
+@pytest.mark.parametrize(("cli", "mode"), [("claude", "mcp"), ("codex", "mcp"),
+                                           ("gemini", "mcp"), ("claude", "budget")])
+def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, cli, mode):
     monkeypatch.setenv("BADSHOP_FAKE_CLI_MODE", mode)
-    # URL-safe grant tokens may begin with '-'; they must remain argument values.
+    # Leading dashes are valid in newly issued URL-safe credentials.
     from badshop.server import grants
     token_urlsafe = grants.secrets.token_urlsafe
     monkeypatch.setattr(grants.secrets, "token_urlsafe", lambda n: "-" + token_urlsafe(n))
@@ -356,7 +410,7 @@ def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, mode):
         unsubscribe = app.subscribe(send)
         try:
             imported = app.session.import_image((FIXTURES / "lincoln.png").read_bytes(), "lincoln")
-            p = profile(fake)
+            p = profile(fake, cli)
             app._profiles[p.id] = p
             await app._providers_select("user", p.id)
             await app._chat_send("user", "make meme", [imported.id])
@@ -366,17 +420,25 @@ def test_app_cli_turn_executes_tools_only_through_mcp(fake, monkeypatch, mode):
                     await asyncio.sleep(.01)
                 step_id = app._cli_gate.pending()[0]
                 assert app.session.step(step_id).actor == app._cli_turn_actor
-                assert app.session.step(step_id).actor.startswith('cli:claude:')
+                assert app.session.step(step_id).actor.startswith(f"cli:{cli}:")
+                active = json.loads((next(iter(app._cli_providers.values())).cwd /
+                                     'mcp-credential.json').read_text())["run"]
+                assert active
                 app._cli_gate.respond(step_id, "approve")
                 while app._turn:
                     await asyncio.sleep(.01)
             assert len(app.session.data.steps) == 1
-            assert app.session.step(step_id).status == "done"
+            step = app.session.step(step_id)
+            assert step.status == "done" and step.params["grid"] is True
+            assert app.session.artifacts.data(step.outputs[0]).startswith(b"\x89PNG")
             assert [m.role for m in app.session.data.messages][-2:] == ["user", "assistant"]
             assistant = app.session.data.messages[-1]
             assert assistant.step_ids == [step_id] and assistant.content[0].text == "Made the meme."
             assert any(e["method"] == "message.delta" for e in events)
             assert any(e["method"] == "provider.status" for e in events)
+            reports = [e["params"]["raw"] for e in events if e["method"] == "provider.event"]
+            assert any("test credential echo" in report and "[redacted]" in report for report in reports)
+            assert all(active not in report for report in reports)
         finally:
             unsubscribe()
             server.close()
@@ -435,8 +497,8 @@ def test_malformed_nested_events_are_observable(cli, event):
     assert parsed["kind"] == "raw" and parsed["parse_error"]
 
 
-@pytest.mark.parametrize('boundary', ['document', 'branch', 'profile'])
-def test_adapter_grant_is_idle_between_runs_reusable_and_revoked_on_replacement(fake, monkeypatch, boundary):
+@pytest.mark.parametrize('boundary', ['document', 'branch', 'profile', 'selection', 'local_only'])
+def test_adapter_rotates_run_credentials_and_revokes_on_replacement(fake, monkeypatch, boundary):
     from badshop.mcp.proxy import CoreConnection, CoreError
     from websockets.asyncio.client import connect
     from websockets.exceptions import ConnectionClosed
@@ -449,12 +511,19 @@ def test_adapter_grant_is_idle_between_runs_reusable_and_revoked_on_replacement(
         p = profile(fake)
         app._profiles[p.id] = p
         await app._providers_select('user', p.id)
+        from badshop.session import branches
+        image = app.session.import_image((FIXTURES / 'lincoln.png').read_bytes(), 'lincoln')
+        branches.create(app.session, "Private direction")
+        other_image = app.session.import_image((FIXTURES / 'trump.png').read_bytes(), 'other direction')
+        original = next(key for key in app.session.data.branches if key != app.session.data.active_branch_id)
+        branches.switch(app.session, original)
+        assert other_image.id not in app.session.visible_artifact_ids()
         provider = app._make_provider(p)
         grant = app._grants.get(provider.authorization_id)
-        proxy = CoreConnection(url, grant.token, 'cli:claude')
-        image = app.session.import_image((FIXTURES / 'lincoln.png').read_bytes(), 'lincoln')
+        proxy = CoreConnection(url, provider.cwd / 'mcp-credential.json', 'cli:claude')
         entered, release = asyncio.Event(), asyncio.Event()
         old_socket = None
+        old_token = None
 
         async def turn(prompt, on_delta, on_event):
             entered.set()
@@ -473,16 +542,31 @@ def test_adapter_grant_is_idle_between_runs_reusable_and_revoked_on_replacement(
                 await app._chat_send('user', f'turn {n}')
                 await asyncio.wait_for(entered.wait(), 2)
                 run_ids.append(grant.run_id)
+                with pytest.raises(CoreError, match='completed CLI tool output'):
+                    await proxy.call('artifacts.get', {'id': image.id})
+                with pytest.raises(CoreError, match='outside the CLI direction'):
+                    await proxy.call('tools.run', {'tool': 'view', 'params': {'image': other_image.id[:12]}})
                 if n == 0:
+                    old_token = grant.run_token
+                    with pytest.raises(CoreError, match='no active run'):
+                        await CoreConnection(url, grant.token, 'cli:claude').call(
+                            'tools.run', {'tool': 'info', 'params': {'image': image.id}})
                     old_socket = await connect(url)
-                    await old_socket.send(json.dumps({'type': 'hello', 'actor': 'cli:claude', 'token': grant.token}))
+                    await old_socket.send(json.dumps({'type': 'hello', 'actor': 'cli:claude', 'token': old_token}))
                     assert json.loads(await old_socket.recv())['type'] == 'welcome'
                     await old_socket.send(json.dumps({'jsonrpc': '2.0', 'id': 'scope', 'method': 'credits.get',
                                                       'params': {'artifact_id': image.id}}))
                     scope_reply = json.loads(await asyncio.wait_for(old_socket.recv(), 2))
                     assert scope_reply['id'] == 'scope'
                     assert scope_reply['error']['message'] == 'This method is outside the CLI grant scope.'
+                    app._emit('message.delta', {'text': 'private renderer text', 'run_id': grant.run_id})
+                    with pytest.raises(TimeoutError):
+                        await asyncio.wait_for(old_socket.recv(), .1)
                 else:
+                    assert grant.run_token != old_token
+                    stale = CoreConnection(url, old_token, 'cli:claude')
+                    with pytest.raises(ConnectionClosed):
+                        await stale.call('tools.run', {'tool': 'info', 'params': {'image': image.id}})
                     await old_socket.send(json.dumps({'jsonrpc': '2.0', 'id': 'stale-run', 'method': 'tools.run',
                                                       'params': {'tool': 'info', 'params': {'image': image.id}}}))
                     async with asyncio.timeout(2):
@@ -491,25 +575,36 @@ def test_adapter_grant_is_idle_between_runs_reusable_and_revoked_on_replacement(
                             if reply.get('id') == 'stale-run':
                                 break
                     assert reply['error']['message'] == 'This CLI connection belongs to another run.'
-                result = await proxy.call('tools.run', {'tool': 'info', 'params': {'image': image.id}})
+                result = await proxy.call('tools.run', {'tool': 'view', 'params': {'image': image.id, 'grid': True}})
                 assert result['status'] == 'done' and result['actor'] == grant.execution_actor
+                output = await proxy.call('artifacts.get', {'id': result['outputs'][0], 'max_px': 1024})
+                assert output['mime'] == 'image/png' and output['data'].startswith('iVBOR')
+                completed_token = grant.run_token
                 task = app._turn
                 release.set()
                 await task
                 assert grant.run_id is None and not grant.revoked
-                with pytest.raises(CoreError, match='no active run'):
-                    await proxy.call('artifacts.get', {'id': image.id})
+                expired = CoreConnection(url, completed_token, 'cli:claude')
+                with pytest.raises(ConnectionClosed):
+                    await expired.call('artifacts.get', {'id': result['outputs'][0]})
+                assert await proxy.call('tools.list')
             assert run_ids[0] != run_ids[1]
             assert app._cli_providers[(app.session.data.id, p.id)] is provider
             if boundary == 'document':
                 await app._session_new('user', 'new document')
             elif boundary == 'branch':
                 await app._branches_create('user', 'new direction')
-            else:
+            elif boundary == 'profile':
                 await app._providers_delete('user', p.id)
+            elif boundary == 'selection':
+                other = profile(fake, 'codex')
+                app._profiles[other.id] = other
+                await app._providers_select('user', other.id)
+            else:
+                assert (await app._settings_set('user', {'no_remote': True}))['no_remote']
             assert grant.revoked and not provider.cwd.exists()
             assert app._grants.get(grant.id) is None
-            with pytest.raises(ConnectionClosed):
+            with pytest.raises(CoreError, match='credential file'):
                 await proxy.call('tools.list')
         finally:
             release.set()
@@ -534,7 +629,7 @@ def test_stop_revokes_a_cli_call_already_queued_for_execution(fake, monkeypatch)
         await app._providers_select('user', p.id)
         provider = app._make_provider(p)
         grant = app._grants.get(provider.authorization_id)
-        proxy = CoreConnection(url, grant.token, 'cli:claude')
+        proxy = CoreConnection(url, provider.cwd / 'mcp-credential.json', 'cli:claude')
         image = app.session.import_image((FIXTURES / 'lincoln.png').read_bytes(), 'lincoln')
         entered, admitted = asyncio.Event(), asyncio.Event()
 

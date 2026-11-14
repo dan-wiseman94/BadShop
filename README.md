@@ -227,9 +227,11 @@ authenticated; unrelated ambient cloud credentials are not forwarded to them.
 
 CLI profiles set `kind: "cli"`, `cli: "claude" | "codex" | "gemini"`, and optionally an
 absolute `executable` path. `providers.detect` reports installed CLIs and compatibility.
-Authenticate the CLI separately before selecting it. The MCP bridge is also available as
-`badshop-core mcp --connect ws://127.0.0.1:PORT --token TOKEN --actor cli:claude` for a core
-that is already running. Treat the local connection token as a secret.
+Authenticate the CLI separately before selecting it. For an independently launched
+MCP bridge, set `BADSHOP_MCP_TOKEN` in the bridge's environment to the actor-specific
+credential derived by `badshop.server.auth.actor_token` from the running core's renderer
+token. Then run `badshop-core mcp --connect ws://127.0.0.1:PORT --actor cli:claude`.
+Keep both tokens private.
 
 For Claude Code's standalone image-editing workflow, install `core` as a tool and copy
 [`skills/badshop`](skills/badshop) into your skills directory. It calls the packaged `badshop`

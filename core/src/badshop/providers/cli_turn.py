@@ -10,6 +10,17 @@ from badshop.agent.provider import ProviderError
 from badshop.session.models import Part
 
 
+def _redact_cli_output(text: str, secrets: tuple[str, ...], *, final: bool = False) -> tuple[str, str]:
+    for secret in secrets:
+        text = text.replace(secret, "[redacted]")
+    if not final:
+        # Keep a possible partial bearer out of the UI until the next chunk.
+        for length in range(min(max(map(len, secrets), default=0) - 1, len(text)), 0, -1):
+            if any(secret.startswith(text[-length:]) for secret in secrets):
+                return text[:-length], text[-length:]
+    return text, ""
+
+
 async def run_cli_turn(app, run, provider, text, attachments, emit, *, retry=False):
     session, cfg = run.session, run.config
     message = None
@@ -71,11 +82,25 @@ async def run_cli_turn(app, run, provider, text, attachments, emit, *, retry=Fal
             emit("core.log", {"level": "warning" if event.get("parse_error") else "debug",
                               "message": f"{provider.cli}: {raw}"})
 
-        def delta(chunk):
-            chunks.append(chunk)
-            emit("message.delta", {"text": chunk})
+        secrets: tuple[str, ...] = ()
+        pending = ""
 
+        def delta(chunk, *, final=False):
+            nonlocal pending
+            safe, pending = _redact_cli_output(pending + chunk, secrets, final=final)
+            if safe:
+                chunks.append(safe)
+                emit("message.delta", {"text": safe})
+
+        if grant := app._grants.get(provider.authorization_id):
+            # Keep the existing Claude process for its next request, but reap all
+            # other predecessors before their credential file can authorize it.
+            await provider.retire_previous_process()
+            token = app._grants.start_run(grant, run.id, session.data.active_branch_id, provider.set_run_token)
+            secrets = (token, grant.token)
         answer = await provider.turn(prompt, delta, on_event)
+        delta("", final=True)
+        answer, _ = _redact_cli_output(answer, secrets, final=True)
 
         def finish():
             message.content = [Part(type="text", text=answer)] if answer else []

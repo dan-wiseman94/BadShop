@@ -3,6 +3,8 @@
 import glob
 import re
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal
 
@@ -48,7 +50,17 @@ def _font_dirs(data_dir: str) -> list[Path]:
     return [*SYSTEM_FONT_DIRS, Path(data_dir) / "fonts"]
 
 
-_font_cache: dict[tuple[str, str | None, str], str | None] = {}
+_catalogue_only = ContextVar("catalogue_fonts_only", default=False)
+_font_cache: dict[tuple[str, str | None, str, bool], str | None] = {}
+
+
+@contextmanager
+def catalogue_fonts_only(enabled: bool):
+    token = _catalogue_only.set(enabled)
+    try:
+        yield
+    finally:
+        _catalogue_only.reset(token)
 
 # After a font download fails, lookups skip it for this long, so one offline caption (whose auto-size loop
 # looks the font up at every size it tries) waits on the network once, not once per size.
@@ -58,7 +70,7 @@ _download_failed_at: dict[tuple[str, str], float] = {}  # (font file name, data 
 
 def find_font_file(style: str, explicit: str | None = None) -> str | None:
     """Path (or Pillow-searchable name) of the best font for a style, or None for the built-in one."""
-    key = (style, explicit, str(assets.data_dir()))  # a changed BADSHOP_DATA_DIR is searched afresh
+    key = (style, explicit, str(assets.data_dir()), _catalogue_only.get())
     if key in _font_cache:
         return _font_cache[key]
     found, definitive = _find_font_file(*key)
@@ -67,12 +79,13 @@ def find_font_file(style: str, explicit: str | None = None) -> str | None:
     return found
 
 
-def _find_font_file(style: str, explicit: str | None, data_dir: str) -> tuple[str | None, bool]:
+def _find_font_file(style: str, explicit: str | None, data_dir: str,
+                    catalogue_only: bool) -> tuple[str | None, bool]:
     """The font, and whether that answer is definitive (no font download failed on the way)."""
     names = [explicit] if explicit else FONT_CANDIDATES[style]
     definitive = True
     for name in names:
-        if Path(name).is_file():
+        if not catalogue_only and Path(name).is_file():
             return name, definitive
         # rglob rejects a pattern with a drive or root (NotImplementedError), so a missing absolute
         # path skips the folder search and falls through to Pillow's search and then the built-in font.
@@ -80,13 +93,14 @@ def _find_font_file(style: str, explicit: str | None, data_dir: str) -> tuple[st
         for d in dirs:
             if d.is_dir():
                 hit = next(d.rglob(glob.escape(name)), None)  # a file name, never a pattern
-                if hit:
-                    return str(hit), definitive
-        try:  # Pillow does its own platform search too
-            ImageFont.truetype(name, 10)
-            return name, definitive
-        except OSError:
-            pass
+                if hit and hit.is_file():
+                    return str(hit.resolve() if catalogue_only else hit), definitive
+        if not catalogue_only:
+            try:  # Pillow also tries the working directory when given a bare name.
+                ImageFont.truetype(name, 10)
+                return name, definitive
+            except OSError:
+                pass
         if name in FONT_DOWNLOADS and not explicit:
             key = (name, data_dir)
             failed_at = _download_failed_at.get(key)

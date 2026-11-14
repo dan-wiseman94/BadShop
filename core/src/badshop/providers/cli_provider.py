@@ -17,6 +17,7 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
+from badshop import atomic
 from badshop.agent.context import SYSTEM_PROMPT
 from badshop.agent.provider import ProviderError
 from badshop.files import expand_user_path
@@ -83,6 +84,7 @@ def find_executable(cli: str, executable: str | None = None) -> str | None:
 
 def _cli_env(executable: str) -> dict[str, str]:
     env = dict(os.environ)
+    env.pop("BADSHOP_MCP_TOKEN", None)  # An independent MCP bridge owns this credential.
     # Launch scripts can depend on a sibling runtime or Homebrew Node even when
     # the executable itself was found by absolute path. Keep the user's PATH first.
     folders = [Path(executable).parent, *_cli_folders()]
@@ -167,10 +169,10 @@ def discover_clis() -> list[dict]:
     return [inspect_cli(cli) for cli in CLIS]
 
 
-def proxy_command(url: str, token: str, cli: str) -> list[str]:
+def proxy_command(url: str, credential: Path, cli: str) -> list[str]:
     prefix = [sys.executable] if getattr(sys, "frozen", False) else [
         sys.executable, "-m", "badshop.server"]
-    return [*prefix, "mcp", "--connect", url, f"--token={token}", "--actor", f"cli:{cli}"]
+    return [*prefix, "mcp", "--connect", url, "--credential-file", str(credential), "--actor", f"cli:{cli}"]
 
 
 def _parse_event(cli: str, event: dict) -> dict:
@@ -231,7 +233,7 @@ def parse_event(cli: str, event: dict) -> dict:
 class CLIProvider:
     """One private working directory and Claude process per app session/profile."""
 
-    def __init__(self, profile: Profile, url: str, token: str):
+    def __init__(self, profile: Profile, url: str, token: str, *, managed: bool = False):
         self.profile = profile
         self.cli = profile.cli
         self.actor = f"cli:{self.cli}"
@@ -251,7 +253,10 @@ class CLIProvider:
         self._job = None
         self._stderr: deque[str] = deque(maxlen=40)
         try:
-            self._base = self._configure(proxy_command(url, token, self.cli))
+            self._discovery_token = token
+            self._credential_path = self.cwd / "mcp-credential.json"
+            self.set_run_token(None if managed else token)
+            self._base = self._configure(proxy_command(url, self._credential_path, self.cli))
         except (OSError, ValueError, KeyError, TypeError) as e:
             self._folder.cleanup()
             raise ProviderError(f"{self.cli} could not be configured: {e}") from None
@@ -261,6 +266,14 @@ class CLIProvider:
 
     def check_capabilities(self) -> dict:
         return {"vision": True, "tool_calls": True, "experimental": self.cli == "gemini"}
+
+    def set_run_token(self, token: str | None) -> None:
+        # A long-lived Claude MCP child reads the current token when starting each
+        # tool call. Discovery has its own credential and never gains run access.
+        try:
+            atomic.write_text(self._credential_path, json.dumps({"discovery": self._discovery_token, "run": token}))
+        except OSError as e:
+            raise ProviderError(f"{self.cli} could not update its private MCP credentials: {e}") from None
 
     def _write(self, relative: str, value: str) -> Path:
         path = self.cwd / relative
@@ -276,7 +289,8 @@ class CLIProvider:
             # The subscription's OAuth/keychain stays in the usual user config directory.
             return [self.executable, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
                     "--verbose", "--include-partial-messages", "--strict-mcp-config", "--mcp-config",
-                    json.dumps({"mcpServers": {"badshop": mcp}}), "--allowedTools", "mcp__badshop__*",
+                    str(self._write("mcp.json", json.dumps({"mcpServers": {"badshop": mcp}}))),
+                    "--allowedTools", "mcp__badshop__*",
                     "--tools", "", "--setting-sources", "", "--system-prompt", SYSTEM_PROMPT,
                     *(["--model", self.profile.model] if self.profile.model else [])]
         if self.cli == "codex":
@@ -350,23 +364,26 @@ class CLIProvider:
                 "--policy", str(self.cwd / "policies"), "--skip-trust",
                 *(["--model", self.profile.model] if self.profile.model else [])]
 
-    def command(self, prompt: str) -> list[str]:
-        if self.cli == "claude":
-            return [*self._base, *(["--resume", self.session_id] if self.session_id else [])]
-        if self.cli == "codex" and self.session_id:
-            return [*self._base[:2], "resume", self.session_id, *self._base[2:], prompt]
-        return [*self._base, *(["--resume", self.session_id] if self.session_id else []),
-                *(["-p", prompt] if self.cli == "gemini" else [prompt])]
+    def command(self) -> list[str]:
+        if self.cli == "codex":
+            if self.session_id:
+                return [*self._base[:2], "resume", self.session_id, *self._base[2:], "-"]
+            return [*self._base, "-"]
+        return [*self._base, *(["--resume", self.session_id] if self.session_id else [])]
 
     async def _drain_stderr(self, process):
         while line := await process.stderr.readline():
             self._stderr.append(line.decode("utf-8", "replace").rstrip()[-2000:])
 
-    async def _start(self, prompt: str):
+    async def retire_previous_process(self) -> None:
+        if self.process is not None and (self.cli != "claude" or self.process.returncode is not None):
+            await self.stop()
+
+    async def _start(self):
         if self.process is not None:
             await self.stop()
         self._stderr.clear()
-        executable, *args = self.command(prompt)
+        executable, *args = self.command()
         command = [*_launch_args(self.cli, executable, self.env), *args]
         launch = {"start_new_session": True}
         if os.name == "nt":
@@ -376,7 +393,7 @@ class CLIProvider:
         try:
             self.process = await asyncio.create_subprocess_exec(
                 *command, cwd=self.cwd, env=self.env,
-                stdin=asyncio.subprocess.PIPE if self.cli == "claude" else asyncio.subprocess.DEVNULL,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=MAX_LINE, **launch)
             if self._job:
                 self._job.assign_and_resume(self.process.pid)
@@ -407,12 +424,17 @@ class CLIProvider:
         done = False
         try:
             if self.process is None or self.process.returncode is not None or self.cli != "claude":
-                await self._start(prompt)
+                await self._start()
             process = self.process
             if self.cli == "claude":
                 message = {"type": "user", "message": {"role": "user", "content": prompt}}
                 process.stdin.write((json.dumps(message) + "\n").encode())
                 await process.stdin.drain()
+            else:
+                # Codex accepts '-' as its stdin prompt. Gemini starts in headless mode
+                # with piped stdin. EOF delivers the complete prompt for both.
+                process.stdin.write(prompt.encode("utf-8"))
+                process.stdin.close()
             while line := await process.stdout.readline():
                 raw = line.decode("utf-8", "replace").rstrip()
                 try:

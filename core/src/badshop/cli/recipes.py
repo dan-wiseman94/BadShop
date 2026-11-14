@@ -110,7 +110,12 @@ def _is_recipe(data) -> bool:
 
 def _outside(path: str) -> bool:
     p = PurePath(path)
-    return bool(p.anchor) or ".." in p.parts
+    if p.anchor or ".." in p.parts:
+        return True
+    try:
+        return not Path(path).resolve().is_relative_to(Path.cwd().resolve())
+    except (OSError, RuntimeError):
+        return True
 
 
 def _step_problem(argv: list[str], allow_outside: bool, parser: argparse.ArgumentParser) -> str | None:
@@ -196,7 +201,7 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     s.add_argument("--set", action="append", metavar="NAME=VALUE", help='fill "{NAME}" in the recipe; repeatable')
     s.add_argument("--from", dest="from_step", type=int, default=1, help="start at this step number")
     s.add_argument("--allow-outside", action="store_true",
-                   help="let steps write -o files outside this folder (absolute paths or ..)")
+                   help="allow recipe output outside this folder, including explicit paths and the configured export folder")
     s.set_defaults(_recipe=cmd_run)
 
 
