@@ -119,6 +119,9 @@ def editing(pid, window, close, output):
     state(session_id=identity, unsaved=False)
     wait_project_pixels(autosave, identity, pixels)
     from accept_clipboard import paste_into_browser
+    # Compact workspaces reopen on Chat; the Canvas tab reveals its copy control.
+    # The v0.4.3 baseline exposes the same Canvas heading in its persistent pane.
+    NativeLabels(window, output).click('Canvas')
     NativeLabels(window, output).click('Copy image')
     time.sleep(.5)
     paste_into_browser(pixels, output)
