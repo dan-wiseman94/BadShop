@@ -118,7 +118,8 @@ def test_settings_bounds():
         "approval_mode": "ask_changes", "auto_replay": True, "output_dir": None, "step_budget": 40,
         "tool_timeout_s": 120.0, "tool_memory_mb": 3072, "fake_provider_script": None,
         'creative_defaults': CreativePreferences().model_dump(), 'no_remote': False, 'remember_history': True,
-        'source_allowlist': [], 'rights_filter': 'any', 'source_orientation': 'any'}
+        'source_allowlist': [], 'rights_filter': 'any', 'source_orientation': 'any',
+        'export_presets': [], 'recent_projects': [], 'saved_designs': []}
     for bad in ({"step_budget": 0}, {"step_budget": 501}, {"tool_timeout_s": 0.5}, {"tool_timeout_s": 3601},
                 {"tool_timeout_s": float("inf")}, {"tool_memory_mb": 255}, {"tool_memory_mb": 65537},
                 {"approval_mode": "yolo"}, {"output_dir": "relative/folder"},

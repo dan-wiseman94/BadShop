@@ -118,6 +118,7 @@ test("final preview includes later steps and cancel leaves the project unchanged
   await details.getByLabel("Seed", { exact: false }).fill("17");
   await details.getByRole("button", { name: "Apply & replay" }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[1].outputs[0]).not.toBe(before.steps[1].outputs[0]);
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[1].status).toBe("done");
   const after = await emptyCore.call("session.get") as Session;
   expect((await emptyCore.call("artifacts.get", { id: after.steps[1].outputs[0] }) as { data: string }).data).toBe(bytes);
 });

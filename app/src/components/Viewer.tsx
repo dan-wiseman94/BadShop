@@ -92,7 +92,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   }, [selectedStep]);
   const scale = meta
     ? zoom === "fit"
-      ? Math.min((size.width - 72) / meta.width, (size.height - 72) / meta.height, 1)
+      ? Math.max(0.001, Math.min(Math.max(1, size.width - 24) / meta.width, Math.max(1, size.height - 24) / meta.height, 1))
       : zoom
     : 1;
   const point = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -110,7 +110,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
       )
       .flatMap((step) => faceBoxes(step.data)) ?? [];
   return (
-    <section className="viewer pane" aria-label="Image viewer">
+    <section className="viewer pane" data-picking={!!pick} aria-label="Image viewer">
       <div className="pane-heading">
         <span className="flex items-center gap-2">
           <ThemeIcon name="canvas" size={16} />

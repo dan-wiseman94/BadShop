@@ -2244,7 +2244,12 @@ button.primary {
 .share-image details > * { margin-bottom: 10px; }
 .share-image button { white-space: normal; }
 .share-preview { max-width: 320px; width: 100%; max-height: 340px; object-fit: contain; background: var(--stage); image-rendering: pixelated; }
-.viewer-tools, .viewer-toggles { flex-wrap: wrap; height: auto; }
+.viewer-tools { flex-wrap: nowrap; height: auto; min-height: 46px; overflow-x: auto; flex-shrink: 0; }
+.viewer-tools > *, .viewer-toggles > * { flex-shrink: 0; }
+.viewer-toggles { flex-wrap: nowrap; height: auto; }
+.viewer[data-picking="true"] > .manual-tools,
+.viewer[data-picking="true"] > .artifact-strip,
+.viewer[data-picking="true"] > .material-library { display: none; }
 .manual-tools, .material-library { padding: 10px 16px; border-top: 1px solid var(--line); max-height: 38vh; overflow: auto; }
 .manual-tools summary, .material-library summary { cursor: pointer; font-weight: 600; }
 .project-home { width: min(850px, 95vw); max-height: 90vh; overflow: auto; }

@@ -26,6 +26,7 @@ test("polygon repair previews without mutation and survives save reopen and repl
   const pixels = (await preview.getAttribute("src"))!.split(",")[1];
   expect((await emptyCore.call("session.get") as Session).steps).toEqual(before.steps);
   await details.getByRole("button", { name: "Apply & replay" }).click();
+  await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0].status).toBe("done");
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0].outputs[0]).not.toBe(before.steps[0].outputs[0]);
   const edited = (await emptyCore.call("session.get") as Session).steps[0];
   expect(edited.params.remove_regions).toHaveLength(1);

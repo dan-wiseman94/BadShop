@@ -1,9 +1,12 @@
 """Build argparse subcommands from tool parameter models."""
 
 import argparse
+import json
 import types
 import typing
 from typing import Any, Literal
+
+from pydantic import BaseModel
 
 from badshop.tools.registry import ToolSpec
 
@@ -30,10 +33,15 @@ def _classify(annotation: Any) -> tuple[str, Any]:
     if origin is Literal:
         return "choice", list(typing.get_args(t))
     if origin is tuple:
-        return "tuple", len(typing.get_args(t))
+        args = typing.get_args(t)
+        return "tuple", (len(args), _unwrap(args[0]))
     if origin is list:
         kind, inner = _classify(typing.get_args(t)[0])
+        if kind.startswith("list_"):
+            return "list_json", None
         return "list_" + kind, inner
+    if isinstance(t, type) and issubclass(t, BaseModel):
+        return "json", None
     return "scalar", t
 
 
@@ -63,7 +71,10 @@ def add_tool_parser(sub: argparse._SubParsersAction, spec: ToolSpec) -> None:
         if kind in ("choice", "list_choice"):
             kw.update(choices=inner, type=type(inner[0]))
         elif kind in ("tuple", "list_tuple"):
-            kw.update(type=int, nargs=inner, metavar=METAVARS[inner])
+            length, scalar = inner
+            kw.update(type=scalar, nargs=length, metavar=METAVARS[length])
+        elif kind in ("json", "list_json"):
+            kw.update(type=json.loads, metavar="JSON")
         elif kind in ("scalar", "list_scalar"):
             kw.update(type=inner)
         if kind.startswith("list_"):
@@ -138,6 +149,11 @@ def to_argv(spec: ToolSpec, params: dict) -> list[str]:
         elif kind == "list_tuple":
             for item in value:
                 flags += [flag, *map(str, item)]
+        elif kind == "json":
+            flags += _option(flag, json.dumps(value))
+        elif kind == "list_json":
+            for item in value:
+                flags += _option(flag, json.dumps(item))
         elif kind.startswith("list_"):
             for item in value:
                 flags += _option(flag, item)

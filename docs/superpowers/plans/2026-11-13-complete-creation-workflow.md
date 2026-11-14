@@ -8,6 +8,22 @@ results supersede earlier statements of remaining work.
 
 ## Final acceptance audit
 
+PR integration follow-up: PR #46 was rebased onto fb1ad67. Initial CI exposed
+missing animation/parameter inventory coverage and stale workflow expectations.
+Expanded CLI round-trip samples reproduced three real defects: nested frame and
+polygon values lacked JSON serialization, and focal coordinates parsed as ints.
+The existing schema-driven CLI now handles these values. Golden changes add only
+selection metadata and a new animation case; every prior pixel/encoded-byte hash
+is unchanged. Browser fixes retain the actual pixel/state assertions, wait for
+replay completion and use the new import/named-row controls. The unchanged 900x600
+coordinate test reproduced a squeezed canvas; scrollable toolbar controls and
+temporarily hidden material panels during picking restore usable Fit geometry.
+Focused verification: 162 core/contract/golden checks passed; one accidental text
+encoding change was corrected and its golden rerun passed. All seven failing
+browser journeys now pass (six in pr46-browser-fixes, recipe in
+pr46-cast-recipe-fixed). Ruff and TypeScript passed. Evidence is in the isolated
+`complete-creation-pr` Linux worktree; failed runs remain retained.
+
 All evidence directories below are under `artifacts/verification/` in the isolated
 Arch worktree `/home/dan/.local/share/badshop-linux-test/worktrees/complete-creation-workflow`.
 

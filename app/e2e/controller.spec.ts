@@ -29,7 +29,7 @@ test("oversized image paste keeps the socket and waiting approval usable", async
     clipboardData.items.add(image);
     element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData }));
   });
-  await expect(page.getByText(/exceeds the 47 MiB paste limit/)).toBeVisible();
+  await expect(page.getByText(/exceeds the 47 MiB upload limit/)).toBeVisible();
   expect(await core.call("session.get")).toEqual(before);
   await expect(approval).toBeVisible();
 
