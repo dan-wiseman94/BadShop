@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import subprocess
 import shlex
 from pathlib import Path
@@ -63,6 +64,7 @@ def packages(candidate, root, output):
         summary['checks'].append('installed Flatpak core stored, retrieved and deleted synthetic keychain credential')
         installed = subprocess.check_output(['flatpak', 'info', '--user', 'io.github.danwiseman94.badshop'], text=True)
         (output / 'flatpak-installed.txt').write_text(installed)
+        assert re.search(r'^\s*Version:\s*' + re.escape(version) + r'\s*$', installed, re.MULTILINE), installed
         smoke(command, output / 'flatpak-candidate-recovery.png', restart_core=True)
         smoke(command, output / 'flatpak-upgraded.png', project_to_open=saved)
         assert hashlib.sha256(saved.read_bytes()).hexdigest() == before

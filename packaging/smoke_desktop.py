@@ -144,6 +144,15 @@ def native_keys(window: int, *keys: str) -> None:
                    check=True, timeout=5)
 
 
+def recovery_file(path: Path) -> Path:
+    # v0.4.3 uses ZIP autosaves; schema-5 candidates use SQLite plus disk blobs.
+    # Retire the ZIP selection when the public upgrade baseline is replaced.
+    if path.parent.name == 'autosave':
+        sqlite = path.with_suffix('.sqlite')
+        return sqlite if sqlite.is_file() else path.with_suffix('.badshop')
+    return path
+
+
 def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
     """Require durable pixels, not merely a renderer's recovery notification."""
     from badshop.engine.errors import EngineError
@@ -153,19 +162,23 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         try:
-            if path.suffix == '.sqlite':
+            actual = recovery_file(path)
+            if actual.suffix == '.sqlite':
                 from badshop.session.recovery import load
-                recovered = load(path)
-                if recovered.data.id == session_id:
-                    for digest, meta in recovered.artifacts.meta.items():
-                        if meta.format != 'PNG' or (meta.width, meta.height) != expected_size:
-                            continue
-                        with Image.open(io.BytesIO(recovered.artifacts.data(digest))) as restored:
-                            if restored.convert('RGBA').tobytes() == expected_pixels:
-                                return recovered.data.model_dump(mode='json', by_alias=True)
+                recovered = load(actual)
+                try:
+                    if recovered.data.id == session_id:
+                        for digest, meta in recovered.artifacts.meta.items():
+                            if meta.format != 'PNG' or (meta.width, meta.height) != expected_size:
+                                continue
+                            with Image.open(io.BytesIO(recovered.artifacts.data(digest))) as restored:
+                                if restored.convert('RGBA').tobytes() == expected_pixels:
+                                    return recovered.data.model_dump(mode='json', by_alias=True)
+                finally:
+                    recovered.artifacts.close()
                 time.sleep(.1)
                 continue
-            with zipfile.ZipFile(path) as archive:
+            with zipfile.ZipFile(actual) as archive:
                 session = json.loads(archive.read('session.json'))
                 if session['id'] == session_id:
                     for digest, meta in session['artifacts'].items():
@@ -185,6 +198,7 @@ def wait_project_pixels(path: Path, session_id: str, image: bytes) -> dict:
 
 def wait_saved_project(path: Path, saved: Path) -> None:
     """Require the reopened identity and every original/working artifact byte."""
+    from badshop.engine.errors import EngineError
     with zipfile.ZipFile(saved) as source:
         original = json.loads(source.read('session.json'))
         expected = {name: source.read(name) for name in source.namelist() if name.startswith('artifacts/')}
@@ -192,12 +206,26 @@ def wait_saved_project(path: Path, saved: Path) -> None:
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         try:
-            with zipfile.ZipFile(path) as target:
+            actual = recovery_file(path)
+            if actual.suffix == '.sqlite':
+                from badshop.session.recovery import load
+                recovered = load(actual)
+                try:
+                    if (recovered.data.id == original['id']
+                            and set(recovered.data.artifacts) == set(original['artifacts'])
+                            and all(recovered.artifacts.data(Path(name).stem) == data
+                                    for name, data in expected.items())):
+                        return
+                finally:
+                    recovered.artifacts.close()
+                time.sleep(.1)
+                continue
+            with zipfile.ZipFile(actual) as target:
                 document = json.loads(target.read('session.json'))
                 if document['id'] == original['id'] and set(document['artifacts']) == set(original['artifacts']):
                     if all(target.read(name) == data for name, data in expected.items()):
                         return
-        except (OSError, zipfile.BadZipFile, KeyError):
+        except (OSError, zipfile.BadZipFile, KeyError, EngineError):
             pass  # Wait only for this run's atomic autosave to arrive.
         time.sleep(.1)
     raise AssertionError('Reopened project did not retain its identity and all artifact bytes')
