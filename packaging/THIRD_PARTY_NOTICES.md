@@ -21,7 +21,12 @@ redistribution, including upstream Apple SDK-derived binding questions. Unmodifi
 package sources are included in `legal/covered-source/`; see each component's property for its
 relative source directory. The inventory is not an automatic legal-compatibility determination.
 
-Models and fonts are downloaded separately into the user's app data directory. See
+The interface bundles the unmodified Press Start 2P font by CodeMan38 under the SIL
+Open Font License 1.1. Its copyright and license are included at
+`app/public/fonts/PressStart2P-OFL.txt` (distributed as `fonts/PressStart2P-OFL.txt`
+in the frontend). This font is used for the Arcade interface, not image processing.
+
+Engine models and fonts are downloaded separately into the user's app data directory. See
 `docs/model-licenses.md` for model sources and license review. Fonts Anton and Comic Neue are
 SIL Open Font License 1.1. Twemoji images are CC-BY 4.0; users must retain fetched images'
 source/creator/license attributions. Public image sources can impose additional conditions.
