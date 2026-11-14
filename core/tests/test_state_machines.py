@@ -202,6 +202,27 @@ def test_queued_auto_replay_does_not_run_in_another_branch(env):
     asyncio.run(scenario())
 
 
+def test_explicit_replay_does_not_compete_with_automatic_replay(env):
+    async def scenario():
+        app = make_app(auto_replay=True)
+        try:
+            imported = await app._artifacts_import('user', data=base64.b64encode(IMAGE).decode())
+            image = imported['working']['id']
+            first = await app._tools_run('user', 'filter', {'image': image, 'names': ['invert']})
+            await app._steps_edit('user', first['id'], {'image': image, 'names': ['grayscale']}, auto_replay=False)
+            await asyncio.gather(*list(app._tasks))
+            assert app.session.step(first['id']).status == 'stale'
+            assert app.session.step(first['id']).outputs == first['outputs']
+            result = await app._steps_replay_from('user', first['id'])
+            assert result[0]['status'] == 'done'
+            assert result[0]['outputs'] != first['outputs']
+            assert len(app.session.data.steps) == 1
+        finally:
+            await app.close()
+
+    asyncio.run(scenario())
+
+
 def test_disconnect_during_cli_proposal_cannot_leave_an_orphan_approval(env, monkeypatch):
     async def scenario():
         app = make_app(approval_mode="ask_all")

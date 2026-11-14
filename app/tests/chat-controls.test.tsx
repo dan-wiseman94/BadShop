@@ -28,7 +28,7 @@ const session: Session = {
   document_revision: 0,
 };
 beforeEach(() =>
-  useUI.getState().set({ status: "starting", error: null, errorAction: null }),
+  useUI.getState().set({ status: "starting", error: null, errorAction: null, chatDraft: "" }),
 );
 function renderChat(value: Session) {
   const client = new QueryClient();
@@ -47,6 +47,16 @@ function renderChat(value: Session) {
     ),
   };
 }
+
+it("retains the unsent draft across panel remount and clears it on document replacement", () => {
+  const first = renderChat(session);
+  fireEvent.change(screen.getByLabelText("Message your agent"), { target: { value: "Unsent idea" } });
+  first.unmount();
+  renderChat(session);
+  expect(screen.getByLabelText("Message your agent")).toHaveValue("Unsent idea");
+  act(() => useUI.getState().set({ documentGeneration: useUI.getState().documentGeneration + 1 }));
+  expect(screen.getByLabelText("Message your agent")).toHaveValue("");
+});
 
 it("keeps the reader position when new messages arrive while reading earlier messages", async () => {
   const { client } = renderChat({

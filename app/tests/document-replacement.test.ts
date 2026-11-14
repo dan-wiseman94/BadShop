@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { action, importBlob, queries } from "../src/data";
-import { rpc } from "../src/rpc";
+import { rpc, RpcError } from "../src/rpc";
 import { useUI } from "../src/store";
 import type { MethodMap } from "../src/types";
 import type { ResponseArtifactMeta } from "../src/wire.generated";
@@ -125,4 +125,13 @@ it("rejects user mutations during reconnect before sending any stale parameters"
     id: "same-session",
     stream_text: "Old partial reply",
   });
+});
+
+it("refreshes after a revision conflict without replaying the rejected edit", async () => {
+  const request = vi.spyOn(rpc, "request").mockRejectedValue(new RpcError("Document changed", undefined, -32002));
+  const refresh = vi.spyOn(queries, "invalidateQueries").mockResolvedValue();
+  await expect(action("steps.edit", { step_id: "s1", params: {} })).rejects.toThrow("Document changed");
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ["session.get"] });
+  expect(useUI.getState().documentGeneration).toBe(7);
 });

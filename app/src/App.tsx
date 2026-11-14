@@ -1,6 +1,7 @@
 import { Button } from "./components/Button";
 import { ThemeIcon } from "./components/ThemeIcon";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   ChevronDown,
   Plus,
@@ -17,6 +18,7 @@ import { Viewer } from "./components/Viewer";
 import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
 import { ErrorNotice } from "./components/ErrorNotice";
+import { FeatureBoundary } from "./components/FeatureBoundary";
 import { Studio } from "./components/Studio";
 import { QuickStart } from "./components/QuickStart";
 import { ProjectHome } from "./components/ProjectHome";
@@ -96,7 +98,7 @@ function Resizer({
 export default function App() {
   const { data: session, error: sessionError } = useSession();
   const { data: profiles } = useCoreQuery("providers.list");
-  const ui = useUI();
+  const ui = useUI(useShallow(({ chatDraft: _draft, setChatDraft: _setDraft, ...state }) => state));
   const reducedMotion = useReducedMotion(ui.motion);
   useEffect(() => {
     document.documentElement.dataset.density = ui.density;
@@ -712,9 +714,11 @@ export default function App() {
           gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr)${workspace === "advanced" || history ? ` 6px ${widths.right}px` : ""}`,
         }}
       >
-        <QuickStart key={`quick-${ui.documentGeneration}`} importing={pendingImports > 0} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={() => setImportOpen(true)} onAdvanced={() => chooseWorkspace("advanced")} />
+        <FeatureBoundary key={`quick-${ui.documentGeneration}`} name="Quick ideas" className="quick-start pane">
+        <QuickStart importing={pendingImports > 0} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={() => setImportOpen(true)} onAdvanced={() => chooseWorkspace("advanced")} />
+        </FeatureBoundary>
+        <FeatureBoundary key={`chat-${ui.documentGeneration}`} name="Chat" className="chat pane">
         <Chat
-          key={`chat-${ui.documentGeneration}`}
           attachments={attachments}
           onAttachments={setAttachments}
           onImport={() => setImportOpen(true)}
@@ -722,6 +726,7 @@ export default function App() {
           draft={ideaDrafts.find((draft) => draft.generation === ui.documentGeneration)}
           onDraftConsumed={consumeIdeaDraft}
         />
+        </FeatureBoundary>
         <Resizer
           side="left"
           value={widths.left}
@@ -729,7 +734,9 @@ export default function App() {
           onResize={(delta) => resize("left", delta)}
           onReset={reset}
         />
-        <Viewer key={`viewer-${ui.documentGeneration}`} onImport={() => setImportOpen(true)} />
+        <FeatureBoundary key={`viewer-${ui.documentGeneration}`} name="Image viewer" className="viewer pane">
+        <Viewer onImport={() => setImportOpen(true)} />
+        </FeatureBoundary>
         <Resizer
           side="right"
           value={widths.right}
@@ -737,7 +744,9 @@ export default function App() {
           onResize={(delta) => resize("right", delta)}
           onReset={reset}
         />
-        <Timeline key={`timeline-${ui.documentGeneration}`} />
+        <FeatureBoundary key={`timeline-${ui.documentGeneration}`} name="Timeline" className="timeline pane">
+        <Timeline />
+        </FeatureBoundary>
       </main>
       <footer className="app-footer">
         <span className="footer-brand">Bad is the deliverable.</span>

@@ -29,7 +29,8 @@ export function Chat({
   onDraftConsumed?: (id: string) => void;
 }) {
   const { data: session } = useSession();
-  const [text, setText] = useState("");
+  const text = useUI(state => state.chatDraft);
+  const setText = useUI(state => state.setChatDraft);
   const [style, setStyle] = useState("");
   const [novelty, setNovelty] = useState<NoveltyMode | "">("");
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -70,14 +71,17 @@ export function Chat({
       if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready) return;
       following.current = true;
       setSending(true);
+      const generation = useUI.getState().documentGeneration;
       try {
         await action("chat.send", {
           text: creativeRequest(text, style, takes),
           attachments,
           ...(novelty ? { novelty } : {}),
         });
-        setText((current) => current === text ? "" : current);
-        onAttachments(currentAttachments.current.filter((id) => !attachments.includes(id)));
+        if (useUI.getState().documentGeneration === generation) {
+          setText((current) => current === text ? "" : current);
+          onAttachments(currentAttachments.current.filter((id) => !attachments.includes(id)));
+        }
       } finally {
         setSending(false);
       }

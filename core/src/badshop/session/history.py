@@ -87,21 +87,38 @@ def materialize(nodes: dict[str, str], root: str) -> dict:
 
 def collect(nodes: dict[str, str], roots: list[str]) -> None:
     """Mark all retained heads before deleting anything. Invalid graphs stop GC."""
-    live = set()
-    todo = list(roots)
-    while todo:
-        key = todo.pop()
-        if key in live:
-            continue
-        kind, value, _ = _read_node(nodes, key)
-        live.add(key)
+    checked = {}
+
+    def visit(key, expected, depth=0):
+        if depth > 32:
+            raise EngineError('history graph is too deeply nested')
+        if key in checked:
+            kind, cost, height = checked[key]
+            if kind not in expected:
+                raise EngineError('invalid history record type')
+            if depth + height > 32:
+                raise EngineError('history graph is too deeply nested')
+            return cost, height
+        kind, value, cost = _read_node(nodes, key)
+        if kind not in expected:
+            raise EngineError('invalid history record type')
+        children = []
         if kind == 'state':
-            todo.extend(value.values())
-        elif kind in ('list', 'concat'):
-            todo.extend(value)
-        elif kind != 'record':
-            raise EngineError('invalid history record')
-    for key in set(nodes) - live:
+            children = [visit(ref, ('list', 'concat'), depth + 1) for ref in value.values()]
+        elif kind == 'concat':
+            children = [visit(ref, ('list', 'concat'), depth + 1) for ref in value]
+        elif kind == 'list':
+            children = [visit(ref, ('record',), depth + 1) for ref in value]
+        cost += sum(child_cost for child_cost, _ in children)
+        height = max((child_height + 1 for _, child_height in children), default=0)
+        if cost > MAX_EXPANDED_BYTES:
+            raise EngineError('history revision is too large')
+        checked[key] = kind, cost, height
+        return cost, height
+
+    for root in roots:
+        visit(root, ('state',))
+    for key in set(nodes) - checked.keys():
         del nodes[key]
 
 

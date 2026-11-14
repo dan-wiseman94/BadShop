@@ -90,3 +90,30 @@ def test_valid_hash_with_wrong_node_kind_is_rejected():
     root = hashlib.sha256(raw.encode('ascii')).hexdigest()
     with pytest.raises(EngineError, match='record type'):
         history.materialize({root: raw}, root)
+
+
+def test_shared_membership_cannot_hide_an_oversized_expanded_revision(monkeypatch):
+    nodes = {}
+    record = {'content': 'x' * 1024}
+    root = history.capture(nodes, dict(steps=[], messages=[record] * 32, transcript=[]))
+    assert sum(len(raw) for raw in nodes.values()) < 4096
+    before = dict(nodes)
+    monkeypatch.setattr(history, 'MAX_EXPANDED_BYTES', 8192)
+    with pytest.raises(EngineError, match='revision is too large'):
+        history.collect(nodes, [root])
+    assert nodes == before
+
+
+def test_shared_subtree_cannot_hide_excessive_depth():
+    nodes = {}
+    record = history._node(nodes, 'record', {})
+    shallow = history._node(nodes, 'list', [record])
+    deep = shallow
+    for _ in range(31):
+        deep = history._node(nodes, 'concat', [deep])
+    root = history._node(nodes, 'state', dict(steps=shallow, messages=deep, transcript=shallow))
+    before = dict(nodes)
+    for read in (lambda: history.collect(nodes, [root]), lambda: history.materialize(nodes, root)):
+        with pytest.raises(EngineError, match='too deeply nested'):
+            read()
+    assert nodes == before

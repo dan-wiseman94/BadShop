@@ -127,12 +127,21 @@ test("on-device download can cancel, retry after failure, and open chat after ac
   let pending: { id: number; name: string } | undefined;
   let attempt = 0;
   let selected = false;
-  const profile = { id: "badshop-on-device", kind: "local", label: "On-device AI", model: "badshop", capability_overrides: {} };
+  const profile = { id: "badshop-on-device", kind: "local", label: "On-device AI", model: "badshop", capability_overrides: {},
+    cli: null, executable: null, api_base: null, allow_insecure_http: false, api_key_ref: null, api_key_env: null };
   await page.routeWebSocket(`ws://127.0.0.1:${emptyCore.port}/`, client => {
     const server = client.connectToServer();
     const sessionRequests = new Set<number>();
+    let instance = "";
+    let sequence = 0;
     server.onMessage(frame => {
       const reply = JSON.parse(String(frame));
+      if (reply.type === "welcome") { instance = reply.core_instance_id; sequence = reply.event_seq; }
+      if (reply.method) {
+        reply.event_seq = ++sequence;
+        if (reply.context) reply.context.event_seq = sequence;
+      }
+      if (reply.result?.context) reply.result.context.event_seq = sequence;
       if (sessionRequests.delete(reply.id) && selected) reply.result.provider_profile_id = profile.id;
       client.send(JSON.stringify(reply));
     });
@@ -145,7 +154,8 @@ test("on-device download can cancel, retry after failure, and open chat after ac
         attempt++;
         if (attempt === 1) {
           pending = { id: request.id, name: request.params.name };
-          client.send(JSON.stringify({ jsonrpc: "2.0", method: "asset.progress", params: { name: pending.name, done: 50, total: 100 } }));
+          client.send(JSON.stringify({ jsonrpc: "2.0", method: "asset.progress", core_instance_id: instance,
+            event_seq: ++sequence, params: { name: pending.name, done: 50, total: 100 } }));
           return;
         }
         if (attempt === 2) return client.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "Download interrupted. Try again." } }));

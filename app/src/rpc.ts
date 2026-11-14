@@ -57,6 +57,7 @@ export class RpcClient {
       const current = () => generation === this.generation && this.ws === ws;
       const end = (error: RpcError) => {
         if (!current()) return;
+        console.warn(`Core connection ended: ${error.message}`);
         clearTimeout(timer);
         ++this.generation; // buffered callbacks from a closing socket are obsolete
         this.ws = undefined;

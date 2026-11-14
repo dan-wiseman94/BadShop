@@ -1353,13 +1353,13 @@ class CoreApp:
             return self._snapshot()
         return await self._blocking(tracked_change)
 
-    async def _steps_edit(self, actor: str, step_id: str, params: dict) -> dict:
+    async def _steps_edit(self, actor: str, step_id: str, params: dict, auto_replay: bool | None = None) -> dict:
         def edit() -> tuple[Session, list[Step], list[Step]]:
             with branches.manual_edit(self.session, "edit step"):
                 return self.session, self.session.data.steps, self.session.edit(step_id, params)
 
         session, timeline, stale = await self._blocking(edit)
-        if self.settings.auto_replay and stale:
+        if (self.settings.auto_replay if auto_replay is None else auto_replay) and stale:
             self._spawn(self._auto_replay(session, timeline, step_id))
         return {"stale": [s.id for s in stale]}
 

@@ -1,6 +1,7 @@
 import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
   Check,
   Clock3,
@@ -98,6 +99,31 @@ export function Timeline() {
   const { data: session } = useSession();
   const { data: tools } = useCoreQuery("tools.list");
   const selected = useUI((s) => s.selectedStep);
+  const steps = session?.steps ?? [];
+  const list = useRef<HTMLDivElement>(null);
+  const focusAfterScroll = useRef(false);
+  const selectedIndex = steps.findIndex(item => item.id === selected);
+  const windowed = steps.length > 100;
+  const virtual = useVirtualizer({
+    count: steps.length,
+    enabled: windowed,
+    getScrollElement: () => list.current,
+    estimateSize: () => 110,
+    getItemKey: index => steps[index].id,
+    overscan: 5,
+    useFlushSync: false,
+    // Keep the selected/focused row mounted when scrolling away from it.
+    rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...(selectedIndex < 0 ? [] : [selectedIndex])])].sort((a, b) => a - b),
+  });
+  useEffect(() => {
+    if (windowed && selectedIndex >= 0) virtual.scrollToIndex(selectedIndex, { align: "auto" });
+  }, [selectedIndex, windowed, virtual]);
+  useEffect(() => {
+    if (!focusAfterScroll.current) return;
+    const button = list.current?.querySelector<HTMLButtonElement>(`[data-index="${selectedIndex}"]`);
+    if (button) { button.focus({ preventScroll: true }); focusAfterScroll.current = false; }
+  });
+  const rows = windowed ? virtual.getVirtualItems() : steps.map((item, index) => ({ key: item.id, index, start: 0 }));
   const step = session?.steps.find((s) => s.id === selected);
   const tool = tools?.find((t) => t.name === step?.tool);
   const [changing, setChanging] = useState(false);
@@ -126,11 +152,29 @@ export function Timeline() {
           <ThemeIcon name="replay" size={16} />
         </button>
       </div>
-      <div className="step-list">
+      <div className="step-list" ref={list} onKeyDown={event => {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        const current = (event.target as HTMLElement).closest<HTMLButtonElement>(".step");
+        if (!current || !steps.length) return;
+        event.preventDefault();
+        const index = Number(current.dataset.index);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? steps.length - 1
+          : Math.max(0, Math.min(steps.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+        focusAfterScroll.current = true;
+        if (windowed) virtual.scrollToIndex(next, { align: "auto" });
+        useUI.getState().set({ selectedStep: steps[next].id, selectedArtifact: null });
+      }}>
         {session?.steps.length ? (
-          session.steps.map((s) => (
+          <div style={windowed ? { height: virtual.getTotalSize(), position: "relative" } : undefined}>
+          {rows.map(row => { const s = steps[row.index]; return (
             <button
               key={s.id}
+              data-index={row.index}
+              ref={windowed ? virtual.measureElement : undefined}
+              style={windowed ? { position: "absolute", top: 0, left: 0, transform: `translateY(${row.start}px)` } : undefined}
+              aria-label={`Step ${row.index + 1} of ${steps.length}: ${s.tool}, ${s.status}`}
+              aria-pressed={s.id === selected}
+              tabIndex={windowed && row.index !== Math.max(0, selectedIndex) ? -1 : 0}
               className={`step ${s.id === selected ? "selected" : ""}`}
               onClick={() => useUI.getState().set({ selectedStep: s.id, selectedArtifact: null })}
             >
@@ -165,7 +209,8 @@ export function Timeline() {
                 </small>
               </div>
             </button>
-          ))
+          ); })}
+          </div>
         ) : (
           <div className="empty-timeline">
             <Clock3 size={26} />

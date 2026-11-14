@@ -1,5 +1,5 @@
 import { QueryClient, useQuery } from "@tanstack/react-query";
-import { rpc } from "./rpc";
+import { rpc, RpcError } from "./rpc";
 import { useUI, showError } from "./store";
 import { getConnection, onCoreStatus } from "./native";
 import type {
@@ -146,6 +146,10 @@ export async function action<K extends keyof MethodMap>(
     value = await rpc.request(method, params, undefined, queries.getQueryData<Session>(["session.get"])?.context);
   } catch (error) {
     downloadError = error instanceof Error ? error.message : String(error);
+    // A conflict is not permission to replay the command. Refresh the visible
+    // document so the user can review its current state before trying again.
+    if (error instanceof RpcError && error.code === -32002)
+      await queries.invalidateQueries({ queryKey: ["session.get"] });
     throw error;
   } finally {
     if (downloadName) {

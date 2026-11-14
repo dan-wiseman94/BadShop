@@ -261,10 +261,10 @@ receipts, commit-before-event semantics, inspection/repair UI and migration/roll
 release coverage. The current session remains the mutation authority.
 
 Also outstanding: the remaining resource/media scheduling and binary delivery,
-normalized/windowed UI projection, provider-neutral bounded conversation model,
-render boundaries/accessibility, scratch/cache budgets, full resource baselines,
+normalized UI projection and chat/gallery windowing, provider-neutral bounded conversation model,
+remaining accessibility work, scratch/cache budgets, full resource baselines,
 packaged cross-platform release gates and user rollout/study work. The plan's
-100 ms commit proposal is not met by the 1,000-step benchmark. No live provider,
+100 ms commit proposal is met by one small-image 1,000-step sample, not an established p95 budget. No live provider,
 macOS/Windows native release, signed update or installer outcome is claimed.
 
 ## Shared history and schema-5 migration
@@ -286,10 +286,56 @@ Verification to date: `history-migration-reviewed` passed 187 focused tests and
 lint; `history-frontend` passed the production build and five document-replacement
 checks after installing the isolated worktree's missing Node dependencies. The
 initial browser run passed branch/save/reopen but exposed the missed source-credit
-caller during export; its failure evidence is retained and a rerun is required.
+caller during export. After fixing that caller, all six project journeys passed
+in `20261114T063513Z-320835`, including actual export bytes and reopen.
 
 The same 1,000-step / 11-branch small-image workload now has 1.49 MB document JSON
 (previously 6.73 MB), 86 ms recovery commits (previously 330 ms), and 108 ms portable
 saves (previously 350 ms). Recovery database size increased from 1.28 to 2.67 MB,
 and reopen increased from 610 ms to 1.39 seconds. This is a measured tradeoff, not
 a blanket performance improvement. Raw measurements are in `history-benchmark`.
+
+## Pane recovery, long histories and CI reconciliation
+
+Independent render boundaries keep the other panes and header available after a
+pane render failure. Retry remounts only that pane. Chat drafts live in the existing
+UI store and survive pane remounts; document replacement clears them. Late send
+responses cannot clear a replacement document's draft. This is not a claim that
+every form or attachment survives a whole-workspace failure.
+
+Histories above 100 steps now use variable-height windowing with stable step keys,
+overscan and full-history Arrow/Home/End navigation. Selection remains mounted for
+focus continuity. The real-core 250-step browser regression checks bounded mounted
+rows, keyboard focus/scrolling and an unchanged persisted timeline. The existing
+timeline remains the owner. `@tanstack/react-virtual` 3.14.26 is the one added
+runtime dependency; it supplies variable measurement/scroll reconciliation instead
+of a second custom layout engine. Production gzip JS grew from 306.86 to 319.47 KB.
+
+CI exposed three regressions: a stale-command rejection needed snapshot refresh
+without replaying the rejected mutation; onboarding's mocked download events lacked
+the required protocol ownership envelope; Quick ideas retained an old literal
+artifact and raced automatic against explicit replay. Quick ideas now selects the
+step output and opts out of automatic replay when it owns the explicit replay.
+The browser assertions remain unchanged. No pixel goldens or skips were added.
+
+Evidence:
+- `20261114T062616Z-296618`: 1,503 core checks passed, 51 skipped; 85 frontend and
+  13 Rust checks passed, with build/lint/format/workflow checks. This predates the
+  pane/windowing and CI follow-up changes.
+- `panel-isolation`: 11 component checks, types and nine release-gate tests passed.
+- `20261114T063513Z-320835`: all seven project/long-history browser journeys passed.
+- `history-panel-final`: 36 focused history checks, all 87 frontend checks,
+  production build, strict Knip and Ruff passed.
+- `history-negative-control`: removing the expanded-history size guard makes its
+  focused test fail for the missing exception; the probe detected that failure.
+- `ci-followup`: 13 replay-ownership and eight conflict/draft checks, types and
+  generated contract checks passed.
+- `20261114T064202Z-323686`: 25 browser checks passed; enlarged-text export failed
+  after a connection loss. Serial `20261114T064708Z-329054` passed both quick-share
+  journeys. A bounded connection-end diagnostic now records the reason if repeated.
+- `history-depth-review.log`: seven migration checks passed after the second-pass
+  review also made shared-subtree depth validation independent of traversal order.
+
+Upstream #51 and #52 are merged, including 0.5.3 candidate acceptance isolation.
+The last upstream check remains `6fef86133a944e09ef2406c0af2408c745ffdd14`.
+PR #54 is the integration review; its existence does not close the remaining ledger.
