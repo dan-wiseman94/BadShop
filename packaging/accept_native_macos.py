@@ -145,7 +145,7 @@ def open_existing(pid, window, project, output, *, reject_future=False):
     key(31, Quartz.kCGEventFlagMaskCommand)
     file_dialog(project, window, output)
     if reject_future:
-        NativeLabels(window, output).wait('newer badshop')
+        NativeLabels(window, output).wait('project schema 999')
     else:
         with zipfile.ZipFile(project) as source:
             identity = json.loads(source.read('session.json'))['id']

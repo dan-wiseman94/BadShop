@@ -37,7 +37,7 @@ def open_existing(pid, window, project, output, *, reject_future=False):
     native_keys(window, 'ctrl+o')
     linux_file_dialog(pid, window, project)
     if reject_future:
-        NativeLabels(window, output).wait('newer badshop')
+        NativeLabels(window, output).wait('project schema 999')
     else:
         with zipfile.ZipFile(project) as source:
             identity = json.loads(source.read('session.json'))['id']
