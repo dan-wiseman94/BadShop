@@ -2,8 +2,45 @@
 
 Implementation baseline: `fb1ad675546bd466d5578fbf324a72361458a619`.
 The five audit documents were inherited task material, retained in checkpoint `2f8316c`. The full W0–W14
-plan remains authorized. Earlier sections below are chronological checkpoints; the final
-continuation records current implementation and distinguishes external acceptance gates.
+plan informed the implementation. Earlier sections below are chronological checkpoints;
+the merged status here supersedes their outstanding-work lists.
+
+## Merged status — 2026-11-14
+
+The remaining implementation and review fixes merged in
+[PR #58](https://github.com/dan-wiseman94/BadShop/pull/58), commit
+`33a069fead2e6d983bac3ef231d8ac53a3350023`. This includes schema-6 artifact-use,
+invocation and named-output identities, storage/document migrations, durable
+operation receipts, provider-context redesign, bounded binary media delivery,
+UI projection/windowing and upstream reconciliation. Current contracts live in
+[architecture](architecture.md) and [compatibility](compatibility.md).
+
+Final checks passed on PR head `8667205f21a93909b7e882b33056e7b86eaa8efa`:
+
+| Verification | Outcome |
+| --- | --- |
+| [Core CI](https://github.com/dan-wiseman94/BadShop/actions/runs/43621627656) | 1,568 passed, 56 skipped, one deselected |
+| [Desktop CI](https://github.com/dan-wiseman94/BadShop/actions/runs/43621627705) | 114 browser tests passed, one skipped; frontend and native checks passed |
+| [Maintenance](https://github.com/dan-wiseman94/BadShop/actions/runs/43621773338) | Passed |
+| [Locked dependency audit](https://github.com/dan-wiseman94/BadShop/actions/runs/43621627898) | Passed |
+
+Local private-Xvfb native workflows and frozen-core smoke/lifecycle checks also
+passed, as detailed below. Local logs, source fingerprints and the merge receipt
+are retained under `artifacts/verification/`; they are not committed artifacts.
+Skipped or opt-in checks are not claimed as passes.
+
+This closes the implementation work, not every release or field-validation gate:
+
+- Paid/live provider checks remain user-owned; no paid model calls were made.
+- Installed cross-platform acceptance and signing/update rollback validation
+  remain release gates in the [release guide](releasing.md).
+- Assistive-technology observation and consenting-user field studies remain
+  unverified; see the [product study kit](product-study.md).
+- ACP adoption, shared-memory transport and replacing the materialized active
+  timeline remain alternatives subject to comparative evidence, not enabled paths.
+
+No release was published by this merge. Measured resource results below describe
+their workloads and do not establish universal performance or memory guarantees.
 
 ## Implemented
 
@@ -588,8 +625,8 @@ Final CI follow-up found two remaining defects in the verification path:
   retaining all library/message assertions. `20261114T172842Z-1098` passes all
   three long-history workflows. No timeout or assertion was weakened.
 
-Implementation changes and consequential review fixes are complete in this PR.
-Final PR checks must pass before merging PR #58. The original plan's
+Implementation changes and consequential review fixes merged in PR #58 after all
+required checks passed; see the merged status above. The original plan's
 live-provider, installed cross-platform, signing/rollback, assistive-technology and
 consenting-user field gates remain explicitly unclaimed; paid model checks belong
 to the user. No failing or skipped run above has been rewritten as a pass.

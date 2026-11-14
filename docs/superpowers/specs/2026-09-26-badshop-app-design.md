@@ -283,9 +283,10 @@ only supplies tools through MCP and observes and gates them through `session/`:
 
 ## 6. Data model
 
-**Superseded details:** current projects write schema 3 and read schemas 1–3.
+**Superseded details:** the schema-1 illustration below is historical. Current
+format versions and migration/rollback behavior are maintained in the compatibility guide.
 See [project compatibility](../../compatibility.md#project-compatibility-and-recovery)
-and `core/src/badshop/session/models.py`. The schema-1 illustration below is historical.
+and `core/src/badshop/session/models.py`.
 
 ```ts
 Session  { id, name, created_at, provider_profile_id, approval_mode,
