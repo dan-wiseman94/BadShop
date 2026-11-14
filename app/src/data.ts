@@ -52,7 +52,7 @@ export function reconcileSessionSnapshot(
   );
   return {
     ...snapshot,
-    stream_text: completedReply ? "" : (previous.stream_text ?? ""),
+    stream_text: !snapshot.turn_running || completedReply ? "" : (previous.stream_text ?? ""),
   };
 }
 export function useSession() {
