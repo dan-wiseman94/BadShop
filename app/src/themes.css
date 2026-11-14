@@ -762,7 +762,7 @@
   border-radius: 3px;
   text-shadow: none;
 }
-:root[data-theme="y2k"] :is(.theme-card, .quick-cards button)[aria-pressed="true"] {
+:root[data-theme="y2k"] :is(.theme-card, .quick-cards button, .step)[aria-pressed="true"] {
   background: var(--skin-selection);
   color: var(--skin-selection-text);
 }

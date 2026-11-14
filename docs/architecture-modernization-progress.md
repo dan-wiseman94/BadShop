@@ -339,3 +339,11 @@ Evidence:
 Upstream #51 and #52 are merged, including 0.5.3 candidate acceptance isolation.
 The last upstream check remains `6fef86133a944e09ef2406c0af2408c745ffdd14`.
 PR #54 is the integration review; its existence does not close the remaining ledger.
+
+Current-head validation at `9eb8caa`: GitHub core CI passed 1,525 tests, with 56
+skipped and one deselected. Private-Xvfb `20261114T065043Z-330168` passed the debug
+build, native recovery/clipboard/Save/Open/close and development-launcher workflow.
+The full browser CI passed 111 journeys and failed Y2K selected-row contrast: the
+new `aria-pressed` state matched a generic glossy-button rule. The fix includes
+timeline rows in the existing readable selection rule. All 11 theme workflows
+passed in `20261114T065813Z-346304`, retaining contrast and byte-identity assertions.
