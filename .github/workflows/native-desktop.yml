@@ -236,6 +236,9 @@ jobs:
           if-no-files-found: error
   candidate:
     if: inputs.candidate_tag != '' && inputs.candidate_tag != null
+    permissions:
+      # GitHub exposes private drafts only to a token with release write access.
+      contents: write
     strategy:
       fail-fast: false
       matrix:
