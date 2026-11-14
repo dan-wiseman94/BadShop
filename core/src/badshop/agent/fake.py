@@ -31,6 +31,7 @@ class _ScriptReply(BaseModel):
     text: str = ""
     tool_calls: list[_ScriptCall] = []
     error: str | None = None  # the provider fails with this message instead of replying
+    wait_for_stream_release: bool = False
 
 
 class ScriptedProvider(Provider):
@@ -38,8 +39,9 @@ class ScriptedProvider(Provider):
 
     actor = "agent:fake"
 
-    def __init__(self, replies: list[Reply | ProviderError]):
+    def __init__(self, replies: list[Reply | ProviderError], *, stream_releases: dict[int, Path] | None = None):
         self.replies = list(replies)
+        self._stream_releases = stream_releases or {}
         self.received: list[list[dict]] = []  # the messages of every completion, as they were sent
         self._next = 0
 
@@ -56,8 +58,11 @@ class ScriptedProvider(Provider):
         except ValidationError as e:
             raise EngineError(f"the fake provider script {path} is not valid", hint=explain(e)) from None
         replies: list[Reply | ProviderError] = []
+        stream_releases = {}
         n = 0
-        for entry in entries:
+        for index, entry in enumerate(entries):
+            if entry.wait_for_stream_release:
+                stream_releases[index] = Path(path).with_suffix(f".{index}.release")
             if entry.error is not None:
                 replies.append(ProviderError(entry.error))
                 continue
@@ -66,11 +71,12 @@ class ScriptedProvider(Provider):
                 n += 1
                 calls.append(ToolCallRequest(id=f"call_{n}", name=c.name, arguments=c.arguments))
             replies.append(Reply(text=entry.text, tool_calls=calls))
-        return cls(replies)
+        return cls(replies, stream_releases=stream_releases)
 
     async def complete(self, messages: list[dict], tools: list[dict],
                        on_delta: Callable[[str], None]) -> Reply:
         self.received.append(copy.deepcopy(messages))
+        stream_release = self._stream_releases.get(self._next)
         if self._next < len(self.replies):
             reply = self.replies[self._next]
             self._next += 1
@@ -100,4 +106,9 @@ class ScriptedProvider(Provider):
         for i in range(0, len(reply.text), CHUNK):
             await asyncio.sleep(0)  # a real stream waits on the network between chunks: Stop can land here
             on_delta(reply.text[i:i + CHUNK])
+        if stream_release is not None:
+            # Tests can observe the live reply before allowing completion.
+            async with asyncio.timeout(30):
+                while not stream_release.is_file():
+                    await asyncio.sleep(.025)
         return reply

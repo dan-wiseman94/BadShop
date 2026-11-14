@@ -3,37 +3,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "../src/types";
 
-test("streamed provider Markdown never requests an embedded image", async ({ page, emptyCore }) => {
+test("streamed provider Markdown never requests an embedded image", async ({ page, core }) => {
   const probe = "/markdown-image-probe.png";
   const reply = `![probe](${probe}) **Live reply** [source](https://example.test/source)`;
-  await writeFile(path.join(emptyCore.folder, "script.json"), JSON.stringify([{ text: reply }]));
-  const withheld: string[] = [];
-  let release = () => {};
-  await page.routeWebSocket(`ws://127.0.0.1:${emptyCore.port}/`, client => {
-    const server = client.connectToServer();
-    let holding = true;
-    release = () => {
-      holding = false;
-      withheld.splice(0).forEach(frame => client.send(frame));
-    };
-    server.onMessage(frame => {
-      if (holding && typeof frame === "string") {
-        const { method, params } = JSON.parse(frame);
-        if (method === "turn.finished" || (method === "message.done" && params?.message?.role === "assistant")) {
-          withheld.push(frame);
-          return;
-        }
-      }
-      client.send(frame);
-    });
-  });
+  await writeFile(path.join(core.folder, "script.json"),
+    JSON.stringify([{ text: reply, wait_for_stream_release: true }]));
   const imageRequests: string[] = [];
   await page.route(`**${probe}`, route => {
     imageRequests.push(route.request().url());
     return route.abort();
   });
   await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
-  await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
+  await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.getByRole("textbox", { name: "Message your agent" }).fill("Show a brief reply.");
   await page.getByRole("button", { name: "Send message" }).click();
@@ -41,7 +22,7 @@ test("streamed provider Markdown never requests an embedded image", async ({ pag
   await expect(live.getByRole("link", { name: "source" })).toHaveAttribute("href", "https://example.test/source");
   await expect(live.locator("strong")).toHaveText("Live reply");
   await expect(live.locator("img")).toHaveCount(0);
-  release();
+  await writeFile(path.join(core.folder, "script.0.release"), "");
   const completed = page.locator("article.assistant:not(.streaming)");
   await expect(completed.locator("strong")).toHaveText("Live reply");
   await expect(completed.locator("img")).toHaveCount(0);

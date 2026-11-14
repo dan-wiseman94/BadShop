@@ -178,13 +178,12 @@ def test_reopened_project_uses_catalogue_fonts_instead_of_working_directory(tmp_
     from badshop.engine import text
 
     name = "Example.ttf"
-    trusted = tmp_path / "font-catalogue"
-    trusted.mkdir()
+    trusted = tmp_path / "cache" / "fonts"
+    trusted.mkdir(parents=True)
     (trusted / name).write_bytes(b"catalogue sentinel")
     (tmp_path / name).write_bytes(b"working-directory sentinel")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BADSHOP_DATA_DIR", str(tmp_path / "cache"))
-    monkeypatch.setattr(text, "SYSTEM_FONT_DIRS", [trusted])
     monkeypatch.setitem(text.FONT_CANDIDATES, "impact", [name])
     fixture_font = ImageFont.load_default()
     loaded_paths = []
@@ -208,7 +207,7 @@ def test_reopened_project_uses_catalogue_fonts_instead_of_working_directory(tmp_
     path = project.save(session, tmp_path / "shared.badshop")
     opened = project.open_project(path)
     replayed = opened.replay_from(step.id, use_cache=False)[0]
-    assert replayed.status == "done"
+    assert replayed.status == "done", replayed.error
     assert loaded_paths == [str(trusted / name)]
     assert opened.artifacts.data(replayed.outputs[0])
 

@@ -643,11 +643,17 @@ def test_closing_the_ui_during_an_approval_stops_the_turn_and_the_core_keeps_ser
                     assert first["tool"] == "cutout" and first["status"] == "proposed"
                     first_run_id = (await ui.call('session.get'))['run_id']
                 # the UI closed with the cutout still waiting: the turn stops
-                assert await watcher.event("turn.finished") == {"reason": "stopped", "run_id": first_run_id}
                 assert (await watcher.fails("session.get"))["code"] == -32001  # a user-only method
+                assert not watcher.seen  # CLI connections never receive renderer events
                 async with client(port, token) as ui:  # the app comes back and sees the session
-                    snap = await ui.call("session.get")
-                    assert (snap["turn_running"], snap["pending_approvals"]) == (False, [])
+                    async with asyncio.timeout(5):
+                        while (snap := await ui.call("session.get"))["turn_running"]:
+                            await asyncio.sleep(.01)
+                    assert snap["pending_approvals"] == []
+                    outcome = snap["last_turn_outcome"]
+                    assert (outcome["reason"], outcome["run_id"]) == ("stopped", first_run_id)
+                    assert await watcher.call("tools.list")
+                    assert not watcher.seen
                     assert snap["restorable"] is None  # the first launch: no earlier run to restore
                     step = snap["steps"][0]
                     assert (step["id"], step["tool"], step["status"]) == (first["id"], "cutout", "rejected")
