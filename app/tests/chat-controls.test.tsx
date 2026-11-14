@@ -137,7 +137,7 @@ it("offers provider setup before the first turn and only offers Resume after an 
       last_turn_outcome: { run_id: "paused-run", reason: "paused" },
     });
   });
+  expect(await screen.findByRole("button", { name: "Resume and allow finishing" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Resume and allow finishing" })).toBeVisible();
   expect(screen.getByLabelText("Message your agent")).toHaveValue("Keep this idea");
 });
