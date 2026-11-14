@@ -518,3 +518,64 @@ category; no live support claim is inferred from a fixture.
   shadowed the new provider base name. `20261114T165812Z-1853` passed all 11 checks
   in that file after renaming it. One opt-in engine-model journey was deselected.
 - `provider-advice-ui-final.log`: 12 component checks passed, including retry advice.
+
+
+### Final implementation evidence
+
+Pushed implementation `d54d989cb707aff9d738c2cdfecf04204247471c` incorporates the
+upstream merge. `committed-source.json` verified all 575 tracked Linux files against
+that commit, normalizing only text line endings: no mismatches. Linux's detached
+baseline plus transfer manifest is retained; the content digest identifies tested
+files independently of its baseline HEAD.
+
+- `20261114T165816Z-2015`: all 24 affected controller, provider-context and material
+  workflows passed serially, including the corrected reuse assertion.
+- `completion-maintenance`: import contracts, Ruff, high-confidence Vulture, strict
+  Knip, generated-wire drift check and final production build passed. All ten
+  maintenance guard tests passed with the worktree's tools on PATH. The initial
+  direct-Python invocation lacked those executable paths and the local bundle had
+  no origin/main ref; those are recorded prerequisite errors, not clean passes.
+  `growth-final.md` compares exact pushed head against `b4f6fcc`, after importing
+  its commit objects without overwriting the verification checkout.
+- `engine-model-journey.log`: the real WebSocket approval/save/reopen/replay journey
+  passed with deterministic engine face detection and fonts, without a paid model.
+- `identity-history-benchmark/summary.json` (Windows evidence) and Linux
+  `identity-history-benchmark.log`: 100/200/500/1,000 steps, 11 retained branches,
+  exact document/pixel recovery assertions, and ten warm commit samples per size.
+  At 1,000 steps there are 1,001 logical uses but two unique blobs; JSON metadata is
+  3.36 MB, the recovery database 12.22 MB and portable archive 0.818 MB. The largest
+  of ten commit samples (conservative sample p95) is 266 ms, portable save 140 ms,
+  and recovery open 1.60 seconds. At 100 steps the corresponding commit sample
+  bound is 21 ms and open is 125 ms. Metadata growth is approximately linear.
+  These are small 32-pixel deterministic images, not an image-heavy whole-process
+  RSS benchmark. Compared with the earlier hash-identity workload, the explicit
+  per-use records increase metadata and commit cost; no space-reduction claim is
+  made. Cache admission tests prove encoded-byte ceilings, not decoded GPU/RSS use.
+
+
+- `20261114T170317Z-660`: native build passed, but both native smoke paths found
+  the test oracle still looked up archive bytes by logical identity. Updated the
+  native/frozen/Windows acceptance oracles to resolve `blob_id`, retaining actual
+  SHA-256 and pixel checks. Four oracle checks cover both schema 1–5 and schema 6,
+  including corruption rejection (`native-oracle-final.log`). The Windows viewer
+  oracle now fetches Blob/data URL bytes; actual installed Windows acceptance is
+  still an external platform gate, not inferred from this code correction.
+- `20261114T170619Z-750`: desktop build, private-Xvfb native desktop and development
+  launcher passed. Actual clipboard pixels, native Save/Open, restart recovery and
+  close/process cleanup were exercised. This is source/debug evidence, not an
+  installed package acceptance claim. Final production JS is 324.66 KB gzip.
+- `frozen-build-final.log` / `frozen-smoke-final.log`: clean PyInstaller build and
+  frozen-core smoke passed; bundled HEIC/PDF/video bytes, spawned detection, guarded
+  save/open, SQLite recovery, clean EOF shutdown and forced core death leave no
+  orphan worker. OS keychain and downloaded background-removal tests were not
+  requested in this invocation and are not claimed.
+- `frozen-runtime.json`: five packaged lifecycle cycles passed. Handshake was
+  1.00 s, catalogue ready 1.03 s, idle RSS 104.28 MB and warmed cycle RSS 395.51–
+  395.56 MB, with 49,152 additional retained bytes between the first and fifth
+  cycles. These measured workloads do not establish a universal memory ceiling.
+
+Implementation changes and consequential review fixes are complete in this PR.
+The final PR checks and merge receipt are attached to PR #58. The original plan's
+live-provider, installed cross-platform, signing/rollback, assistive-technology and
+consenting-user field gates remain explicitly unclaimed; paid model checks belong
+to the user. No failing or skipped run above has been rewritten as a pass.
