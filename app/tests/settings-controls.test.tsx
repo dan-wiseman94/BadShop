@@ -102,6 +102,14 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
   );
   render(<Settings updates={{ automatic: true, track: "stable", setTrack: () => {}, info: null, phase: "idle", error: "", progress: null,
     check: async () => {}, install: async () => {}, cancel: async () => {}, localOnly: false, setAutomatic: () => {} }} />, { wrapper });
+  const guide = screen.getByText("Costs and plan limits").closest("details");
+  expect(guide).not.toHaveAttribute("open");
+  fireEvent.click(screen.getByText("Costs and plan limits"));
+  expect(guide).toHaveAttribute("open");
+  expect(screen.getByText(/Pro may be worthwhile/)).toBeVisible();
+  expect(screen.getByText(/provider fees for inference/)).toBeVisible();
+  expect(request.mock.calls.some(([method]) => method === "providers.test")).toBe(false);
+  expect(screen.getByRole("button", { name: "Add provider" })).toBeVisible();
   expect(screen.getByText(/provider may charge/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Check setup" }));
   await waitFor(() =>

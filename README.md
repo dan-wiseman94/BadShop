@@ -72,11 +72,11 @@ Installer targets also include Linux x86-64 (deb, AppImage, Flatpak) and macOS 1
 
 ### Optional AI setup
 
-Choose an API provider, a local OpenAI-compatible vision server, or an authenticated Claude
-Code/Codex CLI. Gemini CLI support is experimental and requires a recent version with
-streaming JSON and resume support. Subscription CLIs use a private MCP configuration and
-badshop's approval gate. Models without native tool calls use a validated JSON fallback,
-with a capability warning. API keys use the system keychain or a named environment variable.
+Set up a paid API, a local vision model, or a supported CLI in **Settings → Providers**.
+See [AI costs and provider choice](#ai-costs-and-provider-choice) before buying a plan
+or hardware. CLI providers use a private MCP configuration and BadShop's approval gate.
+Models without native tool calls use a validated JSON fallback with a capability warning.
+API keys use the system keychain or a named environment variable.
 
 The default cutout model is u2net. BiRefNet is optional and needs much more RAM: the Linux
 measurement peaked at 9,328 MiB on a 1000-pixel image. Set Tool memory to at least 12,288 MB
@@ -86,6 +86,50 @@ See the [current architecture](docs/architecture.md),
 [original design](docs/superpowers/specs/2026-09-26-badshop-app-design.md),
 [implementation record](docs/superpowers/plans/2026-10-31-complete-app.md), and
 [model licences and attribution](docs/model-licenses.md).
+
+#### AI costs and provider choice
+
+Quick ideas, manual tools and recipe replay use zero model tokens. For AI art direction,
+start with a subscription you already have or a local model your machine can run.
+Pay-as-you-go API access is another option for occasional jobs or when you hit a quota.
+
+- **Use an existing subscription for frontier models.** Sign in to the Codex CLI with
+  ChatGPT, then select Codex in BadShop. Jobs within your included allowance add no
+  per-job charge. Plus has limited GPT‑6 Astra usage. Frequent multi-step edits, revisions
+  and three-take jobs can exhaust that allowance, so a Pro plan may be worthwhile if
+  you repeatedly hit the limit. Try GPT‑5.6 Sol for routine edits to stretch the allowance.
+  Astra requires Codex CLI 0.153.0 or later. Eligible ChatGPT Pro and Business plans can
+  also claim separate API credits. [Codex plan limits](https://help.openai.com/en/articles/20001275-chatgpt-work-and-codex)
+  · [OpenAI API credits](https://developers.openai.com/api/docs/guides/chatgpt-api-credits)
+- **Check the CLI's own billing.** Claude Code plan access and limits depend on the
+  user's login and Anthropic's terms for running Claude Code in a third-party product.
+  An API key can incur separate charges. Google AI Pro and Ultra access moved from Gemini
+  CLI to Antigravity CLI in June 2026. BadShop's experimental Gemini CLI adapter targets
+  the original CLI. [Claude Code billing and terms](https://code.claude.com/docs/en/legal-and-compliance)
+  · [Google CLI transition](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
+- **Use local for repeatable edits without provider fees.** The optional **On-device AI**
+  handles basic edits such as captions and filters. For full art direction, try a
+  vision model with native tool calling in Ollama or another local server. Qwen3.5 9B
+  Q4_K_M at 32K context is a starting point to test on a 12–16 GiB GPU.
+  Quality and speed vary, and this configuration has yet to be shown to match paid
+  models in BadShop. Test a few of your own briefs before buying hardware.
+  [Qwen3.5 9B model](https://ollama.com/library/qwen3.5:9b-q4_K_M)
+  · [Ollama context settings](https://docs.ollama.com/context-length)
+
+The November 15, 2026 estimates use the compact tool catalog and standard uncached
+API rates in USD per attempt.
+
+| Scripted workflow | GPT-4.1 mini | Claude Sonnet 4.6 |
+| --- | ---: | ---: |
+| One deep-fry | $0.01–$0.02 | $0.10 |
+| Portrait composite with effects and export | $0.07 | $0.52 |
+| Three variants with exports | $0.16 | $1.18 |
+
+These estimates use scripted request sizes and output allowances. Live bills vary with
+image size, model reasoning, retries and cache hits. Several calls can be needed for one
+edit, and a chat revision can incur more calls. For a precise follow-up, edit the existing
+step and replay it by hand. [GPT-4.1 mini pricing](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
+· [Claude API pricing](https://platform.claude.com/docs/en/about-claude/pricing)
 
 ## Developing and testing
 
@@ -202,8 +246,8 @@ completed work is autosaved. `/retry` retries a provider failure without repeati
 tools. Use `--approval-mode auto` to allow tools without prompts.
 
 For Ollama, configure enough context for the tool catalogue, images, and conversation.
-Its default 4,096-token window can reject even the first editing request. For example,
-start your Ollama server with `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`; longer sessions
+On some GPUs the default 4,096-token window can reject even the first editing request.
+Start your Ollama server with `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`. Longer sessions
 may need more context and memory. This also applies when using Ollama's OpenAI-compatible
 endpoint. See [Ollama's context configuration](https://docs.ollama.com/context-length).
 
