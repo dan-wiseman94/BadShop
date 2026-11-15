@@ -43,7 +43,7 @@ const kindHints = {
   api: "Use a provider's API key. Prompts and images go to that provider; API usage may be billed separately from a chat subscription.",
   local: "Connect a vision model server you already run on this computer. For a built-in download, choose On-device AI instead.",
   openai_compatible: "Connect a running OpenAI-compatible server using its URL and model ID. Remote servers receive your prompts and images.",
-  cli: "Use an installed Claude Code, Codex, or Gemini command-line app that you have signed into. Gemini support is experimental.",
+  cli: "Connect an installed CLI. Usage follows its plan or API billing. Gemini CLI is experimental.",
 };
 const icons = {
   api: KeyRound,
@@ -656,6 +656,27 @@ export function Settings({ updates, initialTab, onRestore }: {
                       <h3>Model providers</h3>
                       <Button onClick={() => setEdit(null)} label="Add provider" icon={Plus} iconSize={14} />
                     </div>
+                    <details className="mb-4">
+                      <summary className="cursor-pointer">Costs and plan limits</summary>
+                      <div className="mt-2 grid gap-2">
+                        <p>
+                          <strong>Subscription.</strong> Start with a plan you already have. Codex jobs within
+                          your ChatGPT allowance add no per-job charge. Plus has limited frontier-model usage.
+                          Pro may be worthwhile if frequent, multi-step jobs keep hitting the limit.
+                        </p>
+                        <p>
+                          <strong>Local.</strong> Use On-device AI for basic edits or connect a vision model
+                          with tool calling for full art direction. Local models have no provider fees for inference.
+                          Speed and quality depend on your hardware and model.
+                        </p>
+                        <p>
+                          <strong>Cloud API.</strong> A scripted portrait edit with effects and export was
+                          estimated at $0.07 on GPT-4.1 mini or $0.52 on Claude Sonnet 4.6 at uncached rates
+                          in November 2026. Costs vary by model, images and retries. Manual edits and replay
+                          use zero model tokens.
+                        </p>
+                      </div>
+                    </details>
                     {profiles?.map((profile) => (
                       <div className="profile-row" key={profile.id}>
                         <div>
@@ -712,7 +733,7 @@ export function Settings({ updates, initialTab, onRestore }: {
                     )}
                     <div className="cli-detection">
                       <h3>Installed CLI tools</h3>
-                      <p className="muted">Uses your existing subscription login. Gemini is experimental.</p>
+                      <p className="muted">Sign in through the CLI. Gemini CLI support is experimental.</p>
                       <Button
                         onClick={() => run(async () => setDetected(await action("providers.detect")))}
                         label="Detect CLI tools"
