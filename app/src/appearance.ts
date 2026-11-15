@@ -9,21 +9,21 @@ export const themes = [
   },
   {
     id: "dark",
-    name: "Dark",
+    name: "Modern-ish Dark",
     description: "Charcoal, acid yellow, hard edges. The BadShop workbench.",
     era: "Cut · Paste · Repeat",
   },
   {
     id: "light",
-    name: "Light",
+    name: "Modern-ish Light",
     description: "Warm stock, black ink, yellow labels. Lights on in the shop.",
     era: "Cut · Paste · Repeat",
   },
   {
     id: "classic",
     name: "Classic Desktop",
-    description: "Teal desktop, battleship gray, proper raised buttons.",
-    era: "1995 · Personal computer",
+    description: "A little shareware toy. Silver windows, blue title bars, terrible ideas.",
+    era: "1998 · Cut, paste, send to a friend",
   },
   {
     id: "xp",

@@ -1,0 +1,39 @@
+/* 98.css owns Classic Desktop controls. Adapt its original fixed sizes to
+   BadShop's scalable text, labeled forms and existing workspace layout. */
+:root[data-theme="classic"] {
+  --font-ui: "Pixelated MS Sans Serif", Arial, sans-serif;
+}
+:root[data-theme="classic"] :is(button, input, label, legend, option, select, textarea, .window, .title-bar) {
+  font-family: var(--font-ui);
+  font-size: inherit;
+  -webkit-font-smoothing: auto;
+}
+:root[data-theme="classic"] button {
+  min-width: 0;
+  min-height: 26px;
+  padding: 6px 10px;
+  color: var(--text);
+  text-shadow: none;
+}
+:root[data-theme="classic"] button:disabled { color: #767676; }
+:root[data-theme="classic"] :is(.window, .title-bar) { color: var(--text); }
+:root[data-theme="classic"] .title-bar { color: #fff; }
+:root[data-theme="classic"] :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]), select) {
+  height: auto;
+  min-height: 28px;
+  padding: 6px 8px;
+}
+:root[data-theme="classic"] .composer textarea { border: 0; box-shadow: none; }
+/* Existing forms wrap their inputs in labels, including schema-generated forms. */
+:root[data-theme="classic"] input:is([type="checkbox"], [type="radio"]) {
+  appearance: auto;
+  position: static;
+  opacity: 1;
+  width: 1.23rem;
+  height: 1.23rem;
+  margin: 0;
+}
+:root[data-theme="classic"] .status-bar { margin: 0; }
+:root[data-theme="classic"] h1 { font-size: 2rem; }
+:root[data-theme="classic"] h2 { font-size: 1.6rem; }
+:root[data-theme="classic"] h3 { font-size: 1.15rem; }

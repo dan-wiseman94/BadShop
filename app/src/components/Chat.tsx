@@ -16,6 +16,7 @@ import type { Params, NoveltyMode } from "../types";
 import { creativeRequest, creativeStyles } from "../creative";
 import "../creative.css";
 import { ON_DEVICE } from "../constants";
+import { ThemeIcon } from "./ThemeIcon";
 
 export function Chat({
   attachments,
@@ -45,6 +46,7 @@ export function Chat({
   const { data: session } = useSession();
   const { stepsById } = useDocumentProjection(session);
   const text = useUI(state => state.chatDraft);
+  const classic = useUI(state => state.theme === "classic");
   const setText = useUI(state => state.setChatDraft);
   const [style, setStyle] = useState("");
   const [novelty, setNovelty] = useState<NoveltyMode | "">("");
@@ -121,9 +123,9 @@ export function Chat({
       }
     });
   return (
-    <section className="chat pane" aria-label="Chat">
-      <div className="pane-heading">
-        <span>Art direction</span>
+    <section className="chat pane window" aria-label="Chat">
+      <div className="pane-heading title-bar">
+        <span className={classic ? "pane-title" : undefined}>{classic && <ThemeIcon name="tools" size={16} />}Art direction</span>
         <span className={`connection-dot ${ready && !needsProvider ? "online" : ""}`}>
           {!ready ? "Connecting" : needsProvider ? "AI not connected" : "Ready"}
         </span>
@@ -207,6 +209,7 @@ export function Chat({
             ref={windowed ? virtual.measureElement : undefined}
             style={windowed ? { position: 'absolute', top: 0, left: 0, width: '100%', paddingBottom: 23, marginBottom: 0, transform: `translateY(${row.start}px)` } : undefined}>
             <div className="message-name">
+              {classic && <span className="classic-avatar" aria-hidden="true">{message.role === "user" ? ":)" : "✂"}</span>}
               {message.role === "user"
                 ? "You"
                 : message.role === "system_note"
@@ -247,6 +250,7 @@ export function Chat({
         {stream && (
           <article className="message assistant streaming">
             <div className="message-name">
+              {classic && <span className="classic-avatar" aria-hidden="true">✂</span>}
               badshop<span>Art director</span>
             </div>
             <ChatMarkdown text={stream} />

@@ -1,0 +1,112 @@
+/* Library labels assume sibling controls, while BadShop wraps each field. */
+:root:is([data-theme="classic"], [data-theme="xp"], [data-theme="geocities"]) :is(.preferences > label, .preferences details > label, .profile-fields > label, .quick-form label, .studio label) {
+  display: flex;
+  align-items: stretch;
+}
+:root:is([data-theme="classic"], [data-theme="xp"], [data-theme="geocities"]) :is(.preferences .switch-label, .studio .check-label) { align-items: center; }
+
+/* Library adapters preserve scalable text and the existing semantic controls. */
+:root[data-theme="xp"] :is(button, input, label, legend, option, select, textarea, .window, .title-bar) {
+  font-family: Tahoma, Arial, sans-serif;
+  font-size: inherit;
+}
+:root:is([data-theme="xp"], [data-theme="geocities"]) button {
+  min-width: 0;
+  min-height: 26px;
+  padding: 6px 10px;
+}
+:root:is([data-theme="xp"], [data-theme="geocities"]) :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]), select) {
+  height: auto;
+  min-height: 28px;
+  padding: 6px 8px;
+}
+:root:is([data-theme="xp"], [data-theme="geocities"]) input:is([type="checkbox"], [type="radio"]) {
+  appearance: auto;
+  position: static;
+  opacity: 1;
+  width: 1.23rem;
+  height: 1.23rem;
+  margin: 0;
+}
+:root:is([data-theme="xp"], [data-theme="geocities"]) :is(.composer textarea, .search input) { border: 0; box-shadow: none; }
+:root[data-theme="xp"] h1 { font-size: 2rem; }
+:root[data-theme="xp"] h2 { font-size: 1.6rem; }
+:root[data-theme="xp"] h3 { font-size: 1.15rem; }
+:root[data-theme="xp"] .app {
+  background: radial-gradient(ellipse at 15% 115%, #76a83b 0 25%, transparent 25.3%), linear-gradient(#2469c6, #8fceff);
+}
+:root[data-theme="xp"] .app-header { background: linear-gradient(#2d8afa, #0755cc 15%, #0346af 85%, #003b95); color: #fff; }
+:root[data-theme="xp"] .brand { color: #fff; text-shadow: 1px 2px #003183; }
+:root[data-theme="xp"] .window { padding: 3px; }
+:root[data-theme="xp"] .title-bar { min-height: 32px; }
+:root[data-theme="xp"] .title-bar > span:first-child { font-weight: bold; text-shadow: 1px 1px #003183; }
+:root[data-theme="xp"] .status-bar { margin: 0; }
+:root[data-theme="xp"] .chat-welcome { border-left: 5px solid #72a333; padding-left: 14px; }
+
+/* GeoCities combines the browser's 98.css widgets with personal-homepage colors. */
+:root[data-theme="geocities"] .window { background: var(--panel); box-shadow: none; }
+:root[data-theme="geocities"] .app { color: var(--text); }
+:root[data-theme="geocities"] button { color: #000; text-shadow: none; --muted: #454545; }
+:root[data-theme="geocities"] :is(.viewer-tools, .artifact-strip, .manual-tools, .chat-foot) { color: var(--text); }
+:root[data-theme="geocities"] .title-bar { background: #000080; color: #ffff00; padding: 7px 12px; }
+:root[data-theme="geocities"] :is(button, input, label, select, textarea) { font-family: Arial, sans-serif; font-size: inherit; }
+:root[data-theme="geocities"] h1 { font-size: 2rem; }
+:root[data-theme="geocities"] h2 { font-size: 1.6rem; }
+:root[data-theme="geocities"] h3 { font-size: 1.15rem; }
+:root[data-theme="geocities"] .chat-welcome {
+  background: radial-gradient(#7070ba 1px, transparent 1px) 0 0 / 19px 23px, #000028;
+  border: 3px ridge #b59ae5;
+  padding: 18px 10px;
+}
+:root[data-theme="geocities"] .quick-cards > button { border: 3px ridge #b59ae5; background: var(--panel); }
+:root[data-theme="geocities"] .quick-cards > button > img { background: #000028; border: 2px inset #a98ae3; }
+:root[data-theme="geocities"] .status-bar { margin: 0; font-family: "Times New Roman", serif; }
+
+/* Terminal CSS supplies commands and forms in the existing phosphor palette. */
+:root[data-theme="terminal"] {
+  --global-font-size: 1rem;
+  --global-line-height: 1.5;
+  --font-stack: var(--font-ui);
+  --mono-font-stack: var(--font-ui);
+  --background-color: #020803;
+  --font-color: #91ed99;
+  --invert-font-color: #020803;
+  --primary-color: #a4ffac;
+  --secondary-color: #71a776;
+  --code-bg-color: #061309;
+}
+:root[data-theme="terminal"] :is(.btn, button) { display: inline-flex; font-size: inherit; padding: 6px 10px; background: var(--panel); color: var(--text); }
+:root[data-theme="terminal"] button:disabled { opacity: .55; }
+:root[data-theme="terminal"] :is(.btn, button, input, textarea, select):focus-visible,
+:root[data-theme="terminal"] input[type]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-theme="terminal"] :is(input, select, textarea) { font: inherit; }
+:root[data-theme="terminal"] p { margin-bottom: 0; }
+:root[data-theme="terminal"] .pane-heading { background: #91ed99; color: #020803; }
+:root[data-theme="terminal"] .pane-heading .connection-dot { color: inherit; }
+:root[data-theme="terminal"] .viewer-tools { border-bottom: 1px dashed #71a776; }
+:root[data-theme="terminal"] .viewer-tools select { width: auto; }
+:root[data-theme="terminal"] .artifact-thumb { padding: 2px; }
+
+/* NES.css supplies real pixel button borders and pressed states. */
+:root[data-theme="arcade"] button { display: inline-flex; margin: 4px; min-width: 0; color: #171717; font: bold 1rem/1.5 var(--font-ui); }
+:root[data-theme="arcade"] button:disabled { opacity: .55; cursor: default; }
+:root[data-theme="arcade"] button:focus-visible { outline: 2px solid #ffe238; outline-offset: 4px; }
+:root[data-theme="arcade"] .pane-heading { background: #080a0e; border-block: 3px solid #ffe238; }
+:root[data-theme="arcade"] .pane { border: 3px solid #55e4ed; box-shadow: 3px 3px #943424; }
+:root[data-theme="arcade"] .app-header { gap: 14px; }
+:root[data-theme="arcade"] .quick-cards > button { display: grid; text-align: left; color: #171717; }
+:root[data-theme="arcade"] .quick-cards > button > span { color: #343434; }
+:root[data-theme="arcade"] .tool-option { display: grid; text-align: left; background: var(--panel); color: var(--text); }
+:root[data-theme="arcade"] button::after { pointer-events: none; }
+:root[data-theme="arcade"] .run-tool { gap: 8px; }
+:root[data-theme="arcade"] .run-tool > span { margin-left: auto; color: #454545; }
+
+/* Aqua's gel buttons provide the 2000–2007 material treatment. */
+:root[data-theme="y2k"] { --aqua-edge: #59328f; --aqua-gel-hi: #e8dbff; --aqua-gel-light: #ad86e8; --aqua-accent: #6a3baa; }
+:root[data-theme="y2k"] button { padding: 6px 12px; font-size: inherit; min-width: 0; }
+:root[data-theme="y2k"] .app { background: radial-gradient(ellipse at 20% 90%, #91e5ec, transparent 60%), linear-gradient(140deg, #6780bc, #cab9ef); }
+:root[data-theme="y2k"] .window { border-top: 1px solid #fff; box-shadow: 0 3px 9px #26335566; }
+:root[data-theme="y2k"] .brand { font-family: "Trebuchet MS", Arial, sans-serif; font-size: 2.3rem; }
+:root[data-theme="y2k"] .pane-heading { background: repeating-linear-gradient(#f6f6fb 0 1px, #d9dce6 1px 2px); }
+:root[data-theme="y2k"] .quick-cards > button { display: flex; white-space: normal; border-radius: 8px; }
+:root[data-theme="y2k"] .quick-cards > button::before { display: none; }

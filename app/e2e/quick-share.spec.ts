@@ -32,6 +32,11 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   await page.getByRole("button", { name: "Start with a quick idea" }).click();
   await expect(page.getByRole("region", { name: "Quick ideas" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Chat", exact: true })).toBeHidden();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption("classic");
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await page.screenshot({ path: info.outputPath("classic-idea-collection.png") });
   await page.getByRole("button", { name: /An error with no solution/ }).click();
   await page.getByLabel("Punchline", { exact: true }).fill("My last brain cell has left the meeting.");
   await page.getByRole("button", { name: "Make this shitpost" }).click();
@@ -114,14 +119,17 @@ test("a new user makes, revises, copies and exports a credited shitpost without 
   expect(external).toEqual([]);
 });
 
-test("quick ideas and export remain usable at 200 percent text with keyboard focus", async ({ page, emptyCore }, info) => {
+for (const theme of ["light", "classic", "xp", "geocities", "y2k", "terminal", "arcade"]) test(`quick ideas and export remain usable at 200 percent text with keyboard focus in ${theme}`, async ({ page, emptyCore }, info) => {
   await page.setViewportSize({ width: 900, height: 600 });
-  await page.addInitScript(() => {
+  await page.addInitScript(theme => {
     localStorage.setItem("badshop.textScale", "200");
-    localStorage.setItem("badshop.theme", "light");
-  });
+    localStorage.setItem("badshop.theme", theme);
+  }, theme);
   await page.goto(`/?core_port=${emptyCore.port}&core_token=${emptyCore.token}`);
   await page.getByRole("button", { name: "Start with a quick idea" }).click();
+  if (theme === "arcade") {
+    await expect(page.locator(".quick-cards > button").first()).toHaveCSS("display", "grid");
+  }
   await page.getByRole("button", { name: /An error with no solution/ }).click();
   await page.getByRole("button", { name: "Make this shitpost" }).click();
   await expect(page.locator(".canvas-image")).toBeVisible();

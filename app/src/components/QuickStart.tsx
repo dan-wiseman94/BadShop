@@ -2,6 +2,7 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "reac
 import { action, importBlob, queries, useCoreQuery, useSession } from "../data";
 import { outputSelection, useCanvasArtifact, useUI } from "../store";
 import { useOperation } from "../useOperation";
+import { ThemeIcon } from "./ThemeIcon";
 import { InputField } from "./Fields";
 import starters from "../starters.json";
 import { IdeaPreview } from "./IdeaPreview";
@@ -54,6 +55,7 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
   const layout = step && layouts.find(item => item.id === (step.params.template ?? "trading-card"));
   const { visibleArtifacts } = useDocumentProjection(session);
   const editing = !!step && !!layout && !choosingFormat && !chosen;
+  const classic = useUI(s => s.theme === "classic");
   const ready = useUI(s => s.status === "ready");
   const disabled = !ready || busy || importing || !!session?.turn_running || !!session?.batch_running;
   const definitions = layouts.find(l => l.id === chosen?.template);
@@ -95,8 +97,8 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
     return created;
   }
 
-  return <section className="quick-start pane" aria-label="Quick ideas">
-    <div className="pane-heading"><span>Make something terrible</span><button onClick={() => void navigate(onAdvanced)}>All tools</button></div>
+  return <section className="quick-start pane window" aria-label="Quick ideas">
+    <div className="pane-heading title-bar"><span className={classic ? "pane-title" : undefined}>{classic && <ThemeIcon name="images" size={16} />}Make something terrible</span><button onClick={() => void navigate(onAdvanced)}>All tools</button></div>
     <div className="quick-content">
       {editing && session && <QuickLayoutEditor key={step.invocation_id} session={session} step={step}
         layout={layout} materials={visibleArtifacts} disabled={disabled} onAdvanced={onAdvanced} onDraft={setDraftTarget}
@@ -119,7 +121,7 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
         {visibleArtifacts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
       </select></label>
       <details><summary>Your cast of characters</summary><Cast image={image} disabled={disabled} onUse={setImage} /></details>
-      <div className="quick-cards">
+      <div className={classic ? "quick-cards classic-idea-cards" : "quick-cards"}>
         {starters.map(starter => <button key={starter.template}
           onClick={() => {
             setChosen(starter);
