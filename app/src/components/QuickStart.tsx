@@ -11,6 +11,7 @@ import { CreativeCollections } from "./CreativeCollections";
 import { CreationReplay } from "./CreationReplay";
 import { RemixChallenge } from "./RemixChallenge";
 import { directionLabel } from "../directions";
+import { ThemeIcon } from "./ThemeIcon";
 
 function TakePreview({ id }: { id: string }) {
   const { data } = useArtifact(id, true);
@@ -44,6 +45,7 @@ export function QuickStart({ onImport, onAdvanced, onResult, importedImage, impo
   });
   useEffect(() => { if (importedImage) setImage(importedImage.id); }, [importedImage]);
   const selected = useUI(s => s.selectedStep);
+  const classic = useUI(s => s.theme === "classic");
   const ready = useUI(s => s.status === "ready");
   const step = session?.steps.find(s => s.id === selected && s.tool === "layout")
     ?? (selected === null ? session?.steps.slice().reverse().find(s => s.tool === "layout") : undefined);
@@ -52,10 +54,14 @@ export function QuickStart({ onImport, onAdvanced, onResult, importedImage, impo
   useEffect(() => { setRevision(savedCaption); }, [step?.id, savedCaption]);
   const disabled = !ready || busy || importing || !!session?.turn_running || !!session?.batch_running;
   const definitions = layouts.find(l => l.id === chosen?.template);
-  return <section className="quick-start pane" aria-label="Quick ideas">
-    <div className="pane-heading"><span>Make something terrible</span><button onClick={onAdvanced}>All tools</button></div>
+  return <section className="quick-start pane window" aria-label="Quick ideas">
+    <div className="pane-heading title-bar"><span className={classic ? "pane-title" : undefined}>{classic && <ThemeIcon name="images" size={16} />}Make something terrible</span><button onClick={onAdvanced}>All tools</button></div>
     <div className="quick-content">
-      <p>Pick a joke. Use your own picture or our public-domain pigeon. No AI setup or downloads.</p>
+      {classic ? <div className="classic-idea-intro">
+        <img src="/samples/pigeon.png" alt="" width="64" height="64" />
+        <div><h2>Your next bad idea.</h2><p>Pick a joke. Add a picture. Send it to a friend.</p></div>
+        <span className="classic-web-badge">Made with<br /><strong>questionable taste</strong></span>
+      </div> : <p>Pick a joke. Use your own picture or our public-domain pigeon. No AI setup or downloads.</p>}
       <button disabled={disabled} onClick={onImport}>Try my picture in every idea</button>
       {importing && <p role="status">Opening your picture…</p>}
       <label>Picture for previews<select value={image} disabled={disabled} onChange={e => setImage(e.target.value)}>
@@ -64,7 +70,8 @@ export function QuickStart({ onImport, onAdvanced, onResult, importedImage, impo
           .map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
       </select></label>
       <details><summary>Your cast of characters</summary><Cast image={image} disabled={disabled} onUse={setImage} /></details>
-      <div className="quick-cards">
+      {classic && <p className="classic-gallery-label"><ThemeIcon name="open" size={16} /> The idea collection <span>{starters.length} ways to make it worse</span></p>}
+      <div className={`quick-cards${classic ? " classic-idea-cards" : ""}`}>
         {starters.map(starter => <button key={starter.template} aria-pressed={chosen?.template === starter.template}
           onClick={() => {
             if (chosen === starter) {
@@ -82,6 +89,7 @@ export function QuickStart({ onImport, onAdvanced, onResult, importedImage, impo
           <strong>{starter.name}</strong><span>{starter.description}</span>
         </button>)}
       </div>
+      {classic && <p className="classic-idea-note">The pigeon is on us. No AI setup or downloads needed.</p>}
       {chosen && <form className="quick-form" onSubmit={e => {
         e.preventDefault();
         if (disabled || !definitions) return;

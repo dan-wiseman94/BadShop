@@ -153,8 +153,8 @@ export function Viewer({ onImport }: { onImport: () => void }) {
       )
       .flatMap((step) => faceBoxes(step.data)) ?? [];
   return (
-    <section className="viewer pane" data-picking={!!pick} aria-label="Image viewer">
-      <div className="pane-heading">
+    <section className="viewer pane window" data-picking={!!pick} aria-label="Image viewer">
+      <div className="pane-heading title-bar">
         <span className="flex items-center gap-2">
           <ThemeIcon name="canvas" size={16} />
           Canvas

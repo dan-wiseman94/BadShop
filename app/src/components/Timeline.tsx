@@ -138,8 +138,8 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
     finally { changePending.current = false; setChanging(false); }
   };
   return (
-    <section className="timeline pane" aria-label="Steps timeline">
-      <div className="pane-heading">
+    <section className="timeline pane window" aria-label="Steps timeline">
+      <div className="pane-heading title-bar">
         <span className="pane-title">
           <ThemeIcon name="replay" size={16} />
           Steps <span className="count">{session?.steps.length ?? 0}</span>

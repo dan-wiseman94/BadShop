@@ -168,6 +168,12 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await page.screenshot({
     path: test.info().outputPath("badshop.png"),
   });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption("classic");
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await expect(page.getByText("The pixels are thoroughly questionable.")).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("classic-conversation.png") });
   const errors = await page.evaluate(
     () => document.querySelectorAll(".error-banner").length,
   );

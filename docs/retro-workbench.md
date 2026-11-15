@@ -2,7 +2,22 @@
 
 Open **Images & directions → Retro workbench**. Choose an era or favorite a style, select an image in the viewer, enter a short title and build a layout. The result is an ordinary editable tool step. The browser includes 28 directions from BBS/teletext through GeoCities, desktop windows, messaging, forums, tiny buttons, comics, Aero, vaporwave and webcore. These are pixel interpretations, not replicas of proprietary applications.
 
-**Settings → Preferences → Theme** has Classic Desktop, Terminal, GeoCities, Y2K, Paper and Arcade alongside system/light/dark. Density, text size and motion are independent. Reduced motion shows a still animation frame; Play preview and Next frame affect only the viewer.
+**Settings → Preferences → Theme** has Classic Desktop, XP, Terminal, GeoCities, Y2K, Paper and Arcade alongside Modern-ish Dark and Modern-ish Light. Follow system remains the default and chooses between those two modern appearances; existing saved theme choices are preserved. Density, text size and motion are independent. Reduced motion shows a still animation frame; Play preview and Next frame affect only the viewer.
+
+Classic Desktop uses MIT-licensed 98.css for its beveled controls and blue window
+title bars, with a neutral gray image stage and a messenger-style conversation.
+Its Quick ideas collection pairs larger sample previews with the
+joke descriptions. Pick a card to edit its headline and punchline, use the bundled
+pigeon or your own image, and create an ordinary editable step. The small homemade
+badge and pixel icons decorate the interface; switching themes never changes artwork.
+
+XP uses XP.css Luna windows, controls and sliders. GeoCities reuses 98.css browser-era
+controls with starfields, ridge borders and bright homepage links. Terminal uses
+Terminal CSS forms and command buttons in a green phosphor palette. Arcade uses
+the default and primary NES.css button components. Y2K uses the Aqua registry's
+silver and gel button treatments with pinstriped panels. The copied NES.css and
+Aqua components and their MIT notices live in `app/src/vendor/`. Paper keeps its
+broadsheet typography. Each library is scoped to its interface theme.
 
 ## Creative choices and tools
 

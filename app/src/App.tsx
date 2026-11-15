@@ -44,6 +44,13 @@ import type { ApprovalMode } from "./types";
 import { readPreference, savePreference, useReducedMotion } from "./appearance";
 import { useUpdates, UpdateProgress } from "./updates";
 import "./themes.css";
+import "98.css";
+import "xp.css/dist/XP.css";
+import "./vendor/nes-buttons.css";
+import "terminal.css/dist/terminal.css";
+import "./classic.css";
+import "./vendor/aqua-button.css";
+import "./era-controls.css";
 function mediaKind(name: string): MediaInput["kind"] | null {
   if (/\.(pdf|tiff?)$/i.test(name)) return "document";
   return /\.(mp4|mov|mkv|webm|avi|m4v|mpeg|mpg|ts|ogv|wmv|flv)$/i.test(name) ? "video" : null;
@@ -786,7 +793,7 @@ export default function App() {
         <Timeline onViewImage={() => setCompactPane("canvas")} />
         </FeatureBoundary>
       </main>
-      <footer className="app-footer">
+      <footer className="app-footer status-bar">
         <span className="footer-brand">Bad is the deliverable.</span>
         <span>
           {session?.steps.length ?? 0} steps / {Object.keys(session?.artifacts ?? {}).length ?? 0} images

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      98.css:
+        specifier: 0.1.21
+        version: 0.1.21
       '@rjsf/core':
         specifier: ^6.0.0
         version: 6.11.0(@rjsf/utils@6.11.0(react@19.3.1))(react@19.3.1)
@@ -47,6 +50,12 @@ importers:
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.3.0)(react@19.3.1)
+      terminal.css:
+        specifier: 0.7.5
+        version: 0.7.5
+      xp.css:
+        specifier: 0.2.6
+        version: 0.2.6
       zustand:
         specifier: ^5.0.0
         version: 5.0.16(@types/react@19.3.0)(react@19.3.1)
@@ -90,6 +99,9 @@ importers:
       knip:
         specifier: ^6.44.1
         version: 6.44.1
+      postcss-prefix-selector:
+        specifier: ^2.2.1
+        version: 2.2.1(postcss@8.5.32)
       tailwindcss:
         specifier: ^4.1.0
         version: 4.3.3
@@ -107,6 +119,9 @@ importers:
         version: 8.22.1
 
 packages:
+
+  98.css@0.1.21:
+    resolution: {integrity: sha512-ddk5qtUWyapM0Bzd5jwGExoE5fdSEGrP+F5VbYjyZLf2c9UVmn6w2NPTvCsoD4BWdGsjdLjlkQGhWwWTJcYQJQ==}
 
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
@@ -1715,6 +1730,11 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
+  postcss-prefix-selector@2.2.1:
+    resolution: {integrity: sha512-oMvY0GLVjg6b/N09B4h/xWYczc+LsX1O+laIpXDBbP6tZll+Cj5kXxdI0IZ23NOQ+XIko8VDsCFj+bhgYsmP8g==}
+    peerDependencies:
+      postcss: ^8.0.0
+
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
@@ -1837,6 +1857,9 @@ packages:
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
+
+  terminal.css@0.7.5:
+    resolution: {integrity: sha512-M4RU7IRzqSZoJNRZCmxbRJqjxZqP2eV5cWyUlfAwqJx2GkoHlakTyoPLj0tLJwVJurfac38MwL5Mpwr23Yb0ow==}
 
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
@@ -2049,6 +2072,9 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
+  xp.css@0.2.6:
+    resolution: {integrity: sha512-v0qUB4wOvyXIMLNid5bIpm+0n5aL4i8wE5dqJH8LNVxE04PxUUxjwf2rNzengegUIK03XC4vbfLVCPAfMLtuqA==}
+
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
@@ -2082,6 +2108,8 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  98.css@0.1.21: {}
 
   '@adobe/css-tools@4.5.0': {}
 
@@ -3581,6 +3609,10 @@ snapshots:
     dependencies:
       playwright-core: 1.64.1
 
+  postcss-prefix-selector@2.2.1(postcss@8.5.32):
+    dependencies:
+      postcss: 8.5.32
+
   postcss@8.5.32:
     dependencies:
       nanoid: 3.3.20
@@ -3731,6 +3763,8 @@ snapshots:
   tailwindcss@4.3.3: {}
 
   tapable@2.3.3: {}
+
+  terminal.css@0.7.5: {}
 
   tinybench@2.9.0: {}
 
@@ -3891,6 +3925,8 @@ snapshots:
   xml-name-validator@5.0.0: {}
 
   xmlchars@2.2.0: {}
+
+  xp.css@0.2.6: {}
 
   yallist@3.1.1: {}
 
