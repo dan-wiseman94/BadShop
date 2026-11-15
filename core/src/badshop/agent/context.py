@@ -85,10 +85,37 @@ UNANSWERED = "not run: the app stopped before this call finished"
 CHANGES_NOTE = "Since your last turn the user changed the session (the step list is current):"
 
 
+def _compact_schema(schema: dict) -> dict:
+    """Trim UI annotations and express bounded, homogeneous tuples as uniform arrays."""
+    schema.pop("title", None)
+    fmt = schema.get("format", "")
+    if fmt.startswith("badshop-") or fmt == "color":
+        schema.pop("format")
+
+    # Walk schema nodes only. Names in properties and literal values in defaults or enums are data.
+    for key in ("properties", "$defs"):
+        for child in schema.get(key, {}).values():
+            _compact_schema(child)
+    for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
+        for child in schema.get(key, ()):
+            _compact_schema(child)
+    for key in ("items", "additionalProperties"):
+        if isinstance(child := schema.get(key), dict):
+            _compact_schema(child)
+
+    prefix = schema.get("prefixItems")
+    if (prefix and "items" not in schema and schema.get("maxItems") == len(prefix)
+            and all(child == prefix[0] for child in prefix[1:])):
+        schema["items"] = prefix[0]
+        del schema["prefixItems"]
+    return schema
+
+
 def tool_definitions() -> list[dict]:
     """Every tool in the OpenAI function format, with the schema a model may fill (no user-only fields)."""
     return [{"type": "function",
-             "function": {"name": spec.name, "description": spec.description, "parameters": llm_schema(spec)}}
+             "function": {"name": spec.name, "description": spec.description,
+                          "parameters": _compact_schema(llm_schema(spec))}}
             for spec in REGISTRY.values()]
 
 
