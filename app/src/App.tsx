@@ -19,7 +19,9 @@ import { Timeline, ToolPalette } from "./components/Timeline";
 import { Settings, Welcome } from "./components/Settings";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { FeatureBoundary } from "./components/FeatureBoundary";
-import { Studio } from "./components/Studio";
+import { ManualTools, manualChoices } from "./components/ManualTools";
+import { Versions } from "./components/Versions";
+import { Studio, type MaterialTarget } from "./components/Studio";
 import { QuickStart } from "./components/QuickStart";
 import { ProjectHome } from "./components/ProjectHome";
 import { LocalMedia, type MediaInput } from "./components/LocalMedia";
@@ -27,8 +29,8 @@ import { ImportSources } from "./components/ImportSources";
 import { sourceCard } from "./sourceCard";
 import { SaveChangesDialog, useSessionActions } from "./sessionActions";
 import { usePaneLayout } from "./layout";
-import { action, importBlob, run, startCore, useCoreQuery, useSession } from "./data";
-import { useUI } from "./store";
+import { action, importBlob, queries, run, startCore, useCoreQuery, useSession } from "./data";
+import { outputSelection, useCanvasArtifact, useUI } from "./store";
 import {
   clipboardImage,
   copyText,
@@ -40,7 +42,7 @@ import {
   restart,
 } from "./native";
 import { reportNativeReadiness } from "./nativeReadiness";
-import type { ApprovalMode } from "./types";
+import type { ApprovalMode, Session } from "./types";
 import { readPreference, savePreference, useReducedMotion } from "./appearance";
 import { useUpdates, UpdateProgress } from "./updates";
 import "./themes.css";
@@ -97,6 +99,10 @@ function Resizer({
 }
 export default function App() {
   const { data: session, error: sessionError } = useSession();
+  const canvas = useCanvasArtifact(session);
+  const canvasMeta = canvas.id ? session?.artifacts[canvas.id] : undefined;
+  const canvasOriginal = canvasMeta?.original_id ? session?.artifacts[canvasMeta.original_id] : undefined;
+  const animatedCanvas = (canvasMeta?.frames ?? 1) > 1 || (canvasOriginal?.frames ?? 1) > 1;
   const { data: profiles } = useCoreQuery("providers.list");
   const ui = useUI(useShallow(({ chatDraft: _draft, setChatDraft: _setDraft, ...state }) => state));
   const reducedMotion = useReducedMotion(ui.motion);
@@ -107,7 +113,9 @@ export default function App() {
   }, [ui.density, ui.textScale, reducedMotion]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const { workbench, widths, resize, reset, contentWidth } = usePaneLayout();
-  const documents = useSessionActions();
+  const quickDraft = useRef<() => Promise<boolean>>(null);
+  const beforeChangingProject = useCallback(async () => await quickDraft.current?.() ?? true, []);
+  const documents = useSessionActions(beforeChangingProject);
   const { data: settings } = useCoreQuery("settings.get");
   const updates = useUpdates(() => documents.request({ kind: "close" }), settings?.no_remote ?? true);
   const updateModalOpen = updates.phase === "downloading" || updates.phase === "installing";
@@ -115,6 +123,13 @@ export default function App() {
   // Existing users keep their workbench; first-time users begin with quick ideas.
   const [workspace, setWorkspace] = useState(() => readPreference("workspace", readPreference("welcome", "") ? "advanced" : "quick"));
   const [history, setHistory] = useState(false);
+  const [aiOpen, setAiOpen] = useState<boolean | null>(null);
+  const [taskVisible, setTaskVisible] = useState(true);
+  const [toolChoice, setToolChoice] = useState<(typeof manualChoices)[number] | null>(null);
+  const [paletteSearch, setPaletteSearch] = useState("");
+  const showAI = (aiOpen ?? !!(session?.provider_profile_id || session?.scripted_provider)) || !!session?.turn_running || !!session?.pending_approvals.length;
+  const showTask = !!toolChoice && taskVisible;
+  const hasLeftPane = workspace === "quick" || showAI || showTask;
   const [smallWindow, setSmallWindow] = useState(() => matchMedia("(max-width: 1000px), (max-height: 710px)").matches);
   useEffect(() => {
     const media = matchMedia("(max-width: 1000px), (max-height: 710px)");
@@ -132,9 +147,15 @@ export default function App() {
   };
   const currentPane = ui.pick ? "canvas" : compactPane === "steps" && workspace === "quick" && !history ? "canvas" : compactPane;
   const chooseWorkspace = (value: string) => { setWorkspace(value); savePreference("workspace", value); };
+  const openPalette = (search = "") => {
+    setPaletteSearch(search);
+    ui.set({ paletteOpen: true });
+  };
   const [menu, setMenu] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
+  const [materialTarget, setMaterialTarget] = useState<MaterialTarget | null>(null);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [importedImage, setImportedImage] = useState<{ id: string; generation: number } | null>(null);
   const [pendingImports, setPendingImports] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
@@ -543,9 +564,13 @@ export default function App() {
         <div className="header-center">
           <div className="segmented workspace-switch" aria-label="Workspace">
             <button aria-pressed={workspace === "quick"} onClick={() => { chooseWorkspace("quick"); setCompactPane("left"); }}>Quick ideas</button>
-            <button aria-pressed={workspace === "advanced"} onClick={() => { chooseWorkspace("advanced"); setCompactPane("canvas"); }}>Art director</button>
+            <button aria-pressed={workspace === "advanced"} onClick={() => {
+              void beforeChangingProject().then(proceed => {
+                if (proceed) { chooseWorkspace("advanced"); setCompactPane("canvas"); }
+              });
+            }}>Edit</button>
           </div>
-          {workspace === "advanced" && <>
+          {workspace === "advanced" && showAI && <>
           <label className="provider-select">
             <span className="provider-symbol">✱</span>
             <select
@@ -596,16 +621,16 @@ export default function App() {
           </>}
         </div>
         <div className="header-actions">
+          <button onClick={() => setVersionsOpen(true)} disabled={ui.status !== "ready"}>Versions</button>
           {workspace === "quick" && <button aria-pressed={history} onClick={() => { setHistory(!history); setCompactPane(history ? "canvas" : "steps"); }}>History</button>}
           <button
             className="studio-launch"
-            aria-label="Images & directions"
+            aria-label="Materials"
             disabled={ui.status !== "ready"}
-            onClick={() => setStudioOpen(true)}
+            onClick={() => { setMaterialTarget(null); setStudioOpen(true); }}
           >
             <ThemeIcon name="images" size={18} />
-            <span className="studio-launch-full">Images & directions</span>
-            <span className="studio-launch-short">Images</span>
+            <span>Materials</span>
           </button>
           <button
             className="quiet"
@@ -629,9 +654,9 @@ export default function App() {
             type="submit"
             form="export-canvas-image"
             onClick={() => setCompactPane("canvas")}
-            title="Export the image shown on the canvas"
-            disabled={ui.status !== "ready" || !Object.keys(session?.artifacts ?? {}).length}
-            label="Export"
+            title="Share the image shown on the canvas"
+            disabled={ui.status !== "ready" || !canvas.id || !!ui.pick}
+            label="Share"
             icon="export"
             iconSize={15}
           />
@@ -732,25 +757,32 @@ export default function App() {
         className={`workbench ${workspace === "quick" ? "quick-workbench" : "advanced-workbench"} ${history ? "show-history" : ""}`}
         data-pane={currentPane}
         data-compact={compact}
+        data-task={showTask}
+        data-ai={showAI}
         hidden={disconnected}
         inert={ui.status !== "ready"}
         ref={workbench}
         style={{
           display: disconnected ? "none" : undefined,
-          gridTemplateColumns: `${widths.left}px 6px minmax(250px,1fr)${workspace === "advanced" || history ? ` 6px ${widths.right}px` : ""}`,
+          gridTemplateColumns: `${hasLeftPane ? `${widths.left}px 6px ` : ""}minmax(250px,1fr)${workspace === "advanced" || history ? ` 6px ${widths.right}px` : ""}`,
         }}
       >
         <nav className="compact-panes" aria-label="Workspace panels">
           <button aria-pressed={currentPane === "canvas"} onClick={() => setCompactPane("canvas")}>Canvas</button>
-          <button aria-pressed={currentPane === "left"} disabled={!!ui.pick} onClick={() => setCompactPane("left")}>
-            {workspace === "quick" ? "Ideas" : "Chat"}
-          </button>
+          {hasLeftPane && <button aria-pressed={currentPane === "left"} disabled={!!ui.pick} onClick={() => setCompactPane("left")}>
+            {workspace === "quick" ? "Ideas" : showTask ? "Controls" : "AI"}
+          </button>}
           {(workspace === "advanced" || history) && (
             <button aria-pressed={currentPane === "steps"} disabled={!!ui.pick} onClick={() => setCompactPane("steps")}>Steps</button>
           )}
         </nav>
         <FeatureBoundary key={`quick-${ui.documentGeneration}`} name="Quick ideas" className="quick-start pane">
-        <QuickStart importing={pendingImports > 0} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={() => setImportOpen(true)} onAdvanced={() => { chooseWorkspace("advanced"); setCompactPane("steps"); }} onResult={() => setCompactPane("canvas")} />
+        <QuickStart draftGuard={quickDraft} onBrowse={target => { setMaterialTarget(target); setStudioOpen(true); }} importing={pendingImports > 0} importedImage={importedImage?.generation === ui.documentGeneration ? importedImage : null} onImport={() => setImportOpen(true)} onAdvanced={() => { chooseWorkspace("advanced"); setCompactPane("steps"); }}
+          onHistory={stepId => {
+            if (stepId) ui.set({ selectedStep: stepId });
+            setHistory(true);
+            setCompactPane("steps");
+          }} onResult={() => setCompactPane("canvas")} />
         </FeatureBoundary>
         <FeatureBoundary key={`chat-${ui.documentGeneration}`} name="Chat" className="chat pane">
         <Chat
@@ -761,19 +793,37 @@ export default function App() {
           onConnect={openProviders}
           onViewImage={() => setCompactPane("canvas")}
           onViewStep={() => setCompactPane("steps")}
+          onBeforeSend={beforeChangingProject}
+          onDuplicateTake={() => setVersionsOpen(true)}
           draft={ideaDrafts.find((draft) => draft.generation === ui.documentGeneration)}
           onDraftConsumed={consumeIdeaDraft}
         />
         </FeatureBoundary>
-        <Resizer
+        {workspace === "advanced" && toolChoice && <ManualTools key={ui.documentGeneration}
+          image={canvas.id} choice={toolChoice} onClose={() => { setToolChoice(null); setCompactPane("canvas"); }} />}
+        {hasLeftPane && <Resizer
           side="left"
           value={widths.left}
           maximum={contentWidth - widths.right - 262}
           onResize={(delta) => resize("left", delta)}
           onReset={reset}
-        />
+        />}
         <FeatureBoundary key={`viewer-${ui.documentGeneration}`} name="Image viewer" className="viewer pane">
-        <Viewer onImport={() => setImportOpen(true)} />
+        <Viewer onImport={() => setImportOpen(true)} onOpenHistory={() => {
+          setHistory(true);
+          setCompactPane("steps");
+        }} onSelectElement={(select, element) => {
+          const enter = () => {
+            select();
+            if (!element) return;
+            const isQuickLayout = workspace === "quick" && session?.steps.some(step =>
+              step.id === element.stepId && step.tool === "layout");
+            if (!isQuickLayout) setHistory(true);
+            setCompactPane(isQuickLayout ? "left" : "steps");
+          };
+          if (!element || element.stepId === ui.selectedStep) enter();
+          else void beforeChangingProject().then(proceed => { if (proceed) enter(); });
+        }} />
         </FeatureBoundary>
         <Resizer
           side="right"
@@ -783,9 +833,34 @@ export default function App() {
           onReset={reset}
         />
         <FeatureBoundary key={`timeline-${ui.documentGeneration}`} name="Timeline" className="timeline pane">
-        <Timeline onViewImage={() => setCompactPane("canvas")} />
+        <Timeline onViewImage={() => setCompactPane("canvas")} onEditQuickIdea={workspace === "quick" ? step => {
+          void beforeChangingProject().then(proceed => {
+            if (!proceed) return;
+            const current = queries.getQueryData<Session>(["session.get"])?.steps.find(item => item.invocation_id === step.invocation_id);
+            if (!current) return;
+            ui.set({ selectedArtifact: outputSelection(current, current.outputs[0] ?? current.previous_outputs?.[0]), selectedStep: current.id });
+            setCompactPane("left");
+          });
+        } : undefined} />
         </FeatureBoundary>
       </main>
+      {workspace === "advanced" && !disconnected && <nav className="workbench-toolbar" aria-label="Edit tools">
+        {manualChoices.filter(choice => choice.name !== "animation_edit" || animatedCanvas).map(choice => <button key={choice.name} disabled={ui.status !== "ready" || session?.turn_running || pendingImports > 0}
+          aria-pressed={showTask && toolChoice?.name === choice.name} onClick={() => {
+            setToolChoice(choice);
+            setTaskVisible(true);
+            setCompactPane("left");
+          }}>
+          {choice.label}
+        </button>)}
+        <button onClick={() => openPalette("effects")}>Effects</button>
+        <button onClick={() => openPalette()}>More tools</button>
+        <button aria-pressed={showAI && !showTask} onClick={() => {
+          setTaskVisible(!showTask && !!toolChoice);
+          setAiOpen(showTask || !showAI);
+          setCompactPane(showTask || !showAI || toolChoice ? "left" : "canvas");
+        }}>AI assistant</button>
+      </nav>}
       <footer className="app-footer">
         <span className="footer-brand">Bad is the deliverable.</span>
         <span>
@@ -824,14 +899,18 @@ export default function App() {
         </div>
       )}
       <UpdateProgress updates={updates} />
-      {ui.paletteOpen && !documents.pending && <ToolPalette />}
+      {ui.paletteOpen && !documents.pending && <ToolPalette initialSearch={paletteSearch} />}
+      {versionsOpen && !documents.pending && <Versions onClose={() => setVersionsOpen(false)}
+        onBeforeChange={beforeChangingProject} onViewImage={() => setCompactPane("canvas")} />}
       {studioOpen && !documents.pending && (
         <Studio
-          onClose={() => setStudioOpen(false)}
-          onViewImage={() => setCompactPane("canvas")}
-          onAttach={(id) => setAttachments((previous) => [...new Set([...previous, id])])}
+          onClose={() => { setMaterialTarget(null); setStudioOpen(false); }}
+          target={materialTarget}
+          onAttach={id => ui.set({ selectedArtifact: id, selectedStep: null })}
           onDraft={(text) => {
             chooseWorkspace("advanced");
+            setTaskVisible(false);
+            setAiOpen(true);
             setCompactPane("left");
             setIdeaDrafts((previous) => [
               ...previous,

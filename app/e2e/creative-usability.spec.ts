@@ -3,12 +3,11 @@ import type { Page } from "@playwright/test";
 import { test, expect, expectImageBytes, root, type Core } from "./fixtures";
 import type { Session, Step } from "../src/types";
 
-async function openStudio(page: Page, core: Core, selectStep = false) {
+async function openStudio(page: Page, core: Core) {
   await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  if (selectStep) await page.locator(".step").last().click();
-  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+  await page.getByRole("button", { name: "Materials", exact: true }).click();
 }
 
 test("quick idea uses the photo added from its own import button", async ({ page, emptyCore }) => {
@@ -60,10 +59,14 @@ test("layout drafts survive visiting another material source", async ({ page, co
   await page.getByRole("button", { name: "Layouts & packs", exact: true }).click();
   await expect(page.getByLabel("Layout title")).toHaveValue("My unfinished card");
   await expect(page.getByRole("textbox", { name: "Caption for Character", exact: true })).toHaveValue("Keep this punchline");
-  await page.getByRole("button", { name: "Branches", exact: true }).click();
-  await page.getByLabel("New branch name").fill("A fresh direction");
-  await page.getByRole("button", { name: "Create & switch", exact: true }).click();
-  await expect(page.getByText("A fresh direction (current)")).toBeVisible();
+  await page.getByRole("button", { name: "Close materials" }).click();
+  await page.getByRole("button", { name: "Versions", exact: true }).click();
+  const versions = page.getByRole("dialog", { name: "Versions", exact: true });
+  await versions.getByLabel("New take name").fill("A fresh direction");
+  await versions.getByRole("button", { name: "Duplicate", exact: true }).click();
+  await expect(versions.getByRole("status")).toContainText("Editing: A fresh direction");
+  await versions.getByRole("button", { name: "Close Versions" }).click();
+  await page.getByRole("button", { name: "Materials", exact: true }).click();
   await page.getByRole("button", { name: "Layouts & packs", exact: true }).click();
   await expect(page.getByLabel("Layout title")).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "Caption for Character", exact: true })).toHaveValue("");
@@ -78,7 +81,7 @@ test("saving retro defaults persists the displayed seed into a new project", asy
   await core.call("session.new", { name: "Uses my seed", expected_revision: (await core.call("session.get") as Session).document_revision, discard_unsaved: true });
   expect((await core.call("session.get") as Session).creative?.seed).toBe(42);
   await page.reload();
-  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+  await page.getByRole("button", { name: "Materials", exact: true }).click();
   await page.getByRole("button", { name: "Retro workbench", exact: true }).click();
   await expect(page.getByLabel("Seed", { exact: true })).toHaveValue("42");
 });
@@ -89,12 +92,14 @@ test("inspecting a branch result reveals its actual image at full size", async (
   const first = await core.call("tools.run", { tool: "deepfry", params: { image: source, seed: 1, level: 1 } }) as Step;
   await core.call("branches.create", { name: "Another take" });
   await core.call("tools.run", { tool: "deepfry", params: { image: source, seed: 2, level: 1 } });
-  await openStudio(page, core, true);
-  await page.getByRole("button", { name: "Retro workbench", exact: true }).click();
-  await page.getByRole("button", { name: "Compare", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Original", exact: true }).check();
-  await page.getByRole("button", { name: "Inspect full size", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Images & directions", exact: true })).toBeHidden();
+  await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
+  await page.getByRole("button", { name: "Versions", exact: true }).click();
+  const versions = page.getByRole("dialog", { name: "Versions", exact: true });
+  await versions.getByRole("article", { name: "Original", exact: true })
+    .getByRole("checkbox", { name: "Compare", exact: true }).check();
+  await versions.getByRole("button", { name: "Inspect full size", exact: true }).click();
+  await expect(versions).toBeHidden();
   const image = await core.call("artifacts.get", { id: first.outputs[0] }) as { mime: string; data: string };
   await expectImageBytes(page.locator(".canvas-image"), image.data);
   await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1");

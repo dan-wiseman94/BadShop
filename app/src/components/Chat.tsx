@@ -1,3 +1,4 @@
+import { ProposalPreview } from "./ProposalPreview";
 import { Button } from "./Button";
 import { SelectField } from "./Fields";
 import { memo, useEffect, useRef, useState } from "react";
@@ -24,6 +25,8 @@ export function Chat({
   onConnect,
   onViewImage,
   onViewStep,
+  onBeforeSend,
+  onDuplicateTake,
   draft,
   onDraftConsumed,
 }: {
@@ -34,6 +37,8 @@ export function Chat({
   onConnect?: () => void;
   onViewImage?: () => void;
   onViewStep?: () => void;
+  onBeforeSend?: () => Promise<boolean>;
+  onDuplicateTake?: () => void;
   draft?: { id: string; text: string };
   onDraftConsumed?: (id: string) => void;
 }) {
@@ -97,6 +102,7 @@ export function Chat({
   const send = (takes: 1 | 3 = 1) =>
     run(async () => {
       if ((!text.trim() && !attachments.length) || sending || session?.turn_running || !ready || needsProvider) return;
+      if (onBeforeSend && !(await onBeforeSend())) return;
       following.current = true;
       setSending(true);
       const generation = useUI.getState().documentGeneration;
@@ -125,7 +131,12 @@ export function Chat({
       {(session?.turn_running || session?.undo_branch_id || canResume) && (
         <div className="manual-turn-controls">
           {session?.turn_running && <button onClick={() => run(() => action("chat.pause"))}>Pause after operation</button>}
-          {!session?.turn_running && session?.undo_branch_id && <button onClick={() => run(() => action("chat.undo"))}>Undo last AI turn</button>}
+          {!session?.turn_running && session?.undo_branch_id && <>
+            <button onClick={() => run(async () => {
+              if (!onBeforeSend || await onBeforeSend()) await action("chat.undo");
+            })}>Undo AI turn</button>
+            {onDuplicateTake && <button onClick={onDuplicateTake}>Duplicate take</button>}
+          </>}
           {!session?.turn_running && canResume && !needsProvider && (
             <button disabled={sending} onClick={() => run(async () => {
               if (session?.pause_before_finish) await action("chat.finish_checkpoint", { enabled: false });
@@ -244,15 +255,22 @@ export function Chat({
         {session?.pending_approvals.map((id) => {
           const step = stepsById.get(id);
           if (!step) return null;
+          const inputs = [...new Set(Object.values(step.params).flat().filter((value): value is string =>
+            typeof value === "string" && !!session.artifacts[value]))];
           return (
-            <div key={id} className="approval-card">
+            <div key={step.invocation_id ?? id} className="approval-card">
               <div className="approval-heading">
                 <span className="pending-dot" />
                 Your call
               </div>
-              <h3>{step.tool}</h3>
+              <h3>{step.tool}{inputs[0] ? ` · ${session.artifacts[inputs[0]].label}` : ""}</h3>
               {step.reason && <p>{step.reason}</p>}
-              <pre>{JSON.stringify(step.params, null, 2)}</pre>
+              {!!inputs.length && <div className="attachments">
+                {inputs.map(input => <ArtifactThumb key={input} id={input}
+                  onClick={() => { useUI.getState().set({ selectedArtifact: input }); onViewImage?.(); }} />)}
+              </div>}
+              <details><summary>Proposal parameters</summary><pre>{JSON.stringify(step.params, null, 2)}</pre></details>
+              <ProposalPreview step={step} revision={session.document_revision} />
               <input
                 aria-label={`Rejection note for ${step.id}`}
                 placeholder="Optional note for the agent"
@@ -276,7 +294,7 @@ export function Chat({
                 />
                 <Button
                   onClick={() => { useUI.getState().set({ selectedStep: id, selectedArtifact: null }); onViewStep?.(); }}
-                  label="Edit"
+                  label="Edit proposal"
                   icon={SlidersHorizontal}
                   iconSize={14}
                 />

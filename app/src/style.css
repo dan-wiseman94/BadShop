@@ -720,7 +720,7 @@ button.primary {
   padding: 0;
   min-width: 0;
   min-height: 0;
-  border: 1px dashed #ff00ff;
+  border: 1px solid transparent;
   border-radius: 0;
   background: transparent;
   cursor: pointer;
@@ -2234,6 +2234,9 @@ button.welcome-choice {
 /* Quick ideas share the same session and viewer as the full workbench. Hidden
    panels remain mounted so switching workspaces never discards a chat draft. */
 .advanced-workbench > .quick-start,
+.advanced-workbench[data-ai="false"] > .chat,
+.advanced-workbench[data-task="true"] > .chat,
+.advanced-workbench[data-task="false"] > .task-pane,
 .quick-workbench > .chat,
 .quick-workbench:not(.show-history) > .timeline,
 .quick-workbench:not(.show-history) > .resizer[aria-label="Resize steps pane"] { display: none; }
@@ -2246,6 +2249,19 @@ button.welcome-choice {
 .quick-form { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
 .quick-form label { display: flex; flex-direction: column; gap: 5px; }
 .quick-form button { white-space: normal; }
+.quick-form textarea { width: 100%; resize: vertical; }
+.quick-slot { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.quick-slot-picture { display: flex; align-items: end; gap: 8px; }
+.quick-slot-picture label { flex: 1; min-width: 0; }
+.quick-slot-picture select { min-width: 0; width: 100%; }
+.quick-slot-thumb { width: 46px; height: 46px; object-fit: contain; image-rendering: pixelated; background: var(--stage); }
+.quick-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.quick-content { scroll-padding-block-end: calc(5rem + 24px); }
+.quick-form-footer { position: sticky; bottom: -14px; z-index: 1; background: var(--panel); padding-block: 8px; }
+.quick-form:focus-within :is(textarea, select, button) { scroll-margin-block-end: 1rem; }
+@media (max-height: 560px) { .quick-form-footer { position: static; } }
+.quick-draft-decision { color: var(--text); background: var(--panel); border: 1px solid var(--line); padding: 16px; }
+.quick-draft-decision p { margin-bottom: 12px; }
 .quick-content details button { margin: 4px; white-space: normal; }
 .quick-content details > section { display: flex; flex-direction: column; gap: 10px; padding-block: 10px; }
 .quick-content details label:has(> :is(input:not([type="checkbox"]), select)) { display: flex; flex-direction: column; gap: 4px; }
@@ -2290,7 +2306,7 @@ button.welcome-choice {
 }
 .workbench[data-compact="true"] .compact-panes { display: flex; flex-wrap: wrap; gap: 6px; }
 .workbench[data-compact="true"] > .resizer,
-.workbench[data-compact="true"]:not([data-pane="left"]) > :is(.quick-start, .chat),
+.workbench[data-compact="true"]:not([data-pane="left"]) > :is(.quick-start, .chat, .task-pane),
 .workbench[data-compact="true"]:not([data-pane="canvas"]) > .viewer,
 .workbench[data-compact="true"]:not([data-pane="steps"]) > .timeline { display: none; }
 .workbench[data-compact="true"] > :is(.viewer, .chat, .timeline) { overflow: auto; }
@@ -2323,3 +2339,15 @@ button.welcome-choice {
 [aria-label="Placement controls"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .pane-heading { height: auto; padding-top: 9px; padding-bottom: 9px; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 1100px) { .header-center { order: 3; width: 100%; justify-content: center; flex-wrap: wrap; } }
+
+.canvas-view-state { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px; }
+
+.workbench-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; background: var(--panel); }
+.workbench-toolbar button:last-child { margin-inline-start: auto; }
+.task-pane { overflow: auto; min-width: 0; min-height: 0; margin: 0; }
+.task-pane > form { padding: 12px; }
+
+.proposal-preview { max-width: 100%; max-height: 18rem; object-fit: contain; image-rendering: pixelated; }
+
+.materials-dialog { margin: auto; max-width: calc(100vw - 24px); }
+.materials-dialog::backdrop { background: #0008; }

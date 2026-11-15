@@ -15,7 +15,7 @@ export function RemixShare({ id }: { id: string }) {
   const disabled = busy || !!session?.turn_running || !!session?.batch_running;
   const preview = useQuery({ queryKey: ["remix.inspect", id, revision], enabled: open && !disabled,
     queryFn: () => rpc.request("remix.inspect", { artifact_id: id, expected_revision: revision }), retry: false });
-  return <details onToggle={e => setOpen(e.currentTarget.open)}><summary>Let someone remix this</summary>
+  return <details onToggle={e => setOpen(e.currentTarget.open)}><summary>Editable remix</summary>
     <p>Send an editable .badshop file. These pictures and their {preview.data?.step_count ?? "…"} edits will be included. Recipients can change the words and controls using Open project.</p>
     <p>Conversations, other directions, original files, filenames and embedded photo metadata are excluded. Visible faces and words remain. Animated images are re-encoded as GIFs.</p>
     <div className="retro-inputs">{preview.data?.artifact_ids.map(aid => <ArtifactThumb key={aid} id={aid} />)}</div>

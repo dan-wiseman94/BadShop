@@ -19,8 +19,10 @@ import { outputSelection, useCanvasArtifact, useUI } from "../store";
 import { copyText, openLink } from "../native";
 import { ToolForm, normalizeSchema } from "./ToolForm";
 import { ArtifactThumb } from "./Viewer";
+import { RecipeStudio } from "./RecipeStudio";
 import { ErrorNotice } from "./ErrorNotice";
 import type { Tool, Step, Params } from "../types";
+import { searchTools } from "../toolPresentation";
 export function parameterSummary(params: Params) {
   return Object.entries(params)
     .filter(([, v]) => v !== null && v !== false)
@@ -94,10 +96,14 @@ function RunningTime({ step }: { step: Step }) {
   }, []);
   return <span>{Math.max(0, Math.floor(now - (step.started_at ?? now)))}s elapsed</span>;
 }
-export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
+export function Timeline({ onViewImage, onEditQuickIdea }: {
+  onViewImage?: () => void;
+  onEditQuickIdea?: (step: Step) => void;
+} = {}) {
   const { data: session } = useSession();
   const { data: tools } = useCoreQuery("tools.list");
   const selected = useUI((s) => s.selectedStep);
+  const element = useUI(s => s.selectedElement);
   const steps = session?.steps ?? [];
   const list = useRef<HTMLDivElement>(null);
   const focusAfterScroll = useRef(false);
@@ -128,6 +134,9 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
   const copyArgv = /Win/i.test(navigator.platform);
   const copyCliLabel = copyArgv ? "Copy CLI arguments (JSON)" : "Copy CLI command (POSIX sh)";
   const [changing, setChanging] = useState(false);
+  const [recipeTarget, setRecipeTarget] = useState<string | null>(null);
+  const [blockedEdit, setBlockedEdit] = useState<{ step: string; revision: number; params: Params; message: string } | null>(null);
+  const [failedEdit, setFailedEdit] = useState<{ step: string; revision: number; message: string } | null>(null);
   const changePending = useRef(false);
   const busy = session?.turn_running || changing || session?.steps.some(item => item.status === "running");
   const change = async (work: () => Promise<unknown>) => {
@@ -242,6 +251,7 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
               <ThemeIcon name="close" size={16} />
             </button>
           </div>
+          {element?.stepId === step.id && <p>Selected element · {element.label}</p>}
           {step.reason && <p>{step.reason}</p>}
           {step.error && (
             <div className="inline-error">
@@ -252,7 +262,9 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
               </div>
             </div>
           )}
-          <ToolForm
+          {step.tool === "layout" && onEditQuickIdea && (step.outputs.length || step.previous_outputs?.length)
+            ? <button onClick={() => onEditQuickIdea(step)}>Edit this joke in Quick ideas</button>
+            : <ToolForm
             tool={tool}
             stepId={step.id}
             initial={step.params}
@@ -267,11 +279,43 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
                   decision: "edit",
                   params,
                 });
-              await action("steps.edit", { step_id: step.id, params });
-              const settings = await action("settings.get");
-              if (!settings.auto_replay) await action("steps.replay_from", { step_id: step.id });
+              setBlockedEdit(null);
+              setFailedEdit(null);
+              const result = await action("steps.edit", { step_id: step.id, params, replay: "local" });
+              if (result.replay?.status === "blocked") {
+                const message = result.replay.blocker?.message ?? "This edit needs replay from History.";
+                setBlockedEdit({ step: step.id, revision: result.replay.revision, params, message });
+                throw new Error(message);
+              }
+              if (result.replay?.status === "failed") {
+                const failed = result.replay.failed_step;
+                setFailedEdit({ step: failed?.step_id ?? step.id, revision: result.replay.revision,
+                  message: failed?.message ?? "Rendering stopped." });
+                return;
+              }
+              useUI.getState().set({ notice: "Changes applied." });
             })}
-          />
+          />}
+          {blockedEdit?.step === step.id && blockedEdit.revision === session?.document_revision && <div role="alert">
+            <p>{blockedEdit.message}</p>
+            <button disabled={busy} onClick={() => run(() => change(async () => {
+              await action("steps.edit", { step_id: step.id, params: blockedEdit.params, replay: "none" });
+              setBlockedEdit(null);
+              useUI.getState().set({ notice: "Changes saved. Replay from History to update the image." });
+            }))}>Save changes without replay</button>
+          </div>}
+          {failedEdit && failedEdit.revision === session?.document_revision && <div role="alert">
+            <p>Changes were saved, but replay failed. {failedEdit.message}</p>
+            <button disabled={busy} onClick={() => run(() => action("history.undo", { expected_revision: failedEdit.revision }))}>Undo edit</button>
+            <button onClick={() => useUI.getState().set({ selectedStep: failedEdit.step })}>Inspect failed step</button>
+          </div>}
+          {step.status === "done" && !!step.outputs.length && <>
+            <button disabled={busy} aria-expanded={recipeTarget === step.invocation_id}
+              onClick={() => setRecipeTarget(recipeTarget === step.invocation_id ? null : step.invocation_id ?? null)}>
+              Reuse these edits
+            </button>
+            {recipeTarget === step.invocation_id && <RecipeStudio key={step.invocation_id} captureStep={step.id} />}
+          </>}
           <div className="detail-actions">
             {session?.bypass_tools?.includes(step.tool) &&
               <button disabled={busy} onClick={() => run(() => action("steps.controls", {
@@ -280,9 +324,9 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
             <details><summary>Keep these settings for AI</summary>
               <p>Pin source, wording or placement settings. Further AI changes to this result require your review, even in Auto mode. Manual edits remain available.</p>
               {[
-                { name: "Source images", fields: ["image", "base", "piece", "images"] },
-                { name: "Caption wording", fields: ["text", "title", "caption", "captions"] },
-                { name: "Placement", fields: ["at", "fit_box", "width", "height", "rotate", "anchor", "flip", "box"] },
+                { name: "Keep these pictures", fields: ["image", "base", "piece", "images"] },
+                { name: "Keep these words", fields: ["text", "title", "caption", "captions"] },
+                { name: "Keep this placement", fields: ["at", "fit_box", "width", "height", "rotate", "anchor", "flip", "box"] },
               ].map((group) => ({ ...group, fields: group.fields.filter((field) => field in step.params) }))
                 .filter((group) => group.fields.length).map((group) => <label key={group.name} style={{ display: "block" }}>
                   <input type="checkbox" disabled={busy} checked={group.fields.every((field) => step.locked_fields?.includes(field))}
@@ -384,23 +428,21 @@ export function Timeline({ onViewImage }: { onViewImage?: () => void } = {}) {
     </section>
   );
 }
-export function ToolPalette() {
+export function ToolPalette({ initialSearch = "" }: { initialSearch?: string } = {}) {
   const picking = useUI((state) => !!state.pick);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [tool, setTool] = useState<Tool | null>(null);
   const defaults = useRef<Params>({});
   const { data: tools } = useCoreQuery("tools.list");
   const { data: session } = useSession();
   const { id: selectedArtifact } = useCanvasArtifact(session);
-  const groups = (tools ?? [])
-    .filter((t) => `${t.name} ${t.summary} ${t.category}`.toLowerCase().includes(search.toLowerCase()))
-    .reduce<Record<string, Tool[]>>(
-      (groups, t) => ({
-        ...groups,
-        [t.category]: [...(groups[t.category] ?? []), t],
-      }),
-      {},
-    );
+  const matches = searchTools(tools ?? [], search);
+  const groups = search.trim()
+    ? { "": matches }
+    : matches.reduce<Record<string, Tool[]>>((groups, item) => {
+        (groups[item.category] ??= []).push(item);
+        return groups;
+      }, {});
   return (
     <div
       className={`modal-backdrop ${picking ? "pick-active" : ""}`}
@@ -425,6 +467,7 @@ export function ToolPalette() {
             <ToolForm
               key={tool.name}
               tool={tool}
+              previewEnabled
               initial={defaults.current}
               onSubmit={async (params) => {
                 const result = await action("tools.run", {
@@ -455,8 +498,8 @@ export function ToolPalette() {
             <div className="tool-groups">
               {Object.entries(groups).map(([category, items]) => (
                 <div key={category}>
-                  <h3>{category}</h3>
-                  {items?.map((t) => (
+                  {category && <h3>{category}</h3>}
+                  {items.map((t) => (
                     <button
                       key={t.name}
                       className="tool-option"
@@ -488,7 +531,9 @@ export function ToolPalette() {
                   ))}
                 </div>
               ))}
-              {!Object.keys(groups).length && <p className="muted">No tools match “{search}”.</p>}
+              {tools && search.trim() && !matches.length && (
+                <p className="muted">No tools match “{search.trim()}”. Try a tool name or a task such as “add words”.</p>
+              )}
             </div>
           </>
         )}

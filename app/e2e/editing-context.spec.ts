@@ -42,8 +42,8 @@ test("selecting a step output leaves Before and exports the selected bytes", asy
   await page.locator(".step-detail .provenance button").first().click();
   const artifact = await core.call("artifacts.get", { id: first.outputs[0] }) as { mime: string; data: string };
   await expectImageBytes(page.locator(".canvas-image"), artifact.data);
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file", exact: true }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Exported to ");
   const filename = (await page.getByRole("status").innerText()).replace("Exported to ", "").trim();
   expect(await readFile(filename)).toEqual(Buffer.from(artifact.data, "base64"));

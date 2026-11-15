@@ -138,6 +138,7 @@ test("replay refreshes a selected step input while preserving an active paramete
   await connect(page, core);
   await page.locator(".step").nth(1).click();
   const detail = page.locator(".step-detail");
+  await detail.getByText("Advanced controls", { exact: true }).click();
   await detail.getByLabel("Seed", { exact: false }).fill("99");
   await core.call("steps.edit", {
     step_id: first.id,

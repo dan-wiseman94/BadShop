@@ -367,7 +367,8 @@ def fetch_url(url, follow=True) -> EngineResult:
                               hint="right-click the picture and copy the image address instead")
         raise EngineError(f"that URL returned {ctype or 'something'} that isn't an image")
     name = "fetch/" + slugify(Path(urllib.parse.urlparse(url).path).stem) + ".png"
-    return EngineResult(outputs=[Output("fetched", _keep(im), name)], lines=[f"size: {im.width}x{im.height}"],
+    return EngineResult(outputs=[Output("fetched", _keep(im), name, original_data=data)],
+                        lines=[f"size: {im.width}x{im.height}"],
                         data={"sources": [provenance("url", url)]})
 
 

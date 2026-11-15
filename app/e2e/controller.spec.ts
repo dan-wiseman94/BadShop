@@ -105,6 +105,10 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
     .fill("Deep fry Lincoln.");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByText("Your call", { exact: true })).toBeVisible();
+  const waiting = await core.call("session.get") as Session;
+  await page.getByRole("button", { name: "Preview proposal", exact: true }).click();
+  await expect(page.getByAltText("Proposed result 1")).toBeVisible();
+  expect(await core.call("session.get")).toEqual(waiting);
   await page.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(
     page.getByText("The pixels are thoroughly questionable."),
@@ -114,6 +118,7 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await expect(
     steps.getByRole("button", { name: "Apply & replay" }),
   ).toBeVisible();
+  await steps.getByText("Advanced controls", { exact: true }).click();
   const seed = steps.getByLabel("Seed", { exact: false });
   await seed.fill("11");
   await steps.getByRole("button", { name: "Apply & replay" }).click();
@@ -144,8 +149,8 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await expect(
     steps.getByRole("button").filter({ hasText: "info" }).first(),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file" }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image" }).click();
   await expect(page.getByRole("status")).toContainText("Exported to");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Untitled" }).click();
@@ -453,8 +458,8 @@ test("exports the output of an older selected step", async ({ page, core }) => {
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.locator(".step").first().click();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file" }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image" }).click();
   await expect(page.getByRole("status")).toContainText("Exported to");
   const file = await page.getByRole("status").innerText();
   const exportedPath = file.replace("Exported to ", "").trim();
@@ -465,8 +470,8 @@ test("exports the output of an older selected step", async ({ page, core }) => {
   expect((await readFile(exportedPath)).toString("base64")).toBe(expected.data);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Before", exact: true }).click();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file" }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image" }).click();
   const original = (await core.call("artifacts.get", { id: image })) as { data: string };
   await expect.poll(async () => {
     const notice = await page.getByRole("status").innerText();

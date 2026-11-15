@@ -42,7 +42,6 @@ test("recorded canvas elements open existing controls and survive replay and reo
   } }) as Step;
   const before = await emptyCore.call("session.get") as Session;
   const viewer = page.getByRole("region", { name: "Image viewer" });
-  await viewer.getByRole("button", { name: "Select elements", exact: true }).click();
   await viewer.getByRole("button", { name: "Edit Caption: Select me", exact: true }).click();
   const details = page.locator(".step-detail");
   await expect(details.getByLabel("Exact caption", { exact: false })).toHaveValue("Select me");
@@ -66,7 +65,6 @@ test("recorded canvas elements open existing controls and survive replay and reo
   await emptyCore.call("session.save_as", { path: file });
   await emptyCore.call("session.open", { path: file });
   await page.reload();
-  await viewer.getByRole("button", { name: "Select elements", exact: true }).click();
   await viewer.getByRole("button", { name: "Edit Caption: Select me", exact: true }).click();
   await expect(details.getByLabel("Exact caption", { exact: false })).toHaveValue("Select me");
   expect((await emptyCore.call("session.get") as Session).steps[0].data).toEqual(after.steps[0].data);
@@ -93,9 +91,11 @@ test("material roles and a reusable library picture feed manual composition and 
   await viewer.getByRole("button", { name: "Use as subject", exact: true }).click();
   await viewer.getByRole("button", { name: "Use as background", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).creative?.source_roles.background).toBe(reuse.id);
-  await viewer.getByText("Manual tools", { exact: true }).click();
-  await viewer.getByRole("button", { name: "Compose subject on background", exact: true }).click();
-  await viewer.getByRole("button", { name: "Apply compose subject on background", exact: true }).click();
+  await page.getByRole("navigation", { name: "Edit tools" }).getByRole("button", { name: "Compose", exact: true }).click();
+  const compose = page.getByRole("region", { name: "Compose" });
+  await expect(compose.getByLabel("Subject", { exact: false })).toHaveValue("");
+  await compose.getByLabel("Subject", { exact: false }).selectOption(reuse.id);
+  await compose.getByRole("button", { name: "Apply compose", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
   const session = await emptyCore.call("session.get") as Session;
   expect(session.steps[0].params.base).toBe(reuse.id);
@@ -115,6 +115,7 @@ test("final preview includes later steps and cancel leaves the project unchanged
   await page.locator(".step").first().click();
   const details = page.locator(".step-detail");
   const before = await emptyCore.call("session.get") as Session;
+  await details.getByText("Advanced controls", { exact: true }).click();
   await details.getByLabel("Seed", { exact: false }).fill("17");
   await details.getByLabel("Preview final result, including later steps").check();
   await details.getByRole("button", { name: "Preview changes", exact: true }).click();
@@ -141,11 +142,11 @@ test("manual caption retains exact wording and alignment after reopening", async
   await page.getByRole("button", { name: "Edit a photo without AI" }).click();
   await page.getByLabel("Import image files").setInputFiles(path.join(root, "core/tests/fixtures/lincoln.png"));
   await expect(page.locator(".canvas-image")).toBeVisible();
-  const manual = page.locator(".manual-tools");
-  await manual.locator("summary").click();
-  await manual.getByRole("button", { name: "Text", exact: true }).click();
+  await page.getByRole("navigation", { name: "Edit tools" }).getByRole("button", { name: "Text", exact: true }).click();
+  const manual = page.getByRole("region", { name: "Text", exact: true });
   await manual.getByLabel("Exact caption", { exact: false }).fill("Hello  World\n\nMixed Case");
   await manual.getByLabel("Align", { exact: true }).selectOption("left");
+  await manual.getByText("Advanced controls", { exact: true }).click();
   await manual.getByLabel("Frame", { exact: true }).selectOption("bubble");
   await manual.getByLabel("Tail X", { exact: true }).fill("180");
   await manual.getByLabel("Tail Y", { exact: true }).fill("250");
@@ -178,6 +179,7 @@ test("manual undo redo restores dependent output across project reopening", asyn
   const before = await emptyCore.call("session.get") as Session;
   await page.locator(".step").first().click();
   const details = page.locator(".step-detail");
+  await details.getByText("Advanced controls", { exact: true }).click();
   await details.getByLabel("Seed", { exact: false }).fill("19");
   await details.getByRole("button", { name: "Apply & replay" }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[1].outputs[0]).not.toBe(before.steps[1].outputs[0]);

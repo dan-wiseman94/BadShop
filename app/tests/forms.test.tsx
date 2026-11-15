@@ -106,3 +106,37 @@ it("submits a paste position without populating unused fit_box and region", asyn
     at: [10, 20],
   });
 });
+
+it("opens advanced controls and focuses their first invalid field", async () => {
+  const submit = vi.fn();
+  const tool: Tool = {
+    name: "deepfry",
+    category: "finish",
+    summary: "Deep-fry",
+    description: "",
+    mutates: true,
+    network: false,
+    read_only: false,
+    schema: {
+      type: "object",
+      required: ["image", "new_required_field"],
+      properties: {
+        image: { type: "string", title: "Image" },
+        new_required_field: { type: "string", title: "Required input" },
+        level: { type: "integer", title: "Level", default: 2 },
+        seed: { type: "integer", title: "Seed", minimum: 1, default: 1 },
+      },
+    },
+  };
+  render(
+    <ToolForm tool={tool} initial={{ image: "photo", new_required_field: "value", seed: 0 }} onSubmit={submit} />,
+    { wrapper },
+  );
+  const seed = screen.getByLabelText("Seed");
+  expect(screen.getByLabelText("Required input", { exact: false })).toBeVisible();
+  expect(seed).not.toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Run tool" }));
+  expect(seed).toBeVisible();
+  expect(seed).toHaveFocus();
+  expect(submit).not.toHaveBeenCalled();
+});

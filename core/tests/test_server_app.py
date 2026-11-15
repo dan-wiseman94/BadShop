@@ -39,7 +39,7 @@ METHODS = sorted([
     'retro.list', 'creative.set', 'recipes.capture', 'recipes.save', 'recipes.remove', 'recipes.run', 'recipes.stop',
     'tools.preview', 'remix.inspect', 'remix.export',
     'credits.get', 'credits.export', 'sources.key', 'cache.status', 'cache.clear', 'artifacts.frame',
-    "sources.status", "updates.begin", "updates.end",
+    "sources.status", "materials.discover", "materials.acquire", "updates.begin", "updates.end",
     "novelty.recent", "novelty.clear", "layouts.list", "packs.list", "packs.install", "packs.export", "packs.import",
     "media.status", "media.cancel", "media.capture", "media.discard", "media.preview", "media.import", "collections.index", "collections.list", "collections.search",
     "collections.update", "collections.import", "collections.remove",
@@ -50,7 +50,7 @@ METHODS = sorted([
     "providers.detect", "providers.on_device", "diagnostics.get",
     "session.new", "session.get", "session.open", "session.restore", "session.save", "session.save_as",
     "session.export_recipe", "session.set_approval_mode", "chat.send", "chat.stop", "tools.list",
-    "tools.run", "steps.edit", "steps.replay_from", "steps.delete", "approval.respond", "artifacts.get",
+    "tools.run", "previews.plan", "steps.edit", "steps.replay_from", "steps.delete", "approval.respond", "approval.preview", "artifacts.get",
     "artifacts.import", "export", "settings.get", "settings.set", "assets.status", "assets.download", "assets.cancel",
 ])
 
@@ -762,6 +762,121 @@ def test_edit_replays_the_later_steps(env):
     run(body)
 
 
+def test_local_edit_reports_terminal_replay_and_has_one_undo_boundary(env):
+    async def body(app):
+        c = Client(app)
+        image = await imported(c)
+        first = await c.call("tools.run", tool="filter", params={"image": image, "names": ["invert"]})
+        last = await c.call("tools.run", tool="filter",
+                            params={"image": first["outputs"][0], "names": ["grayscale"]})
+        params = {**first["params"], "names": ["sepia"]}
+        result = await c.call("steps.edit", step_id=first["id"], params=params, replay="local")
+        after = await c.call("session.get")
+        assert result == {
+            "stale": [first["id"], last["id"]],
+            "replay": {"status": "done", "revision": after["document_revision"],
+                       "completed_invocations": [first["invocation_id"], last["invocation_id"]]},
+        }
+        edited = after["steps"]
+        assert edited[0]["params"] == params
+        assert edited[1]["outputs"] != last["outputs"]
+        assert edited[1]["params"]["image"] == edited[0]["outputs"][0]
+        assert (await c.call("history.undo"))["steps"] == [first, last]
+        assert (await c.call("history.redo"))["steps"] == edited
+
+        export = await c.call("tools.run", tool="export", params={"image": edited[1]["outputs"][0]})
+        assert export["status"] == "done"
+        before = await c.call("session.get")
+        files = set((env / "out").iterdir())
+        blocked = await c.call("steps.edit", step_id=first["id"], params=first["params"], replay="local")
+        assert blocked["stale"] == []
+        assert blocked["replay"]["status"] == "blocked"
+        assert blocked["replay"]["blocker"]["invocation_id"] == export["invocation_id"]
+        assert set((env / "out").iterdir()) == files
+        assert await c.call("session.get") == before
+
+    run(body)
+
+
+def test_local_edit_receipt_reports_failed_suffix_and_restores_previous_result(env, monkeypatch):
+    async def body(app):
+        c = Client(app)
+        image = await imported(c)
+        first = await c.call("tools.run", tool="filter", params={"image": image, "names": ["invert"]})
+        last = await c.call("tools.run", tool="filter",
+                            params={"image": first["outputs"][0], "names": ["grayscale"]})
+        execute = app.session.executor.run
+        waiting, release = threading.Event(), threading.Event()
+
+        def fail_grayscale(call, **kwargs):
+            if call.params.get("names") == ["grayscale"]:
+                waiting.set()
+                assert release.wait(5)
+                return ToolOutcome(False, error_message="fixture worker failure")
+            return execute(call, **kwargs)
+
+        monkeypatch.setattr(app.session.executor, "run", fail_grayscale)
+        before = await c.call("session.get")
+        request = json.dumps({
+            "jsonrpc": "2.0", "id": 100, "method": "steps.edit",
+            "context": before["context"], "operation_id": "ca" * 16,
+            "params": {"step_id": first["id"], "replay": "local",
+                       "params": {"image": image, "names": ["sepia"]}},
+        })
+        disconnected = asyncio.create_task(app.dispatcher.handle(request, "user"))
+        assert await asyncio.to_thread(waiting.wait, 5)
+        disconnected.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await disconnected
+        receipt = await c.call("operations.get", operation_id="ca" * 16)
+        assert receipt["status"] == "committed"
+        reply = receipt["result"]
+        after = await c.call("session.get")
+        assert reply["replay"] == {
+            "status": "failed", "revision": after["document_revision"], "completed_invocations": [first["invocation_id"]],
+            "failed_step": {"step_id": last["id"], "invocation_id": last["invocation_id"],
+                            "message": "fixture worker failure", "hint": None},
+        }
+        assert after["steps"][0]["status"] == "done"
+        assert after["steps"][1]["status"] == "error"
+        assert after["steps"][1]["previous_outputs"] == last["outputs"]
+        repeated = json.loads(await app.dispatcher.handle(request, "user"))["result"]
+        assert repeated == reply
+        assert await c.call("session.get") == after
+        assert (await c.call("history.undo"))["steps"] == [first, last]
+
+    run(body)
+
+
+def test_preview_plan_reports_scope_and_blocks_side_effects_without_mutation(env):
+    async def body(app):
+        c = Client(app)
+        image = await imported(c)
+        first = await c.call("tools.run", tool="filter", params={"image": image, "names": ["invert"]})
+        args = {"step_id": first["id"], "params": {**first["params"], "names": ["sepia"]}, "scope": "final"}
+        before = await c.call("session.get")
+        plan = await c.call("previews.plan", **args, expected_revision=before["document_revision"])
+        assert plan == {"eligible": True, "scope": "final", "later_steps": 0, "can_apply_local": True}
+        assert await c.call("session.get") == before
+
+        exported = await c.call("tools.run", tool="export", params={"image": first["outputs"][0]})
+        before = await c.call("session.get")
+        files = set((env / "out").iterdir())
+        plan = await c.call("previews.plan", **args, expected_revision=before["document_revision"])
+        assert plan["eligible"] and plan["scope"] == "step"
+        assert plan["later_steps"] == 1 and not plan["can_apply_local"]
+        assert plan["reason"] == "file_write"
+        assert plan["blocker"]["invocation_id"] == exported["invocation_id"]
+        with pytest.raises(Failed, match="without file writes"):
+            await c.call("steps.preview", step_id=first["id"], params=args["params"], final_result=True)
+        assert await c.call("steps.preview", step_id=first["id"], params=args["params"], final_result=False)
+        assert await c.call("session.get") == before
+        assert set((env / "out").iterdir()) == files
+
+    run(body)
+
+
 def test_project_files_export_and_modes(env):
     async def body(app):
         c = Client(app)
@@ -948,6 +1063,57 @@ def test_chat_turn_with_an_approval(env):
             m.index("turn.finished")
 
     run(body)
+
+
+@pytest.mark.parametrize("cli", [False, True])
+def test_approval_preview_keeps_the_gate_pending_and_rejection_wins(env, monkeypatch, cli):
+    async def body(app):
+        user = Client(app)
+        image = await imported(user)
+        actor = Client(app, "cli:codex") if cli else user
+
+        async def propose():
+            if cli:
+                return await actor.call("tools.run", tool="filter", params={"image": image, "names": ["invert"]})
+            await user.call("chat.send", text="try a filter")
+            return await idle(user)
+
+        if not cli:
+            await user.call("settings.set", values={"fake_provider_script": script(env, [{"tool_calls": [
+                {"name": "filter", "arguments": {"image": image, "names": ["invert"]}},
+            ]}])})
+        pending = asyncio.create_task(propose())
+        proposed = (await user.event("approval.needed"))["step"]
+        state = await user.call("session.get")
+        params = {"step_id": proposed["id"], "invocation_id": proposed["invocation_id"],
+                  "expected_revision": state["document_revision"]}
+        preview = await user.call("approval.preview", **params, params={"image": image, "names": ["sepia"]})
+        assert preview["invocation_id"] == proposed["invocation_id"]
+        assert preview["images"]
+        assert await user.call("session.get") == state
+
+        entered, release = threading.Event(), threading.Event()
+        execute = app.session.executor.run
+
+        def slow(call, **kwargs):
+            entered.set()
+            assert release.wait(5)
+            return execute(call, **kwargs)
+
+        monkeypatch.setattr(app.session.executor, "run", slow)
+        rendering = asyncio.create_task(user.call("approval.preview", **params))
+        assert await asyncio.to_thread(entered.wait, 5)
+        try:
+            await asyncio.wait_for(user.call("approval.respond", step_id=proposed["id"], decision="reject"), 2)
+        finally:
+            release.set()
+        with pytest.raises(Failed, match="no longer waiting"):
+            await rendering
+        await pending
+        rejected = (await user.call("session.get"))["steps"][-1]
+        assert rejected["status"] == "rejected" and not rejected["outputs"]
+
+    run(body, Settings(approval_mode="ask_all"))
 
 
 def test_switching_the_approval_mode_mid_turn(env):

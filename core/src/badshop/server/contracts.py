@@ -13,7 +13,7 @@ from pydantic.json_schema import GenerateJsonSchema
 from badshop.providers.profiles import Profile
 from badshop.server.protocol import DocumentContext
 from badshop.server.settings import RecentProject, Settings
-from badshop.session.models import ArtifactMeta, BranchSnapshot, Message, SessionData, Step
+from badshop.session.models import ArtifactMeta, BranchSnapshot, Message, SessionData, Source, Step
 from badshop.session.preferences import CreativePreferences
 from badshop.session.recipes import Recipe
 from badshop.session.library import LibraryEntry
@@ -45,8 +45,10 @@ SessionSnapshot = create_model('SessionSnapshot', __base__=SessionData,
 PathResult = record('PathResult', path=str)
 ArtifactPayload = record('ArtifactPayload', meta=ArtifactMeta, mime=str, data=str)
 Imported = record('ImportedArtifacts', working=ArtifactMeta, original=ArtifactMeta)
+IMPORT_RECEIPT_FIELDS = dict(working=ArtifactMeta, original=ArtifactMeta, operation_id=str, base_revision=int, result_revision=int)
+ImportReceipt = record('ImportedMaterial', **IMPORT_RECEIPT_FIELDS)
 Thumbnail = record('Thumbnail', mime=str, data=str)
-Branch = record('BranchSummary', id=str, name=str, created_at=float, step_count=int, preview_id=str | None)
+Branch = record('BranchSummary', id=str, name=str, created_at=float, step_count=int, preview_id=str | None, automatic=bool)
 BranchList = record('BranchList', active_id=str | None, branches=list[Branch])
 Tool = record('Tool', name=str, summary=str, description=str, category=str, mutates=bool,
               network=bool, read_only=bool, writes_files=bool, cli_positionals=list[str], cli_flags=dict[str, str],
@@ -56,6 +58,10 @@ SourceHealth = record('SourceHealth', status=Literal['failed', 'responded', 'not
                       results=(int, 0), step_id=(str | None, None))
 SourceStatus = record('SourceStatus', id=str, name=str, configured=bool, requires_key=bool,
                       env_var=str | None, health=(SourceHealth | None, None))
+DiscoveredMaterial = record('DiscoveredMaterial', id=str, title=str, url=str, thumbnail=str, page=str | None, source=Source,
+                            width=int, height=int, thumbnail_data_url=str, number=int, score=float, reasons=list[str])
+MaterialSearch = record('MaterialSearch', query=str, candidates=list[DiscoveredMaterial],
+                        source_health=dict[str, SourceHealth], duplicates_removed=int, warnings=list[str])
 Recent = record('RecentIdea', kind=str, value=str, label=(str | None, None), url=(str | None, None))
 CLIDetection = record('CLIDetection', cli=Literal['claude', 'codex', 'gemini'], executable=str | None,
                       version=str | None, available=bool, supported=bool, experimental=bool, error=(str | None, None))
@@ -79,6 +85,19 @@ RecipeRun = record('RecipeRun', completed=list[str], errors=list[record('RecipeE
                    cancelled=bool, rows=list[RecipeRow])
 RecentProjectStatus = create_model('RecentProjectStatus', __base__=RecentProject, available=(bool, ...))
 SettingsResponse = create_model('SettingsResponse', __base__=Settings, saved_designs=(list[Recipe], ...))
+SettingsView = create_model('SettingsView', __base__=SettingsResponse, effective_output_dir=(str, ...))
+
+ReplayStep = record("EditReplayStep", step_id=str, invocation_id=str, message=str, hint=(str | None, None))
+EditReplay = record("EditReplay", status=Literal["done", "failed", "blocked"], completed_invocations=list[str], revision=int,
+                    failed_step=(ReplayStep, None), blocker=(ReplayStep, None))
+
+
+PreviewPlan = record("PreviewPlan", eligible=bool, scope=Literal["step", "final"], later_steps=int,
+                     can_apply_local=bool, blocker=(ReplayStep, None),
+                     reason=(Literal["busy", "network_step", "file_write", "operation_limit", "bypassed",
+                                     "missing_asset", "invalid_params", "missing_target", "earlier_stale"], None),
+                     message=(str, None))
+
 
 RESULTS = {
     'library.page': record('LibraryPage', entries=list[LibraryEntry], total=int, collections=list[str]),
@@ -97,23 +116,26 @@ RESULTS = {
     'branches.list': BranchList, 'branches.create': SessionSnapshot, 'branches.switch': SessionSnapshot,
     'branches.rename': BranchList, 'branches.remove': BranchList,
     'tools.list': list[Tool], 'tools.run': Step, 'tools.preview': list[str],
-    'steps.edit': record('StaleSteps', stale=list[str]), 'steps.preview': list[str],
+    'steps.edit': record('StaleSteps', stale=list[str], replay=(EditReplay, None)), 'steps.preview': list[str],
+    'previews.plan': PreviewPlan,
+    'approval.preview': record('ApprovalPreview', invocation_id=str, revision=int, images=list[str]),
     'steps.controls': SessionSnapshot, 'steps.replay_from': list[Step], 'steps.delete': record('DeletedStep', deleted=str),
     'approval.respond': record('ApprovalResult', ok=bool),
-    'artifacts.get': ArtifactPayload, 'artifacts.frame': ArtifactPayload, 'artifacts.import': Imported, 'export': PathResult,
+    'artifacts.get': ArtifactPayload, 'artifacts.frame': ArtifactPayload, 'artifacts.import': ImportReceipt, 'export': PathResult,
     'providers.list': list[Profile], 'providers.save': Profile, 'providers.add': Profile,
     'providers.delete': record('DeletedProvider', deleted=bool), 'providers.select': SessionSnapshot,
     'providers.on_device': SessionSnapshot, 'providers.test': ProviderStatus, 'providers.detect': list[CLIDetection],
-    'settings.get': SettingsResponse, 'settings.set': SettingsResponse, 'diagnostics.get': Diagnostics,
+    'settings.get': SettingsView, 'settings.set': SettingsResponse, 'diagnostics.get': Diagnostics,
     'assets.status': list[Asset], 'assets.download': PathResult, 'assets.cancel': record('CancelledAsset', cancelled=bool),
     'updates.begin': record('UpdateLease', lease=str), 'updates.end': record('EndedUpdate', ended=bool),
     'chat.send': record('StartedTurn', started=bool), 'chat.retry': record('RetriedTurn', started=bool),
     'chat.stop': record('StoppedTurn', stopped=bool), 'chat.pause': record('PauseRequest', requested=bool),
     'chat.undo': SessionSnapshot, 'chat.finish_checkpoint': SessionSnapshot,
+    'materials.discover': MaterialSearch, 'materials.acquire': ImportReceipt,
     'sources.status': list[SourceStatus], 'sources.key': record('SavedSourceKey', saved=bool),
     'novelty.recent': list[Recent], 'novelty.clear': record('ClearedNovelty', cleared=bool),
     'library.list': list[LibraryEntry], 'library.save': LibraryEntry, 'library.update': LibraryEntry,
-    'library.import': record('ImportedLibrary', working=ArtifactMeta, original=ArtifactMeta, entry=LibraryEntry),
+    'library.import': record('ImportedLibrary', entry=LibraryEntry, **IMPORT_RECEIPT_FIELDS),
     'library.remove': record('RemovedLibraryEntry', removed=bool), 'library.thumbnail': Thumbnail,
     'retro.list': list[RetroStyle], 'creative.set': CreativePreferences,
     'recipes.capture': Recipe, 'recipes.save': Recipe, 'recipes.remove': record('RemovedRecipe', removed=bool),
@@ -143,7 +165,7 @@ READ_METHODS = frozenset({
     'providers.detect', 'diagnostics.get', 'settings.get', 'assets.status', 'sources.status', 'novelty.recent',
     'library.list', 'library.thumbnail', 'retro.list', 'recipes.capture', 'credits.get', 'remix.inspect',
     'layouts.list', 'packs.list', 'media.status', 'collections.list', 'collections.search', 'cache.status',
-    'steps.preview', 'tools.preview',
+    'approval.preview', 'previews.plan', 'steps.preview', 'tools.preview',
 })
 GLOBAL_METHODS = frozenset({
     'library.page',
@@ -158,8 +180,8 @@ GLOBAL_METHODS = frozenset({
     'collections.index', 'collections.list', 'collections.search', 'collections.update', 'collections.remove',
     'cache.status', 'cache.clear',
 })
-LONG_METHODS = frozenset({'tools.run', 'tools.preview', 'steps.preview', 'steps.replay_from', 'assets.download',
-                          'media.preview', 'collections.index', 'recipes.run', 'session.open', 'session.save',
+LONG_METHODS = frozenset({'tools.run', 'tools.preview', 'steps.preview', 'approval.preview', 'steps.edit', 'steps.replay_from', 'assets.download',
+                          'materials.discover', 'materials.acquire', 'media.preview', 'collections.index', 'recipes.run', 'session.open', 'session.save',
                           'session.save_as', 'providers.test', 'packs.import', 'packs.install'})
 
 

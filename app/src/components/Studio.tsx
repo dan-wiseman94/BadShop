@@ -3,12 +3,11 @@ import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
-import { useEffect, useState } from "react";
-import { action, run, useCoreQuery, useSession } from "../data";
-import { useSelectedArtifact, useUI } from "../store";
-import { openLink } from "../native";
+import { useEffect, useRef, useState } from "react";
+import { action, queries, run, useCoreQuery, useSession } from "../data";
+import { showError, useSelectedArtifact, useUI } from "../store";
+import { openLink, native, pickImages } from "../native";
 import { sourceCard } from "../sourceCard";
-import { ArtifactThumb } from "./Viewer";
 import { LayoutsPacks } from "./LayoutsPacks";
 import { ImagePairs } from "./ImagePairs";
 import { RecentChoices } from "./RecentChoices";
@@ -17,8 +16,8 @@ import { IdeaMixer } from "./IdeaMixer";
 import { SpriteSheet } from "./SpriteSheet";
 import { RetroStudio } from "./RetroStudio";
 import { LibraryImage } from "./LibraryImage";
-import { directionLabel } from "../directions";
-import type { LibraryEntry, Params } from "../types";
+import type { LibraryEntry, Session } from "../types";
+import type { AcquireParams, DiscoverParams, ResponseSourceHealth } from "../wire.generated";
 
 type Candidate = {
   id: string;
@@ -37,16 +36,24 @@ type Candidate = {
   };
   reasons?: string[];
 };
+export type MaterialReceipt = { operation_id?: string; base_revision?: number; result_revision?: number };
+export type MaterialTarget = {
+  label: string;
+  revision: number;
+  isCurrent: (revision: number) => boolean;
+  assign: (id: string, receipt?: MaterialReceipt) => void;
+};
+
 export function Studio({
   onClose,
-  onViewImage,
   onAttach,
   onDraft,
+  target,
 }: {
   onClose: () => void;
-  onViewImage?: () => void;
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
+  target?: MaterialTarget | null;
 }) {
   const { busy, error, setError, perform } = useOperation();
   const [tab, setTab] = useState("discover");
@@ -67,19 +74,16 @@ export function Studio({
   const [expression, setExpression] = useState("");
   const [sameSubject, setSameSubject] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [sheet, setSheet] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [searchHealth, setSearchHealth] = useState<Record<string, ResponseSourceHealth>>({});
   const [link, setLink] = useState("");
   const [filter, setFilter] = useState("");
   const [name, setName] = useState("");
   const [tags, setTags] = useState("");
-  const [branchName, setBranchName] = useState("");
-  const [fromStep, setFromStep] = useState("");
   const [editing, setEditing] = useState<LibraryEntry | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const { data: session } = useSession();
   const { entries: library, controls: libraryPages } = useLibraryPage(filter);
-  const { data: branches } = useCoreQuery("branches.list");
   const { data: sources = [], error: sourceError } = useCoreQuery("sources.status");
   useEffect(() => {
     if (sources.length && source !== "all" && !sources.some((item) => item.id === source && item.configured))
@@ -98,47 +102,70 @@ export function Studio({
     Object.keys(session?.artifacts ?? {})[0];
   useEffect(() => {
     setCandidates([]);
-    setSheet(null);
     setNotes("");
-  }, [session?.id]);
+    setSearchHealth({});
+  }, [generation]);
   const disabled = busy || !ready || !!session?.turn_running;
 
-  async function acquire(params: Params) {
-    const step = await action("tools.run", { tool: "acquire", params });
-    if (step.status !== "done" || !step.outputs[0])
-      throw new Error(
-        [step.error?.message ?? "The image could not be imported.", step.error?.hint]
-          .filter(Boolean)
-          .join(" "),
-      );
-    onAttach(step.outputs[0]);
-    useUI.getState().set({
-      selectedArtifact: step.outputs[0],
-      notice: "Image added to your session and attached to chat",
-    });
+  const dialog = useRef<HTMLDialogElement>(null);
+  const open = useRef(true);
+  useEffect(() => {
+    dialog.current?.showModal();
+    open.current = true;
+    return () => { open.current = false; };
+  }, []);
+
+  function beginImport() {
+    const revision = queries.getQueryData<Session>(["session.get"])?.document_revision;
+    if (revision === undefined || (target && !target.isCurrent(revision)))
+      throw new Error("The edit target changed. Close Materials and reopen the current selection.");
+    return revision;
   }
-  async function search(variation = "balanced", candidate?: Candidate) {
-    const step = await action("tools.run", {
-      tool: "discover",
+
+  function receive(id: string, receipt: MaterialReceipt, operationId: string) {
+    if (!open.current) return;
+    if (target) {
+      if (receipt.operation_id !== operationId) throw new Error("The import result could not be matched to this edit.");
+      target.assign(id, receipt);
+      onClose();
+      return;
+    }
+    onAttach(id);
+    useUI.getState().set({ notice: "Picture added to Materials." });
+  }
+
+  async function acquire(params: AcquireParams) {
+    const expected_revision = beginImport();
+    const operationId = crypto.randomUUID().replaceAll("-", "");
+    try {
+      const result = await action("materials.acquire", { params, expected_revision }, { operationId });
+      receive(result.working.id, result, operationId);
+    } catch (error) {
+      if (error instanceof Error && "operationId" in error) showError(error);
+      throw error;
+    }
+  }
+
+  async function search(variation: DiscoverParams["variation"] = "balanced", candidate?: Candidate) {
+    const result = await action("materials.discover", {
       params: {
-        query: query || candidate?.title,
-        source: sources.some((item) => item.id === source && item.configured) ? source : "all",
-        purpose,
-        material,
+        query: query || candidate?.title || "",
+        source: (sources.some(item => item.id === source && item.configured) ? source : "all") as DiscoverParams["source"],
+        purpose: purpose as DiscoverParams["purpose"],
+        material: material as DiscoverParams["material"],
         n: 8,
         ...(candidate ? { reference_url: candidate.thumbnail || candidate.url } : {}),
         ...(pose.trim() ? { pose: pose.trim() } : {}),
         ...(expression.trim() ? { expression: expression.trim() } : {}),
         same_subject: sameSubject,
         variation,
-        ...(variation === "different" ? { exclude_urls: candidates.map((c) => c.url) } : {}),
+        ...(variation === "different" ? { exclude_urls: candidates.map(c => c.url) } : {}),
       },
     });
-    if (step.status !== "done")
-      throw new Error([step.error?.message ?? "Search failed.", step.error?.hint].filter(Boolean).join(" "));
-    setCandidates((step.data?.candidates ?? []) as Candidate[]);
-    setSheet(step.outputs[0] ?? null);
-    setNotes(step.result_text);
+    if (useUI.getState().documentGeneration !== generation) return;
+    setCandidates(result.candidates as Candidate[]);
+    setSearchHealth(result.source_health);
+    setNotes((result.warnings ?? []).join("\n"));
   }
   const tagList = () =>
     tags
@@ -146,28 +173,27 @@ export function Studio({
       .map((t) => t.trim())
       .filter(Boolean);
   return (
-    <div className="modal-backdrop">
-      <section className="modal studio" role="dialog" aria-modal="true" aria-labelledby="studio-title">
+    <dialog className="modal studio materials-dialog" ref={dialog} aria-labelledby="studio-title"
+      onCancel={event => { event.preventDefault(); onClose(); }}>
         <div className="modal-heading">
           <div>
-            <h2 id="studio-title">Images & directions</h2>
-            <p>Find material, keep your favorites, and try another take.</p>
+            <h2 id="studio-title">{target?.label ?? "Materials"}</h2>
           </div>
-          <button aria-label="Close images and directions" onClick={onClose}>
+          <button aria-label="Close materials" onClick={onClose}>
             <ThemeIcon name="close" size={18} />
           </button>
         </div>
-        <nav className="studio-tabs" aria-label="Images and directions">
+        <nav className="studio-tabs" aria-label="Material destinations">
           {([
-            ["Find", [["discover", "Find images"], ["local", "Clips, pages & folders"]]],
-            ["Reuse", [["library", "Junk drawer"], ["layouts", "Layouts & packs"], ["recent", "Recent choices"]]],
-            ["Create", [["retro", "Retro workbench"], ["ideas", "Idea mixer"], ["branches", "Branches"],
+            ["Find material", [["discover", "Find images"], ["local", "Clips, pages & folders"]]],
+            ["My library", [["library", "Junk drawer"], ["recent", "Recent choices"]]],
+            ["Formats", [["layouts", "Layouts & packs"], ["retro", "Retro workbench"], ["ideas", "Idea mixer"],
               ["sheets", "Sprite sheets"], ["pairs", "Image pairs"]]],
           ] as const).map(([label, tabs]) => (
             <div key={label} className="studio-tab-group" role="group" aria-label={label}>
               <span>{label}</span>
               <div>
-                {tabs.map(([id, title]) => (
+                {tabs.filter(([id]) => !target || ["discover", "local", "library"].includes(id)).map(([id, title]) => (
                   <Button key={id} aria-pressed={tab === id} onClick={() => showTab(id)} label={title} />
                 ))}
               </div>
@@ -179,7 +205,7 @@ export function Studio({
             {error}
           </p>
         )}
-        {session?.turn_running && <p>Stop the agent before changing images or branches.</p>}
+        {session?.turn_running && <p>Stop the agent before changing images.</p>}
         {tab === "discover" && (
           <>
             <p className="muted">
@@ -213,15 +239,17 @@ export function Studio({
                   </tr>
                 </thead>
                 <tbody>
-                  {sources.map((item) => (
-                    <tr key={item.id}>
+                  {sources.map(item => {
+                    const health = searchHealth[item.id] ?? item.health;
+                    const measuredAt = health?.step_id ? ` (Step ${health.step_id})` : "";
+                    return <tr key={item.id}>
                       <td>{item.name}</td>
                       <td>{item.configured ? "Configured" : "Needs configuration"}</td>
-                      <td>{item.health?.status === "responded" ? `Responded · ${item.health.results} results (${item.health.step_id})`
-                        : item.health?.status === "failed" ? `Failed (${item.health.step_id})` : "Not checked"}</td>
+                      <td>{health?.status === "responded" ? `Responded · ${health.results} results${measuredAt}`
+                        : health?.status === "failed" ? `Failed${measuredAt}` : "Not checked"}</td>
                       <td>{item.env_var ? <code>{item.env_var}</code> : "No key needed"}</td>
-                    </tr>
-                  ))}
+                    </tr>;
+                  })}
                 </tbody>
               </table>
               <p>
@@ -293,15 +321,6 @@ export function Studio({
                 </div>
               </details>
             </form>
-            {sheet && (
-              <div className="studio-sheet">
-                <ArtifactThumb
-                  id={sheet}
-                  label="Candidate contact sheet"
-                  onClick={() => useUI.getState().set({ selectedArtifact: sheet })}
-                />
-              </div>
-            )}
             {!!candidates.length && (
               <div className="studio-grid">
                 {candidates.map((c, i) => {
@@ -333,7 +352,7 @@ export function Studio({
                               }),
                             )
                           }
-                          label="Use image"
+                          label={target?.label ?? "Add to Materials"}
                         />
                         <Button
                           disabled={disabled}
@@ -473,17 +492,14 @@ export function Studio({
                         disabled={disabled}
                         onClick={() =>
                           void perform(async () => {
+                            const operationId = crypto.randomUUID().replaceAll("-", "");
                             const result = await action("library.import", {
-                              id: entry.id,
-                            });
-                            onAttach(result.working.id);
-                            useUI.getState().set({
-                              selectedArtifact: result.working.id,
-                              notice: `${entry.name} attached to chat`,
-                            });
+                              id: entry.id, expected_revision: beginImport(),
+                            }, { operationId });
+                            receive(result.working.id, result, operationId);
                           })
                         }
-                        label="Use image"
+                        label={target?.label ?? "Add to Materials"}
                       />
                       <Button
                         disabled={disabled}
@@ -519,84 +535,12 @@ export function Studio({
             </div>
           </>
         )}
-        {tab === "branches" && (
-          <>
-            <p>
-              Each branch keeps its own images, chat, and editable steps. Switching preserves your current
-              work; save the project to keep every branch together.
-            </p>
-            <form
-              className="studio-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void perform(async () => {
-                  await action("branches.create", {
-                    name: branchName,
-                    ...(fromStep ? { from_step: fromStep } : {}),
-                    expected_revision: session?.document_revision,
-                  });
-                  setBranchName("");
-                  setFromStep("");
-                });
-              }}
-            >
-              <InputField
-                label="New branch name"
-                placeholder="Giant dog version"
-                required
-                bind={[branchName, setBranchName]}
-              />
-              <SelectField label="Start from" bind={[fromStep, setFromStep]}>
-                <option value="">Current state</option>
-                {session?.steps
-                  .filter((s) => s.status === "done")
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      Step {s.index}: {s.tool}
-                    </option>
-                  ))}
-              </SelectField>
-              <Button disabled={disabled || !branchName.trim()} label="Create & switch" />
-            </form>
-            <div className="studio-grid">
-              {branches?.branches.map((branch) => (
-                <article className="studio-card" key={branch.id}>
-                  {branch.preview_id && session?.artifacts[branch.preview_id] && (
-                    <ArtifactThumb id={branch.preview_id} label={directionLabel(branch.name)} />
-                  )}
-                  <strong>
-                    {directionLabel(branch.name)}
-                    {branch.id === branches.active_id ? " (current)" : ""}
-                  </strong>
-                  <small>{branch.step_count} steps</small>
-                  <Button
-                    disabled={disabled || branch.id === branches.active_id}
-                    onClick={() =>
-                      void perform(async () => {
-                        await action("branches.switch", {
-                          id: branch.id,
-                          expected_revision: session?.document_revision,
-                        });
-                      })
-                    }
-                    label="Switch to this take"
-                  />
-                </article>
-              ))}
-            </div>
-          </>
-        )}
         {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={generation} onAttach={onAttach} /></div>}
         {visited.includes("retro") && <div hidden={tab !== "retro"}>
           <RetroStudio
             key={generation}
             onAttach={onAttach}
             onDraft={onDraft}
-            onInspect={(id) => {
-              useUI.getState().set({ selectedArtifact: id, selectedStep: null, viewerZoom: 1 });
-              onViewImage?.();
-              onClose();
-            }}
           />
         </div>}
         {visited.includes("ideas") && <div hidden={tab !== "ideas"}>
@@ -611,7 +555,6 @@ export function Studio({
               setExpression("");
               setSameSubject(false);
               setCandidates([]);
-              setSheet(null);
               setNotes("");
               showTab("discover");
             }}
@@ -620,12 +563,30 @@ export function Studio({
         {visited.includes("sheets") && <div hidden={tab !== "sheets"}>
           <SpriteSheet key={generation} onAttach={onAttach} />
         </div>}
-        {visited.includes("local") && <div hidden={tab !== "local"}><LocalMedia key={generation} onAttach={onAttach} /></div>}
+        {visited.includes("local") && <div hidden={tab !== "local"}>
+          {target ? <div>
+            <p>Choose one picture to replace the selected slot.</p>
+            <button type="button" disabled={!native || disabled} onClick={() => void perform(async () => {
+              const expected_revision = beginImport();
+              const paths = await pickImages();
+              if (!paths?.length || !open.current) return;
+              if (paths.length !== 1) throw new Error("Choose one picture for this slot.");
+              const operationId = crypto.randomUUID().replaceAll("-", "");
+              try {
+                const result = await action("artifacts.import", { path: paths[0], expected_revision }, { operationId });
+                receive(result.working.id, result, operationId);
+              } catch (error) {
+                if (error instanceof Error && "operationId" in error) showError(error);
+                throw error;
+              }
+            })}>Choose local picture</button>
+            {!native && <p>Open the desktop app to use the file picker here, or choose a picture from My library.</p>}
+          </div> : <LocalMedia key={generation} onAttach={onAttach} />}
+        </div>}
         {visited.includes("pairs") && <div hidden={tab !== "pairs"}>
           <ImagePairs key={generation} onAttach={onAttach} />
         </div>}
         {visited.includes("recent") && <div hidden={tab !== "recent"}><RecentChoices key={generation} /></div>}
-      </section>
-    </div>
+    </dialog>
   );
 }

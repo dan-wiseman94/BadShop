@@ -41,7 +41,7 @@ from badshop.agent.loop import TurnConfig, _to_the_end, run_turn
 from badshop.engine import assets, manifest
 from badshop.engine.common import fit, has_alpha, to_rgb
 from badshop.engine.errors import EngineError
-from badshop.server import local_runtime, rpc
+from badshop.server import local_runtime, materials_api, rpc
 from badshop.server.rpc import INVALID_PARAMS, Dispatcher, RpcError
 from badshop.server.protocol import DocumentContext, GLOBAL_EVENTS
 from badshop.server.contracts import METHODS
@@ -178,6 +178,9 @@ def _tool_entry(spec: registry.ToolSpec, trusted: bool) -> dict:
             "schema": registry.ui_schema(spec) if trusted else registry.llm_schema(spec)}
 
 
+_MATERIAL_PUBLICATION: ContextVar[threading.Event | None] = ContextVar('material_publication', default=None)
+
+
 class CoreApp:
     """Create it inside the running event loop (it binds to that loop), and `await close()` when done."""
 
@@ -196,6 +199,7 @@ class CoreApp:
         # Reuse worker supervision for decoding, with its own worker so a long
         # editing tool cannot prevent previews or imports from responding.
         self._decoder = self._executor_factory(timeout_s=30.0, max_rss_mb=1024)
+        self._approval_preview_running = False
         self._lock = asyncio.Lock()  # one session call (and so one tool) at a time
         self._media_slots = asyncio.Semaphore(2)
         self._media_pending = 0
@@ -254,6 +258,7 @@ class CoreApp:
         register_packs(self)
         from badshop.server.retro_api import register as register_retro
         register_retro(self)
+        self._stop_materials = materials_api.register(self)
 
     # --- plumbing -------------------------------------------------------------------------------
 
@@ -436,26 +441,51 @@ class CoreApp:
             raise RpcError(-32003, 'This operation already has a durable receipt.',
                            {'operation_id': identity, 'outcome': found['status'],
                             'hint': 'Inspect the current session and operation status before taking another action.'})
-        try:
+        async def complete():
             token = rpc.OPERATION_ID.set(identity)
             try:
                 result = await invoke()
             finally:
                 rpc.OPERATION_ID.reset(token)
-        except BaseException:
-            # Pending is deliberately retained across cancellation and process death.
-            raise
-        receipt['status'] = 'committed'
-        encoded = recovery._encoded(result)
-        receipt['result'] = result if len(encoded) <= 2**20 else None
-        async with self._lock:
-            def finish():
-                recovery.save(self.session, project.autosave_path(), operation=receipt)
-                self._dirty = False
-            await _to_the_end(asyncio.to_thread(finish))
-        return result
+            receipt['status'] = 'committed'
+            encoded = recovery._encoded(result)
+            receipt['result'] = result if len(encoded) <= 2**20 else None
+            async with self._lock:
+                def finish():
+                    recovery.save(self.session, project.autosave_path(), operation=receipt)
+                    self._dirty = False
+                await _to_the_end(asyncio.to_thread(finish))
+            return result
 
-    async def _blocking(self, fn: Callable[..., Any], *args: Any, **kw: Any) -> Any:
+        if method == "steps.edit" and params.get("replay") == "local":
+            # An admitted edit keeps running under the session lock even if its
+            # socket closes. Finish publishing its terminal receipt as well.
+            task = asyncio.create_task(complete())
+            await _to_the_end(task)
+            return task.result()
+        if method in ("materials.acquire", "artifacts.import", "library.import"):
+            # Cancellation can still stop a download or file read. Once the
+            # import has reached publication, finish its durable receipt.
+            publishing = threading.Event()
+
+            async def import_with_receipt():
+                token = _MATERIAL_PUBLICATION.set(publishing)
+                try:
+                    return await complete()
+                finally:
+                    _MATERIAL_PUBLICATION.reset(token)
+
+            task = asyncio.create_task(import_with_receipt())
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if not publishing.is_set():
+                    task.cancel()
+                await _to_the_end(asyncio.gather(task, return_exceptions=True))
+                raise
+        return await complete()
+
+    async def _blocking(self, fn: Callable[..., Any], *args: Any, publishing_import: bool = False, **kw: Any) -> Any:
         """Run a session call in a thread, one at a time, then autosave if anything changed. This is
         the `blocking` run_turn gets. A thread can't be interrupted, so if the caller is cancelled the
         lock is held until the thread ends, and only then does the cancellation go on: the lock is never
@@ -485,6 +515,8 @@ class CoreApp:
                     _COMMIT_EVENTS.reset(token)
 
         async with self._lock:
+            if publishing_import and (publishing := _MATERIAL_PUBLICATION.get()) is not None:
+                publishing.set()
             fut = asyncio.ensure_future(asyncio.to_thread(work))
             try:
                 return await asyncio.shield(fut)
@@ -914,6 +946,7 @@ class CoreApp:
             return
         self._closed = True
         self._grants.close()
+        await self._stop_materials()
         probes = list(self._provider_probes)
         for task in probes:
             task.cancel()
@@ -1005,10 +1038,12 @@ class CoreApp:
             ("tools.run", self._tools_run, "any"),
             ("steps.edit", self._steps_edit, "user"),
             ("steps.preview", self._steps_preview, "user"),
+            ("previews.plan", self._previews_plan, "user"),
             ("steps.controls", self._steps_controls, "user"),
             ("steps.replay_from", self._steps_replay_from, "user"),
             ("steps.delete", self._steps_delete, "user"),
             ("approval.respond", self._approval_respond, "user"),
+            ("approval.preview", self._approval_preview, "user"),
             ("artifacts.get", self._artifacts_get, "any"),
             ("artifacts.import", self._artifacts_import, "user"),
             ("export", self._export, "user"),
@@ -1212,12 +1247,15 @@ class CoreApp:
                               tags: list[str] | None = None, metadata: AssetDetails | None = None) -> dict:
         return await self._blocking(self.library.update, id, name, tags, metadata)
 
-    async def _library_import(self, actor: str, id: str) -> dict:
+    async def _library_import(self, actor: str, id: str, expected_revision: DocumentRevision | None = None) -> dict:
         def restore():
             self._check_idle()
+            self._check_revision(expected_revision, "used to import saved material")
+            base_revision = self._document_revision
             with branches.manual_edit(self.session, "import saved material"):
-                return self.library.restore(self.session, id)
-        return await self._blocking(restore)
+                result = self.library.restore(self.session, id)
+            return {**result, **materials_api.import_receipt(base_revision, self._document_revision)}
+        return await self._blocking(restore, publishing_import=True)
 
     async def _library_remove(self, actor: str, id: str) -> dict:
         return await self._blocking(self.library.remove, id)
@@ -1518,9 +1556,28 @@ class CoreApp:
         step = session.step(step_id)
         return session.reject(step_id, note) if step.status in RUNNABLE else step
 
-    async def _steps_preview(self, actor: str, step_id: str, params: dict, final_result: bool = False) -> list[str]:
+    async def _previews_plan(self, actor: str, params: dict, expected_revision: DocumentRevision,
+                             scope: Literal["step", "final"] = "step", step_id: str | None = None,
+                             tool: str | None = None) -> dict:
+        if (step_id is None) == (tool is None):
+            raise EngineError("choose either a recorded step or a tool to preview")
+
+        def plan():
+            self._check_revision(expected_revision, "previewed")
+            try:
+                self._check_idle()
+            except EngineError as error:
+                return {"eligible": False, "scope": "step", "later_steps": 0, "can_apply_local": False,
+                        "reason": "busy", "message": error.message}
+            return self.session.plan_preview(params, scope, step_id=step_id, tool=tool)
+
+        return await self._blocking(plan)
+
+    async def _steps_preview(self, actor: str, step_id: str, params: dict, final_result: bool = False,
+                             expected_revision: DocumentRevision | None = None) -> list[str]:
         def preview() -> list[str]:
             self._check_idle()
+            self._check_revision(expected_revision, "previewed")
             return [base64.b64encode(record.data).decode("ascii")
                     for record in self.session.preview_edit(step_id, params, final_result=final_result)]
         return await self._blocking(preview)
@@ -1553,13 +1610,42 @@ class CoreApp:
             return self._snapshot()
         return await self._blocking(tracked_change)
 
-    async def _steps_edit(self, actor: str, step_id: str, params: dict, auto_replay: bool | None = None) -> dict:
+    async def _steps_edit(self, actor: str, step_id: str, params: dict, auto_replay: bool | None = None,
+                          replay: Literal["none", "local"] | None = None) -> dict:
+        if replay is not None and auto_replay is not None:
+            raise EngineError("choose replay or auto_replay for this edit")
+        if replay == "local":
+            def apply() -> dict:
+                self._check_idle()
+                self.session._refuse_busy(self.session.data.steps)
+                blocker = self.session.local_replay_blocker(step_id)
+                if blocker:
+                    step, _, reason = blocker
+                    return {"stale": [], "replay": {
+                        "status": "blocked", "completed_invocations": [], "revision": self._document_revision,
+                        "blocker": {"step_id": step.id, "invocation_id": step.invocation_id,
+                                    "message": f"Step {step.index} ({step.tool}) {reason}."},
+                    }}
+                with branches.manual_edit(self.session, "edit step"):
+                    stale = self.session.edit(step_id, params)
+                    processed = self.session.replay_from(step_id, local_only=True)
+                completed = [step.invocation_id for step in processed if step.status == "done"]
+                outcome = {"status": "done", "completed_invocations": completed, "revision": self._document_revision}
+                if processed and (failed := processed[-1]).status == "error":
+                    outcome.update(status="failed", failed_step={
+                        "step_id": failed.id, "invocation_id": failed.invocation_id,
+                        "message": failed.error.message, "hint": failed.error.hint,
+                    })
+                return {"stale": [step.id for step in stale], "replay": outcome}
+
+            return await self._blocking(apply)
+
         def edit() -> tuple[Session, list[Step], list[Step]]:
             with branches.manual_edit(self.session, "edit step"):
                 return self.session, self.session.data.steps, self.session.edit(step_id, params)
 
         session, timeline, stale = await self._blocking(edit)
-        if (self.settings.auto_replay if auto_replay is None else auto_replay) and stale:
+        if replay is None and (self.settings.auto_replay if auto_replay is None else auto_replay) and stale:
             self._spawn(self._auto_replay(session, timeline, step_id))
         return {"stale": [s.id for s in stale]}
 
@@ -1589,6 +1675,37 @@ class CoreApp:
 
     async def _history_redo(self, actor: str, expected_revision: DocumentRevision | None = None) -> dict:
         return await self._change_branch(lambda: branches.manual_restore(self.session, redo=True), expected_revision)
+
+    async def _approval_preview(self, actor: str, step_id: str, invocation_id: str,
+                                expected_revision: DocumentRevision, params: dict | None = None) -> dict:
+        async with self._lock:
+            self._check_revision(expected_revision, "previewed")
+            if self._approval_preview_running:
+                raise EngineError("a proposal preview is already rendering")
+            gate = self._cli_gate if self._cli_gate.waiting_step(step_id) is not None else self.gate
+            step = gate.waiting_step(step_id)
+            session = self.session
+            branch = session.data.active_branch_id
+            if step is None or step.invocation_id != invocation_id or session.step(step_id) is not step:
+                raise EngineError("this proposal is no longer waiting")
+            validated = session.validate_step_params(step_id, step.params if params is None else params)
+            call = session.local_preview_call(step.tool, validated, portable=params is None)
+            self._approval_preview_running = True
+        try:
+            # The gate stays available throughout the render. Captured inputs
+            # are immutable and the preview cannot publish session artifacts.
+            task = asyncio.create_task(asyncio.to_thread(session.executor.run, call))
+            await _to_the_end(task)
+            outcome = task.result()
+            if gate.waiting_step(step_id) is not step or session is not self.session or branch != session.data.active_branch_id:
+                raise EngineError("this proposal is no longer waiting")
+            self._check_revision(expected_revision, "previewed")
+            if not outcome.ok:
+                raise EngineError(outcome.error_message or "the proposal could not be rendered", hint=outcome.error_hint)
+            return {"invocation_id": invocation_id, "revision": expected_revision,
+                    "images": [base64.b64encode(record.data).decode("ascii") for record in outcome.outputs]}
+        finally:
+            self._approval_preview_running = False
 
     async def _approval_respond(self, actor: str, step_id: str, decision: Verdict, params: dict | None = None,
                                 note: str | None = None) -> dict:
@@ -1637,7 +1754,8 @@ class CoreApp:
             self._media_pending -= 1
 
     async def _artifacts_import(self, actor: str, path: str | None = None, data: str | None = None,
-                                name: str | None = None, source: Source | None = None) -> dict:
+                                name: str | None = None, source: Source | None = None,
+                                expected_revision: DocumentRevision | None = None) -> dict:
         session = self.session
         timeline = session.data.steps
         if (path is None) == (data is None):
@@ -1654,16 +1772,18 @@ class CoreApp:
         else:
             label = name or ""
 
-        def do() -> tuple:  # the store turns a file name into a label ("pasted" when there is none)
+        def do() -> dict:  # the store turns a file name into a label ("pasted" when there is none)
             if self.session is not session or session.data.steps is not timeline:
                 raise EngineError("the session changed while the image was being read",
                                   hint="import the image again into the current session")
+            self._check_revision(expected_revision, "used to import the image")
+            base_revision = self._document_revision
             with branches.manual_edit(self.session, "import image"):
                 working = self.session.import_image(_decode_paste(data) if blob is None else blob, label, source)
-            return working, self.session.artifacts.meta.get(working.original_id or "", working)
+            original = self.session.artifacts.meta.get(working.original_id or "", working)
+            return materials_api.import_result(working, original, base_revision, self._document_revision)
 
-        working, original = await self._blocking(do)
-        return {"working": working.model_dump(mode="json"), "original": original.model_dump(mode="json")}
+        return await self._blocking(do, publishing_import=True)
 
     async def _export(self, actor: str, artifact_id: str, name: str | None = None) -> dict:
         path = await self._blocking(lambda: self.session.export(artifact_id, name))
@@ -1847,7 +1967,7 @@ class CoreApp:
     # --- methods: settings and assets -----------------------------------------------------------
 
     async def _settings_get(self, actor: str) -> dict:
-        return self.settings.model_dump(mode="json")
+        return {**self.settings.model_dump(mode="json"), "effective_output_dir": str(self._output_dir())}
 
     async def _updates_begin(self, actor: str) -> dict:
         # The native updater owns HTTP, but core owns privacy policy. A lease is
@@ -1880,6 +2000,7 @@ class CoreApp:
                 if self._network_transition:
                     updates = list(self._update_leases.values())
                     self._emit("updates.cancel", {})
+                    await self._stop_materials()
                     probes = list(self._provider_probes)
                     for task in probes:
                         task.cancel()

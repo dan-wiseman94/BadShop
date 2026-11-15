@@ -1,15 +1,20 @@
+import { ProposalPreview } from "./ProposalPreview";
 import { Button } from "./Button";
 import { CorrectionControls } from "./CorrectionControls";
 import { useEffect, useId, useRef, useState } from "react";
-import Form from "@rjsf/core";
+import Form, { getDefaultRegistry } from "@rjsf/core";
+import { DEFAULT_ID_SEPARATOR } from "@rjsf/utils";
 import { customizeValidator } from "@rjsf/validator-cfworker";
-import type { RJSFSchema, UiSchema, WidgetProps, FieldProps, IconButtonProps } from "@rjsf/utils";
-import { Crosshair, FolderOpen, Shuffle, Plus, Trash2, ArrowUp, ArrowDown, Copy, X } from "lucide-react";
-import type { Params, Tool, Artifact } from "../types";
-import { action, run, useSession, useArtifact, imageUrl } from "../data";
-import { native, pickImages } from "../native";
+import type { RJSFSchema, UiSchema, WidgetProps, FieldProps, IconButtonProps, ObjectFieldTemplateProps } from "@rjsf/utils";
+import { Crosshair, Shuffle, Plus, Trash2, ArrowUp, ArrowDown, Copy, X } from "lucide-react";
+import type { Params, Tool } from "../types";
+import { run, useSession, useArtifact, imageUrl } from "../data";
+import { ImagePicker } from "./ImagePicker";
 import { useUI, type PickRequest } from "../store";
 import { BIREFNET_MEMORY_NOTE } from "../constants";
+import { advancedToolFields } from "../toolPresentation";
+import { useEditorPreview } from "../useEditorPreview";
+import { EditorPreviewControls } from "./EditorPreviewControls";
 const validator = customizeValidator({
   draft: "7", // normalizeSchema converts Pydantic tuples to draft-7 items for RJSF.
   customFormats: {
@@ -76,58 +81,6 @@ export function schemaUI(schema: RJSFSchema): UiSchema {
   if (typeof schema.items === "object" && !Array.isArray(schema.items)) ui.items = schemaUI(schema.items);
   return ui;
 }
-function Thumbnail({ artifact }: { artifact: Artifact }) {
-  const { data } = useArtifact(artifact.id, true);
-  return <img src={imageUrl(data)} alt="" />;
-}
-export function ImagePicker({ id, value, onChange, required, disabled }: WidgetProps) {
-  const { data: session } = useSession();
-  const selected = session?.artifacts[String(value)];
-  const all = Object.values(session?.artifacts ?? {});
-  const imports = all.filter((artifact) => artifact.id === selected?.id || !all.some((other) => other.original_id === artifact.id));
-  return (
-    <div className="image-picker">
-      <select
-        id={id}
-        required={required}
-        disabled={disabled}
-        value={String(value ?? "")}
-        onChange={(e) => onChange(e.target.value || undefined)}
-      >
-        <option value="">Choose an image…</option>
-        {imports.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.label} ({a.width} × {a.height})
-          </option>
-        ))}
-      </select>
-      {selected && <Thumbnail artifact={selected} />}
-      {!!value && !selected && (
-        <p className="field-description" role="alert">
-          This image is no longer in the session. Choose an available image.
-        </p>
-      )}
-      <button
-        type="button"
-        title="Open image file"
-        disabled={!native || disabled}
-        onClick={() =>
-          run(async () => {
-            const paths = await pickImages();
-            if (paths?.length) {
-              const result = await action("artifacts.import", {
-                path: paths[0],
-              });
-              onChange(result.working.id);
-            }
-          })
-        }
-      >
-        <FolderOpen size={15} />
-      </button>
-    </div>
-  );
-}
 function ColorPicker({ id, value, onChange, disabled }: WidgetProps) {
   const str = String(value ?? "#ffffff");
   let swatch = /^#[\da-f]{6}$/i.test(str) ? str : "#ffffff";
@@ -182,6 +135,7 @@ function Seed({ id, value, onChange, disabled }: WidgetProps) {
   );
 }
 interface ToolFormContext {
+  advancedFields?: ReadonlySet<string>;
   coordinateImageId: string | null;
   coordinateImageLabel?: string;
 }
@@ -239,6 +193,7 @@ export function Coordinates(props: FieldProps) {
             {label}
             <input
               type="number"
+              id={`${fieldPathId.$id}${DEFAULT_ID_SEPARATOR}${i}`}
               aria-label={`${title} ${label}`}
               disabled={disabled}
               value={value[i] ?? ""}
@@ -329,6 +284,29 @@ const arrayButtons = {
   CopyButton: (props: IconButtonProps) => <ArrayAction {...props} kind="copy" />,
   ClearButton: (props: IconButtonProps) => <ArrayAction {...props} kind="clear" />,
 };
+const DefaultObjectField = getDefaultRegistry<Params, RJSFSchema, ToolFormContext>().templates.ObjectFieldTemplate;
+
+function AdvancedObjectField(props: ObjectFieldTemplateProps<Params, RJSFSchema, ToolFormContext>) {
+  const { advancedFields } = props.registry.formContext;
+  const advanced = props.properties.filter(({ name }) => advancedFields?.has(name));
+  if (!advanced.length) return <DefaultObjectField {...props} />;
+  const basic = props.properties.filter(({ name }) => !advancedFields?.has(name));
+  // Keep the full schema and field tree mounted for validation and submission.
+  return <DefaultObjectField {...props} properties={[
+    ...basic,
+    {
+      name: "advanced",
+      hidden: false,
+      content: (
+        <details key="advanced" id={`${props.fieldPathId.$id}-advanced`}>
+          <summary>Advanced controls</summary>
+          {advanced.map(({ content }) => content)}
+        </details>
+      ),
+    },
+  ]} />;
+}
+
 export function ToolForm({
   tool,
   initial,
@@ -336,6 +314,8 @@ export function ToolForm({
   submitLabel = "Run tool",
   disabled = false,
   stepId,
+  imageLabels,
+  previewEnabled = false,
 }: {
   tool: Tool;
   initial?: Params;
@@ -343,14 +323,19 @@ export function ToolForm({
   submitLabel?: string;
   disabled?: boolean;
   stepId?: string;
+  imageLabels?: Record<string, string>;
+  previewEnabled?: boolean;
 }) {
-  const [preview, setPreview] = useState<string[]>([]);
+  const [edited, setEdited] = useState(false);
+  const [previewDelay, setPreviewDelay] = useState(300);
   const [divider, setDivider] = useState(50);
   const [previewBackground, setPreviewBackground] = useState("#888888");
-  const [finalPreview, setFinalPreview] = useState(false);
-  const formId = useId().replaceAll(":", "");
+  const [finalPreview, setFinalPreview] = useState(true);
+  const formId = `tool-${useId().replaceAll(":", "")}`;
+  const form = useRef<Form<Params, RJSFSchema, ToolFormContext>>(null);
   const [formData, setFormData] = useState<Params>(() => cleanParams(initial));
   const baseline = useRef(cleanParams(initial));
+  const previewBaseline = useRef(cleanParams(initial));
   const initialSignature = JSON.stringify(cleanParams(initial));
   const baselineSignature = useRef(initialSignature);
   const source = useRef({
@@ -363,7 +348,7 @@ export function ToolForm({
   const submitting = useRef(false);
   useEffect(() => {
     if (initialSignature === baselineSignature.current || submitting.current) return;
-    setPreview([]);
+    previewBaseline.current = source.current.data;
     const merged = mergeParameterDraft(formData, baseline.current, source.current.data);
     setFormData(merged.data);
     setConflicts((previous) => [
@@ -379,14 +364,38 @@ export function ToolForm({
   }, [initialSignature, busy]);
   const schema = normalizeSchema(tool.schema);
   const ui = schemaUI(schema);
+  for (const [name, label] of Object.entries(imageLabels ?? {}))
+    ui[name] = { ...ui[name], "ui:title": label };
+  const advancedFields = advancedToolFields(tool.name, schema);
+  if (advancedFields.size) ui["ui:ObjectFieldTemplate"] = AdvancedObjectField;
+  const selectedElement = useUI(state => state.selectedElement);
+  if (tool.name === "paste" && stepId && selectedElement?.stepId === stepId && schema.properties?.piece) {
+    ui.piece = { ...ui.piece, "ui:title": "Replace picture" };
+  }
   if (tool.name === "animation_edit") {
     ui.frames = { "ui:field": "FrameSequence" };
     ui.speed = { "ui:widget": "updown", "ui:options": { inputType: "number" } };
     ui.loop = { "ui:widget": "updown" };
   }
   const { data: session } = useSession();
-  const originalId = session?.steps.find((step) => step.id === stepId)?.outputs[0];
-  const { data: original } = useArtifact(originalId ?? null);
+  const pending = session?.steps.find(step => step.id === stepId && session.pending_approvals.includes(step.id));
+  const pendingApproval = !!pending;
+  const showPreview = !pendingApproval && !!(previewEnabled || stepId || ["animation_edit", "text"].includes(tool.name));
+  const preview = useEditorPreview({
+    session,
+    target: stepId ? { step_id: stepId } : { tool: tool.name },
+    scope: stepId && finalPreview ? "final" : "step",
+    params: formData,
+    active: showPreview && !disabled && !busy && !conflicts.length && !session?.turn_running && !session?.batch_running,
+    dirty: edited && JSON.stringify(cleanParams(formData)) !== JSON.stringify(cleanParams(previewBaseline.current)),
+    delay: previewDelay,
+  });
+  const plan = preview.result?.plan;
+  const finalScope = plan?.scope === "final";
+  const targetIndex = session?.steps.findIndex(step => step.id === stepId) ?? -1;
+  const originalId = session?.steps[targetIndex]?.outputs[0];
+  const finalId = session?.steps.slice(Math.max(0, targetIndex)).reverse().find(step => step.outputs.length)?.outputs[0];
+  const { data: original } = useArtifact((finalScope ? finalId : originalId) ?? null);
   const imageFields = Object.entries(schema.properties ?? {}).filter(
     ([, field]) =>
       typeof field === "object" &&
@@ -400,12 +409,15 @@ export function ToolForm({
   const reference = Array.isArray(imageValue) ? imageValue[0] : imageValue;
   const artifact = typeof reference === "string" ? session?.artifacts[reference] : undefined;
   const context: ToolFormContext = {
+    advancedFields,
     coordinateImageId: artifact?.id ?? null,
     coordinateImageLabel: artifact?.label,
   };
   return (
     <Form
-      idPrefix={`tool-${formId}`}
+      ref={form}
+      idPrefix={formId}
+      idSeparator={DEFAULT_ID_SEPARATOR}
       schema={schema}
       uiSchema={ui}
       validator={validator}
@@ -414,16 +426,27 @@ export function ToolForm({
       widgets={{ ImagePicker, ColorPicker, Seed }}
       templates={{ ButtonTemplates: arrayButtons }}
       formData={formData}
-      onChange={(event) => { setFormData(event.formData ?? {}); setPreview([]); }}
+      onChange={(event, fieldId) => {
+        const next = event.formData ?? {};
+        setFormData(next);
+        if (fieldId) {
+          setPreviewDelay(300);
+          setEdited(true);
+        } else if (!edited) previewBaseline.current = next;
+      }}
       onSubmit={(event) =>
         run(async () => {
+          if (!preview.canApply()) return;
+          if (!preview.currentOwner()) throw new Error("The project changed. Review the current controls before applying.");
+          preview.clear();
           setBusy(true);
           submitting.current = true;
           const submitted = event.formData ?? {};
           const previousSource = source.current.signature;
           try {
             await onSubmit(submitted);
-            setPreview([]);
+            setEdited(false);
+            previewBaseline.current = submitted;
             setFormData(source.current.signature !== previousSource ? source.current.data : submitted);
             baseline.current = source.current.data;
             baselineSignature.current = source.current.signature;
@@ -436,15 +459,29 @@ export function ToolForm({
       }
       disabled={disabled || busy}
       showErrorList="top"
+      noHtml5Validate={advancedFields.size > 0}
+      onError={(errors) => {
+        const advancedError = errors.find(({ property }) => {
+          const field = property?.match(/^\.?([^.\[]+)/)?.[1];
+          return field !== undefined && advancedFields.has(field);
+        });
+        if (advancedError) {
+          const disclosure = document.getElementById(`${formId}-advanced`);
+          if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
+        }
+        const error = advancedError ?? errors[0];
+        if (error) form.current?.focusOnError(error);
+      }}
       omitExtraData
       liveOmit
       experimental_defaultFormStateBehavior={{
         arrayMinItems: { populate: "requiredOnly" },
       }}
     >
+      {pending && session && <ProposalPreview step={pending} revision={session.document_revision} params={formData} />}
       <CorrectionControls tool={tool.name} stepId={stepId} value={formData}
         disabled={disabled || busy || conflicts.length > 0}
-        change={(next) => { setFormData(next); setPreview([]); }} />
+        change={(next, delay = 300) => { setFormData(next); setPreviewDelay(delay); setEdited(true); }} />
       {!!conflicts.length && (
         <div className="parameter-conflict" role="alert">
           <p>
@@ -455,6 +492,8 @@ export function ToolForm({
             <Button
               type="button"
               onClick={() => {
+                preview.clear();
+                setEdited(false);
                 setFormData(source.current.data);
                 setConflicts([]);
               }}
@@ -465,44 +504,36 @@ export function ToolForm({
         </div>
       )}
       {formData.model === "birefnet-general" && <p className="model-memory-note">{BIREFNET_MEMORY_NOTE}</p>}
-      {(stepId || ["animation_edit", "text"].includes(tool.name)) && <div>
+      {showPreview && <div>
         {stepId && <label><input type="checkbox" checked={finalPreview} disabled={disabled || busy}
-          onChange={(event) => { setFinalPreview(event.target.checked); setPreview([]); }} />Preview final result, including later steps</label>}
-        <Button type="button" label="Preview changes" disabled={disabled || busy || conflicts.length > 0}
-          onClick={() => run(async () => {
-            setBusy(true);
-            const requestedSource = source.current.signature;
-            try {
-              const images = stepId
-                ? await action("steps.preview", { step_id: stepId, params: formData, final_result: finalPreview })
-                : (await action("tools.preview", { tool: tool.name, params: formData, expected_revision: session!.document_revision }))
-                  .map(url => url.slice(url.indexOf(",") + 1));
-              if (source.current.signature === requestedSource) setPreview(images);
-            }
-            finally { setBusy(false); }
-          })} />
+          onChange={event => setFinalPreview(event.target.checked)} />Preview final result, including later steps</label>}
+        <EditorPreviewControls preview={preview} />
+        {plan?.message && <p>{plan.message}{plan.eligible && finalPreview ? " Previewing this step only." : ""}</p>}
+        {preview.result?.image && <p>Draft preview · {finalScope ? "Includes later steps" : "This step only"}</p>}
         <Button type="button" label="Cancel changes" disabled={disabled || busy}
-          onClick={() => { setFormData(source.current.data); setConflicts([]); setPreview([]); }} />
-        {!!preview.length && <>
+          onClick={() => { preview.clear(); setEdited(false); setFormData(source.current.data); setConflicts([]); }} />
+        {preview.result?.image && <>
           <label>Preview background <select value={previewBackground} onChange={(event) => setPreviewBackground(event.target.value)}>
-            <option value="#888888">Gray</option><option value="#ffffff">White</option><option value="#000000">Black</option>
+            <option value="#888888">Gray</option>
+            <option value="#ffffff">White</option>
+            <option value="#000000">Black</option>
             <option value="#ff00ff">Magenta</option>
           </select></label>
-          {original && !finalPreview && tool.name !== "animation_edit" && <label>Before / after divider <input type="range" min={0} max={100} value={divider}
+          {original && tool.name !== "animation_edit" && <label>Before / after divider <input type="range" min={0} max={100} value={divider}
             onChange={(event) => setDivider(Number(event.target.value))} /></label>}
+          <div style={{ position: "relative", background: previewBackground }}>
+            <img alt="Uncommitted preview 1" src={preview.result.image}
+              style={{ width: "100%", display: "block", imageRendering: "pixelated" }} />
+            {original && tool.name !== "animation_edit" && <img alt="Before correction" src={imageUrl(original)}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain",
+                imageRendering: "pixelated", clipPath: `inset(0 ${100 - divider}% 0 0)` }} />}
+          </div>
         </>}
-        {preview.map((bytes, index) => <div key={index} style={{ position: "relative", background: previewBackground }}>
-          <img alt={`Uncommitted preview ${index + 1}`} src={`data:image/${bytes.startsWith("R0lG") ? "gif" : bytes.startsWith("/9j/") ? "jpeg" : "png"};base64,${bytes}`}
-            style={{ width: "100%", display: "block", imageRendering: "pixelated" }} />
-          {index === 0 && original && !finalPreview && tool.name !== "animation_edit" && <img alt="Before correction" src={imageUrl(original)}
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain",
-              imageRendering: "pixelated", clipPath: `inset(0 ${100 - divider}% 0 0)` }} />}
-        </div>)}
       </div>}
       <Button
         type="submit"
         className="primary form-run"
-        disabled={disabled || busy || conflicts.length > 0}
+        disabled={disabled || busy || preview.busy || conflicts.length > 0}
         label={busy ? "Working…" : submitLabel}
       />
     </Form>

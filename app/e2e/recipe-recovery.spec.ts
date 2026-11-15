@@ -90,7 +90,7 @@ test("a saved design keeps separate picture roles across projects and retries on
   await page.getByRole("button", { name: "Edit a photo without AI" }).click();
   await page.locator(".step").first().click();
   async function openDesigns() {
-    await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+    await page.getByRole("button", { name: "Materials", exact: true }).click();
     await page.getByRole("button", { name: "Retro workbench", exact: true }).click();
     await page.getByRole("button", { name: "Recipes", exact: true }).click();
   }

@@ -24,6 +24,7 @@ test("temporary socket loss preserves unsent messages, attachments, selected ima
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.locator(".step").click();
+  await page.locator(".step-detail").getByText("Advanced controls", { exact: true }).click();
   await page
     .locator(".step-detail")
     .getByLabel("Seed", { exact: false })
@@ -113,6 +114,7 @@ for (const outcome of ["restored", "damaged", "older"] as const) {
         .getByRole("button", { name: "Run tool", exact: true })
         .click();
       await expect(page.locator(".step-detail")).toBeVisible();
+      await page.locator(".step-detail").getByText("Advanced controls", { exact: true }).click();
       await page
         .locator(".step-detail")
         .getByLabel("Seed", { exact: false })

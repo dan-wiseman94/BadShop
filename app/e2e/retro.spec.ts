@@ -10,7 +10,7 @@ test("retro catalog, persisted defaults, recipes and credited export use real co
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page
-    .getByRole("button", { name: "Images & directions", exact: true })
+    .getByRole("button", { name: "Materials", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Retro workbench", exact: true })
@@ -135,10 +135,10 @@ for (const [theme, name] of [
   await page.screenshot({ path: test.info().outputPath(`theme-${theme}-form.png`) });
   await page.getByRole("button", { name: "Close tools", exact: true }).click();
   expect(((await core.call("session.get")) as Session).steps).toEqual(before.steps);
-  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Images & directions", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Materials", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Materials", exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath(`theme-${theme}-studio.png`) });
-  await page.getByRole("button", { name: "Close images and directions", exact: true }).click();
+  await page.getByRole("button", { name: "Close materials", exact: true }).click();
   await expect(artwork).toHaveAttribute("src", source!);
   // A theme must not tint, blur or fade the image through any ancestor.
   const effects = await artwork.evaluate(image => {

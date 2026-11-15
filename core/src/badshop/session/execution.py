@@ -11,7 +11,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from PIL import Image, UnidentifiedImageError, features
 
@@ -40,6 +40,7 @@ class ToolCall:
     guard_network: bool = True  # run under netpolicy.guarded(trusted_urls)
     no_remote: bool = False
     catalogue_font: bool = False
+    output_mode: Literal["encoded", "metadata", "original"] = "encoded"
 
 
 @dataclass(frozen=True)
@@ -137,8 +138,9 @@ class BytesStore:
     formats only, so a hostile project file can't pick Pillow's EPS decoder, which runs Ghostscript),
     put() keeps each output encoded, and export() is refused: only the session writes files."""
 
-    def __init__(self, inputs: dict[str, bytes]):
+    def __init__(self, inputs: dict[str, bytes], output_mode: str = "encoded"):
         self.inputs = inputs
+        self.output_mode = output_mode
         self.outputs: list[OutputRecord] = []
 
     def load(self, ref: str) -> Image.Image:
@@ -152,7 +154,15 @@ class BytesStore:
                               hint="import the picture again") from None
 
     def put(self, output: Output, stem: str) -> str:
-        self.outputs.append(OutputRecord(output.key, output.encode(), output.name_hint, output.caption))
+        if self.output_mode == "metadata":
+            return output.key
+        if self.output_mode == "original":
+            encoded = output.original_data
+            if encoded is None:
+                raise EngineError("the source did not return the original image bytes")
+        else:
+            encoded = output.encode()
+        self.outputs.append(OutputRecord(output.key, encoded, output.name_hint, output.caption))
         return f"out:{len(self.outputs) - 1}"
 
     def export(self, ref: str, name: str | None) -> str:
@@ -172,7 +182,7 @@ def execute_call(call: ToolCall) -> ToolOutcome:
     """Validate and run one call. An EngineError is a failed step the user or the model can act on; any
     other exception is a crash, reported as a clean message (never a traceback). A failed call keeps
     nothing it made."""
-    store = BytesStore(call.inputs)
+    store = BytesStore(call.inputs, call.output_mode)
     try:
         params = runner.validate(call.tool, call.params)  # as "user": the session already checked the actor
         network = (netpolicy.guarded(call.trusted_urls, call.no_remote)

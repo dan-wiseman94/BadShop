@@ -15,7 +15,7 @@ test("the idea mixer uses available formats and adds an unsent brief without los
     .fill("Keep the red hat.");
   const before = (await core.call("session.get")) as Session;
   await page
-    .getByRole("button", { name: "Images & directions", exact: true })
+    .getByRole("button", { name: "Materials", exact: true })
     .click();
   await expect(
     page.getByRole("option", { name: "Cleveland Museum of Art", exact: true }),
@@ -44,7 +44,7 @@ test("the idea mixer uses available formats and adds an unsent brief without los
   await page.screenshot({ path: test.info().outputPath("badshop-idea-mixer.png") });
   await page.getByRole("button", { name: "Add brief to chat" }).click();
   await expect(
-    page.getByRole("dialog", { name: "Images & directions" }),
+    page.getByRole("dialog", { name: "Materials" }),
   ).not.toBeVisible();
   const draft = page.getByRole("textbox", { name: "Message your agent" });
   await expect(draft).toHaveValue(
@@ -73,7 +73,7 @@ test("selected sprite cells preserve grid geometry and survive saving a project"
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page
-    .getByRole("button", { name: "Images & directions", exact: true })
+    .getByRole("button", { name: "Materials", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Sprite sheets", exact: true })

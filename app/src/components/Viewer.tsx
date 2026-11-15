@@ -1,19 +1,20 @@
 import { useLibraryPage } from '../libraryPage';
 import { Button } from "./Button";
-import { ManualTools } from "./ManualTools";
 import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import { Grid2X2, ScanFace, ChevronDown, MousePointer2, Undo2, Redo2 } from "lucide-react";
-import { action, imageUrl, useArtifact, useSession, run } from "../data";
+import { action, imageUrl, queries, useArtifact, useCoreQuery, useSession, run } from "../data";
 import { LibraryImage } from "./LibraryImage";
 import { useOperation } from "../useOperation";
-import { outputSelection, useCanvasArtifact, useUI } from "../store";
+import { outputSelection, useCanvasArtifact, useUI, type SelectedElement } from "../store";
 import { useStream } from '../stream';
 import { useReducedMotion } from "../appearance";
 import { openLink } from "../native";
+import { Cast } from "./Cast";
 import { CopyImage, ShareImage } from "./ShareImage";
-import type { Artifact, Params } from "../types";
+import type { Artifact, Params, Session } from "../types";
+import { directionLabel } from "../directions";
 import { recordedElements } from "../recordedElements";
 import { useDocumentProjection } from '../documentProjection';
 export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
@@ -74,34 +75,57 @@ function faceBoxes(data: Params | null | undefined): number[][] {
     return Array.isArray(value) && value.length === 4 ? [value as number[]] : [];
   });
 }
-export function Viewer({ onImport }: { onImport: () => void }) {
+type ViewerProps = {
+  onImport: () => void;
+  onSelectElement?: (select: () => void, element: SelectedElement | null) => void;
+  onOpenHistory?: () => void;
+};
+
+export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps) {
   const { data: session } = useSession();
   const { visibleArtifacts } = useDocumentProjection(session);
   const [materialSearch, setMaterialSearch] = useState("");
   const { entries: library, controls: libraryPages } = useLibraryPage(materialSearch);
   const { busy: materialBusy, error: materialError, perform: materialAction } = useOperation();
   const selectedStep = useUI((s) => s.selectedStep);
-  const { id: canvasId, inputId } = useCanvasArtifact(session);
+  const selectedElement = useUI((s) => s.selectedElement);
+  const { id: canvasId, inputId, kind, producer, outputKey } = useCanvasArtifact(session);
+  const { data: takes } = useCoreQuery("branches.list");
+  const take = directionLabel(takes?.branches.find(branch => branch.id === takes.active_id)?.name ?? "Original");
   const pick = useUI((s) => s.pick);
   const [grid, setGrid] = useState(false);
   const [boxes, setBoxes] = useState(false);
-  const [selectElements, setSelectElements] = useState(false);
+  const [selectElements, setSelectElements] = useState(true);
   const before = useUI((state) => state.viewerBefore);
   const setBefore = (viewerBefore: boolean) => useUI.getState().set({ viewerBefore });
-  const [sharing, setSharing] = useState(false);
+  const [shareTarget, setShareTarget] = useState<{ id: string; label: string; frame: number } | null>(null);
+  const [castOpen, setCastOpen] = useState(false);
+  const [confirmedSaved, confirmSaved] = useState<{ id: string; revision: number } | null>(null);
   const shareDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    if (sharing) shareDialog.current?.showModal();
+    if (shareTarget) shareDialog.current?.showModal();
     else shareDialog.current?.close();
-  }, [sharing]);
+  }, [shareTarget]);
   const zoom = useUI((state) => state.viewerZoom);
   const setZoom = (viewerZoom: "fit" | number) => useUI.getState().set({ viewerZoom });
   const [size, setSize] = useState({ width: 600, height: 500 });
   const stage = useRef<HTMLDivElement>(null);
   const origin = useRef<number[] | null>(null);
+  const ignoreSurfaceClick = useRef(false);
   const [selection, setSelection] = useState<number[] | null>(null);
   const [cursor, setCursor] = useState<number[] | null>(null);
   const id = pick?.artifactId ?? canvasId;
+  const confirmed = confirmedSaved?.id === id && confirmedSaved?.revision === session?.document_revision;
+  const canShare = !!id && !pick && kind !== "missing" && (kind !== "last_saved" || confirmed);
+  const canvasLabel = kind === "before" ? `Before step ${selectedStep ? session?.steps.find(step => step.id === selectedStep)?.index : ""}`
+    : kind === "missing" ? "This output is no longer available"
+    : kind === "last_saved" ? "Last successful image · Changes not fully applied"
+    : kind === "final" ? `Final result · ${take}`
+    : kind === "earlier" ? `Step ${producer?.index} output`
+    : kind === "source" ? "Source picture" : "";
+  const outputLabel = outputKey && Object.keys(producer?.output_ports ?? {}).length > 1 ? ` · ${outputKey}` : "";
+  const openShare = () => { if (id && canShare) setShareTarget({ id, label: canvasLabel + outputLabel, frame: paused ? frame : 0 }); };
+
   const motion = useUI((s) => s.motion);
   const reduced = useReducedMotion(motion);
   const [playing, setPlaying] = useState<boolean | null>(null);
@@ -113,11 +137,27 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const paused = playing === null ? reduced : !playing;
   const { data, error } = useArtifact(id, false, paused, frame);
   const meta = data?.meta;
-  const elements = recordedElements(session, id);
-  const selectElement = (stepId: string) => {
-    const output = session?.steps.slice().reverse().find(step => step.outputs.includes(id ?? ""));
-    useUI.getState().set({ selectedStep: stepId, selectedArtifact: output
-      ? outputSelection(output, id!) : id });
+  const elements = recordedElements(session, canvasId);
+  const selected = elements.find(element => element.id === selectedElement?.id);
+  const selectElement = (elementId: string, focusText?: number) => {
+    const element = elements.find(item => item.id === elementId);
+    const next = element ? {
+      id: element.id, stepId: element.step.id, label: element.label, slotIndex: element.slotIndex, focusText,
+    } : null;
+    const output = session?.steps.slice().reverse().find(step => step.outputs.includes(canvasId ?? ""));
+    const selectedArtifact = output ? outputSelection(output, canvasId!) : canvasId;
+    const generation = useUI.getState().documentGeneration;
+    const select = () => {
+      const ui = useUI.getState();
+      const active = queries.getQueryData<Session>(["session.get"]);
+      if (ui.documentGeneration === generation && !ui.pick && active?.context?.branch_id === session?.context?.branch_id)
+        ui.set({ selectedElement: next, selectedStep: next?.stepId ?? null, selectedArtifact });
+    };
+    if (onSelectElement) onSelectElement(select, next);
+    else select();
+  };
+  const clearSelection = () => {
+    if (!pick && !ignoreSurfaceClick.current && selected) selectElement("");
   };
   const progress = useStream(state => state.text);
   useEffect(() => {
@@ -131,8 +171,9 @@ export function Viewer({ onImport }: { onImport: () => void }) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    origin.current = null;
     setSelection(null);
-  }, [selectedStep]);
+  }, [pick]);
   const scale = meta
     ? pick || zoom === "fit"
       ? Math.max(0.001, Math.min(Math.max(1, size.width - 24) / meta.width, Math.max(1, size.height - 24) / meta.height, 1))
@@ -161,8 +202,21 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         </span>
         <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
       </div>
+      {canvasLabel && !pick && <div className="canvas-view-state">
+        <span>{canvasLabel}{outputLabel}</span>
+        {["before", "earlier", "missing", "source"].includes(kind) && !!session?.steps.some(step => step.outputs.length) &&
+          <button onClick={() => useUI.getState().set({ selectedStep: null, selectedArtifact: null })}>Return to final result</button>}
+        {kind === "last_saved" && !confirmed && canvasId && session && <button onClick={() =>
+          confirmSaved({ id: canvasId, revision: session.document_revision })}>Choose this saved image</button>}
+        {producer && kind !== "before" && Object.keys(producer.output_ports ?? {}).length > 1 &&
+          <label>Output <select value={outputKey ?? ""} onChange={event => useUI.getState().set({
+            selectedArtifact: { invocationId: producer.invocation_id!, outputKey: event.target.value },
+          })}>
+            {Object.keys(producer.output_ports ?? {}).map(key => <option key={key} value={key}>{key}</option>)}
+          </select></label>}
+      </div>}
       {(meta || session?.manual_history?.undo || session?.manual_history?.redo) && <div className="viewer-tools">
-        <button aria-label="Select elements" title="Select elements" aria-pressed={selectElements} disabled={!elements.length || !!pick}
+        <button aria-label="Select elements" title="Select elements" aria-pressed={selectElements && !!elements.length && !pick} disabled={!elements.length || !!pick}
           onClick={() => setSelectElements(!selectElements)}><MousePointer2 size={16} /></button>
         <button aria-label="Undo" disabled={!session?.manual_history?.undo || session.turn_running || !!session.pending_approvals.length}
           title={session?.manual_history?.undo ? `Undo ${session.manual_history.undo}` : "No manual change to undo"}
@@ -170,7 +224,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         <button aria-label="Redo" disabled={!session?.manual_history?.redo || session.turn_running || !!session.pending_approvals.length}
           title={session?.manual_history?.redo ? `Redo ${session.manual_history.redo}` : "No manual change to redo"}
           onClick={() => run(() => action("history.redo", { expected_revision: session?.document_revision }))}><Redo2 size={16} /></button>
-        {id && <CopyImage id={id} frame={paused ? frame : 0} animated={(meta?.frames ?? 1) > 1} />}
+        {canShare && kind !== "before" && id && <CopyImage id={id} frame={paused ? frame : 0} animated={(meta?.frames ?? 1) > 1} />}
         {meta && <div className="segmented">
           <Button
             disabled={!inputId}
@@ -225,7 +279,9 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </select>
         </div>}
       </div>}
-      <div className={`viewer-stage ${pick ? "picking" : ""}`} ref={stage}>
+      <div className={`viewer-stage ${pick ? "picking" : ""}`} ref={stage}
+        onPointerDownCapture={() => { ignoreSurfaceClick.current = !!pick; }}
+        onClick={event => { if (event.target === event.currentTarget) clearSelection(); }}>
         {meta ? (
           <div
             className="image-surface"
@@ -241,6 +297,8 @@ export function Viewer({ onImport }: { onImport: () => void }) {
               if (origin.current && pick && pick.kind !== "point") setSelection([...origin.current, ...p]);
             }}
             onPointerLeave={() => setCursor(null)}
+            onClick={clearSelection}
+            onPointerCancel={() => { origin.current = null; setSelection(null); }}
             onPointerDown={(event) => {
               if (!pick) return;
               event.currentTarget.setPointerCapture(event.pointerId);
@@ -271,15 +329,23 @@ export function Viewer({ onImport }: { onImport: () => void }) {
             }}
           >
             <img className="canvas-image" src={imageUrl(data)} alt={meta.label} draggable={false} />
-            {selectElements && !pick && elements.map((element, index) => {
-              const [left, top, right, bottom] = element.box;
-              const x = Math.max(0, left), y = Math.max(0, top);
-              const width = Math.min(meta.width, right) - x, height = Math.min(meta.height, bottom) - y;
-              return width > 0 && height > 0 && <button key={`${element.step.id}-${index}`}
-                className="recorded-element" aria-label={`Edit ${element.label}`} title={`Edit ${element.label}`}
-                aria-pressed={selectedStep === element.step.id}
-                style={{ left: x * scale, top: y * scale, width: width * scale, height: height * scale }}
-                onClick={() => selectElement(element.step.id)} />;
+            {selectElements && !pick && elements.flatMap(element => {
+              const hitAreas = [{ box: element.box, caption: element.step.tool === "text", label: element.label }];
+              if (element.captionBox) hitAreas.push({
+                box: element.captionBox, caption: true, label: `Caption for ${element.label}`,
+              });
+              return hitAreas.map(({ box, caption, label }) => {
+                const [left, top, right, bottom] = box;
+                const x = Math.max(0, left), y = Math.max(0, top);
+                const width = Math.min(meta.width, right) - x, height = Math.min(meta.height, bottom) - y;
+                return width > 0 && height > 0 && <button key={`${element.id}-${caption ? "caption" : "picture"}`}
+                  type="button" className="recorded-element" aria-label={`Edit ${label}`} title={`Edit ${label}`}
+                  aria-pressed={selected?.id === element.id}
+                  tabIndex={-1}
+                  style={{ left: x * scale, top: y * scale, width: width * scale, height: height * scale }}
+                  onClick={event => { event.stopPropagation(); if (event.detail < 2) selectElement(element.id); }}
+                  onDoubleClick={caption ? event => selectElement(element.id, event.timeStamp) : undefined} />;
+              });
             })}
             {(grid || boxes || selection) && (
               <svg className="image-overlay" viewBox={`0 0 ${meta.width} ${meta.height}`} aria-hidden="true">
@@ -342,22 +408,29 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </div>
         )}
       </div>
-      {selectElements && !!elements.length && <label>Recorded elements (including overlaps)
-        <select aria-label="Recorded element" value={elements.some(element => element.step.id === selectedStep) ? selectedStep! : ""}
-          onChange={event => { if (event.target.value) selectElement(event.target.value); }}>
+      {elements.length > 0 && <label>Elements in this image
+        <select disabled={!!pick} value={selected?.id ?? ""} onChange={event => selectElement(event.target.value)}>
           <option value="">Choose an element</option>
-          {elements.map((element, index) => <option key={`${element.step.id}-${index}`} value={element.step.id}>{element.label}</option>)}
+          {elements.map(element => <option key={element.id} value={element.id}>{element.label}</option>)}
         </select>
-        <small>Outlines show recorded bounds. Cropped or transformed results can be edited from their timeline steps.</small>
       </label>}
-      {id && <ManualTools key={id} image={id} />}
+      {meta && !pick && !elements.length && <p className="muted">
+        This image has no selectable recorded elements. {onOpenHistory
+          ? <><button type="button" onClick={onOpenHistory}>Open History</button> to edit its steps.</>
+          : "Open History to edit its steps."}
+      </p>}
+      {canShare && id && <details className="manual-tools" onToggle={event => setCastOpen(event.currentTarget.open)}>
+        <summary>Save character</summary>
+        {castOpen && <Cast key={id} image={id} disabled={!!session?.turn_running} onUse={artifact =>
+          useUI.getState().set({ selectedArtifact: artifact, selectedStep: null })} />}
+      </details>}
       {id && <div role="group" aria-label="Selected material actions" className="manual-tools">
         {["subject", "background", "prop"].map(role => <button key={role} disabled={materialBusy || session?.turn_running}
           onClick={() => void materialAction(async () => {
             await action("creative.set", { values: { source_roles: { ...session?.creative?.source_roles, [role]: id } } });
             useUI.getState().set({ notice: `Selected picture is your ${role}.` });
           })}>Use as {role}</button>)}
-        <button onClick={() => setSharing(true)}>Finish this image</button>
+        <button onClick={openShare} disabled={!canShare}>Share image</button>
         {meta?.original_id && (session?.artifacts[meta.original_id]?.frames ?? 1) > 1 &&
           <button onClick={() => useUI.getState().set({ selectedArtifact: meta.original_id! })}>Use animated original</button>}
       </div>}
@@ -422,8 +495,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         className="artifact-strip"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!id) return;
-          setSharing(true);
+          openShare();
         }}
       >
         <div className="strip-title">
@@ -433,7 +505,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         <button type="button" onClick={onImport}>Add material</button>
         <MaterialGallery artifacts={visibleArtifacts.filter(a => a.label.toLowerCase().includes(materialSearch.toLowerCase()))} />
         {id && (
-          <button type="submit" title="Export image">
+          <button type="submit" title="Export image" disabled={!canShare}>
             <ThemeIcon name="export" size={16} />
           </button>
         )}
@@ -453,9 +525,9 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         {!library.length && <p>Save characters in Cast or pictures in the Junk drawer to reuse them here.</p>}
       </details>
       {materialError && <p role="alert">{materialError}</p>}
-      <dialog ref={shareDialog} className="share-dialog" aria-label="Export image" onClose={() => setSharing(false)}>
-        <button onClick={() => setSharing(false)} aria-label="Close export">Close</button>
-        {sharing && id && <ShareImage key={id} id={id} />}
+      <dialog ref={shareDialog} className="share-dialog" aria-label="Export image" onClose={() => setShareTarget(null)}>
+        <button onClick={() => setShareTarget(null)} aria-label="Close export">Close</button>
+        {shareTarget && <ShareImage key={shareTarget.id} {...shareTarget} />}
       </dialog>
     </section>
   );

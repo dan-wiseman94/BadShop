@@ -8,7 +8,7 @@ async function setup(page: import("@playwright/test").Page, core: { port: number
   await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+  await page.getByRole("button", { name: "Materials", exact: true }).click();
 }
 
 test("real layouts, installed asset packs, and image pair composition stay editable", async ({ page, core }) => {
@@ -150,10 +150,9 @@ test("private screen capture can be cancelled or cropped and annotated before re
   expect(Object.keys(before.artifacts)).toHaveLength(1);
   expect(before.artifacts[cropped].original_id).toBeNull();
   expect([before.artifacts[cropped].width, before.artifacts[cropped].height]).toEqual([100, 80]);
-  const manual = viewer.locator("details.manual-tools");
-  await manual.locator("summary").click();
-  await manual.getByRole("button", { name: "Text", exact: true }).click();
-  await manual.getByRole("textbox", { name: /^Text/ }).fill("Look here");
+  await page.getByRole("navigation", { name: "Edit tools" }).getByRole("button", { name: "Text", exact: true }).click();
+  const manual = page.getByRole("region", { name: "Text", exact: true });
+  await manual.getByRole("textbox", { name: /^Exact caption/ }).fill("Look here");
   await manual.getByRole("button", { name: "Apply text", exact: true }).click();
   await expect.poll(async () => {
     const step = (await emptyCore.call("session.get") as Session).steps.at(-1);
