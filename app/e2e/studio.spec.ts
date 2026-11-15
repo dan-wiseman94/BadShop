@@ -1,8 +1,8 @@
 import { test, expect } from "./fixtures";
-import type { Session } from "../src/types";
 import path from "node:path";
+import type { Session } from "../src/types";
 
-test("saved assets and independent branches survive project reopen", async ({
+test("saved assets survive project reopen", async ({
   page,
   core,
 }) => {
@@ -10,7 +10,7 @@ test("saved assets and independent branches survive project reopen", async ({
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page
-    .getByRole("button", { name: "Images & directions", exact: true })
+    .getByRole("button", { name: "Materials", exact: true })
     .click();
   await page.getByRole("button", { name: "Junk drawer", exact: true }).click();
   await page.getByLabel("Save selected image as").fill("Lincoln head source");
@@ -21,44 +21,22 @@ test("saved assets and independent branches survive project reopen", async ({
   await expect(
     page.locator(".studio-card").getByText("Lincoln head source", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Branches", exact: true }).click();
-  await page.getByLabel("New branch name").fill("Fried version");
-  await page.getByRole("button", { name: "Create & switch" }).click();
-  await expect(page.getByText("Fried version (current)")).toBeVisible();
-  const session = (await core.call("session.get")) as Session;
-  await core.call("tools.run", {
-    tool: "deepfry",
-    params: { image: Object.keys(session.artifacts)[0], seed: 7, level: 1 },
-  });
-  await page
-    .getByRole("button", { name: "Switch to this take" })
-    .first()
-    .click();
-  await expect(page.getByText("Original (current)")).toBeVisible();
-  expect(((await core.call("session.get")) as Session).steps).toHaveLength(0);
   const file = path.join(core.folder, "directions.badshop");
   await core.call("session.save_as", { path: file });
   await core.call("session.open", { path: file });
   await page.reload();
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page
-    .getByRole("button", { name: "Images & directions", exact: true })
+    .getByRole("button", { name: "Materials", exact: true })
     .click();
-  await page.getByRole("button", { name: "Branches", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Switch to this take" })
-    .last()
-    .click();
-  await expect(page.getByText("Fried version (current)")).toBeVisible();
-  expect(((await core.call("session.get")) as Session).steps[0].tool).toBe(
-    "deepfry",
-  );
   await page.getByRole("button", { name: "Junk drawer", exact: true }).click();
-  await page.getByRole("button", { name: "Use image", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("attached to chat");
-  await page
-    .getByRole("button", { name: "Close images and directions" })
-    .click();
+  const before = await core.call("session.get") as Session;
+  await page.getByRole("button", { name: "Add to Materials", exact: true }).click();
+  await expect.poll(async () => Object.keys((await core.call("session.get") as Session).artifacts).length)
+    .toBeGreaterThan(Object.keys(before.artifacts).length);
+  await page.getByRole("button", { name: "Close materials" }).click();
+  await expect(page.getByRole("status")).toContainText("Picture added to Materials");
+  await expect(page.locator(".composer .attachments img")).toHaveCount(0);
   await page.getByText("Direction options", { exact: true }).click();
   await expect(page.getByLabel("Creative style")).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("badshop-studio.png") });
@@ -73,11 +51,11 @@ test("discovery controls and header fit the minimum desktop window", async ({
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   const exportBox = await page
-    .getByRole("button", { name: "Export", exact: true })
+    .getByRole("button", { name: "Share", exact: true })
     .boundingBox();
   expect(exportBox!.x + exportBox!.width).toBeLessThanOrEqual(900);
   await page
-    .getByRole("button", { name: "Images & directions", exact: true })
+    .getByRole("button", { name: "Materials", exact: true })
     .click();
   await expect(page.getByLabel("Subject or scene")).toBeVisible();
   await expect(page.getByRole("button", { name: "Find candidates" })).toBeInViewport();

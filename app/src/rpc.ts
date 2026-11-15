@@ -200,6 +200,7 @@ export class RpcClient {
     signal?: AbortSignal,
     context?: DocumentContext,
     binary = false,
+    requestedOperationId?: string,
   ): Promise<MethodMap[K][1]> {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
@@ -217,7 +218,7 @@ export class RpcClient {
       }
       const id = ++this.next;
       const operationId = WIRE_SCHEMAS.methods[method].mutates && WIRE_SCHEMAS.methods[method].scope === "document"
-        ? crypto.randomUUID().replaceAll("-", "") : undefined;
+        ? requestedOperationId ?? crypto.randomUUID().replaceAll("-", "") : undefined;
       const abort = () => {
         this.pending.delete(id);
         reject(new DOMException("Request cancelled", "AbortError"));

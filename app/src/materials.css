@@ -1,0 +1,37 @@
+.materials-pane[open] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.materials-pane[data-docked="true"] {
+  position: relative;
+  inset: auto;
+  order: 0;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+}
+
+.materials-pane > .materials-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.materials-pane[data-docked="true"] .studio-grid,
+.materials-pane[data-docked="true"] .studio-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.materials-pane .studio-tab-group > span {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.materials-pane .collection-status {
+  overflow-x: auto;
+}

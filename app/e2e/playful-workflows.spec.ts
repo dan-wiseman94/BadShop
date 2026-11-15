@@ -21,7 +21,7 @@ test("a pending replacement picture blocks collection creation until its real im
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
   await page.getByText("Make a scene: surprises & reaction sets", { exact: true }).click();
   await page.getByLabel("Import image files").setInputFiles(path.join(root, "core/tests/fixtures/lincoln.png"));
-  await expect(page.getByText("Opening your picture…", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Imported or queued 0 of 1 files." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Make three alternate takes" })).toBeDisabled();
   await expect.poll(() => !!releaseImport).toBe(true);
   releaseImport!();
@@ -40,8 +40,8 @@ test("collections preserve explicit words and create real reaction images and a 
   await page.getByLabel("Punchline", { exact: true }).fill("Our exact joke");
   await page.getByRole("button", { name: "Make this shitpost" }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
-  await page.getByLabel("Revised punchline").fill("");
-  await page.getByRole("button", { name: "Change caption only" }).click();
+  await page.getByRole("form", { name: "Edit this joke" }).getByLabel(/^Caption/).first().fill("");
+  await page.getByRole("button", { name: "Apply changes", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.params.captions).toEqual([""]);
   await page.getByText("Make a scene: surprises & reaction sets", { exact: true }).click();
   await page.getByLabel("Keep my current headline and punchline exactly").check();
@@ -84,7 +84,7 @@ test("share preview exports an editable remix that opens and changes its joke", 
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
   await page.getByRole("button", { name: "Export image", exact: true }).click();
   const sharing = page.getByRole("dialog", { name: "Export image" });
-  await sharing.getByText("Let someone remix this", { exact: true }).click();
+  await sharing.getByText("Editable remix", { exact: true }).click();
   await sharing.getByRole("button", { name: "Save editable remix" }).click();
   const saved = sharing.getByRole("status").filter({ hasText: "Editable remix saved to" });
   await expect(saved).toBeVisible();
@@ -94,8 +94,8 @@ test("share preview exports an editable remix that opens and changes its joke", 
   await emptyCore.call("session.open", { path: filename });
   await page.reload();
   const before = (await emptyCore.call("session.get") as Session).steps[0].outputs[0];
-  await page.getByLabel("Revised punchline").fill("Remixed by a friend");
-  await page.getByRole("button", { name: "Change caption only" }).click();
+  await page.getByRole("form", { name: "Edit this joke" }).getByLabel(/^Caption/).first().fill("Remixed by a friend");
+  await page.getByRole("button", { name: "Apply changes", exact: true }).click();
   await expect.poll(async () => {
     const step = (await emptyCore.call("session.get") as Session).steps[0];
     return step.status === "done" && step.outputs[0] !== before;
@@ -124,8 +124,8 @@ test("a pass-and-play challenge keeps independent rounds after reopening", async
   await page.getByLabel("Player or round name").fill("Ada");
   await page.getByRole("button", { name: "Start this player's round" }).click();
   await expect.poll(async () => (await emptyCore.call("branches.list") as BranchList).branches.length).toBe(4);
-  await page.getByLabel("Revised punchline").fill("Ada's version");
-  await page.getByRole("button", { name: "Change caption only" }).click();
+  await page.getByRole("form", { name: "Edit this joke" }).getByLabel(/^Caption/).first().fill("Ada's version");
+  await page.getByRole("button", { name: "Apply changes", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
   await page.getByText("Play a remix challenge", { exact: true }).click();
   await expect(page.getByLabel("Saved challenge").locator("option:checked")).toHaveText("First game");
@@ -146,7 +146,7 @@ test("a pass-and-play challenge keeps independent rounds after reopening", async
   await expect(challenge.getByText("Ada ★", { exact: true })).toBeVisible();
   const voted = await emptyCore.call("branches.list") as BranchList;
   const project = info.outputPath("challenge.badshop");
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).unsaved_changes).toBe(false);
   await page.reload();
   await page.getByText("Play a remix challenge", { exact: true }).click();

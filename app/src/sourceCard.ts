@@ -1,7 +1,7 @@
-import type { Params } from "./types";
+import type { AcquireParams } from "./wire.generated";
 
 /** Browser handoff carries provenance, never executable instructions or local paths. */
-export function sourceCard(text: string): Params | null {
+export function sourceCard(text: string): AcquireParams | null {
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -15,8 +15,8 @@ export function sourceCard(text: string): Params | null {
     throw new Error("Unsupported badshop source card version.");
   if (typeof card.url !== "string" || !/^https?:\/\//i.test(card.url))
     throw new Error("The selected image needs an HTTP or HTTPS image address.");
-  const result: Params = { url: card.url, source_kind: "browser" };
-  for (const key of ["page", "title", "creator", "license"])
+  const result: AcquireParams = { url: card.url, source_kind: "browser" };
+  for (const key of ["page", "title", "creator", "license"] as const)
     if (typeof card[key] === "string" && card[key].length <= 4096)
       result[key] = card[key].slice(0, key === "page" ? 4096 : 500);
   if (result.page && !/^https?:\/\//i.test(String(result.page)))

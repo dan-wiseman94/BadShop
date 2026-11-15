@@ -42,7 +42,7 @@ export function LocalMedia({ onAttach, source, onBusyChange }: { onAttach: (id: 
 
   function attach(images: Artifact[]) {
     images.forEach((image) => onAttach(image.id));
-    setNotice(`${images.length} image(s) added to chat`);
+    setNotice(`${images.length} image(s) added to Materials`);
   }
   const active = preview?.candidates.find((c) => selected[0] === c.id);
   function point(event: React.PointerEvent<HTMLImageElement>) {

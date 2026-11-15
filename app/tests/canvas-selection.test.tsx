@@ -28,15 +28,15 @@ it("compares the selected step output but never an unrelated selected attachment
   } as unknown as Session;
   useUI.getState().set({ selectedStep: "step", selectedArtifact: null, viewerBefore: false });
   const { result } = renderHook(() => useCanvasArtifact(session));
-  expect(result.current).toEqual({ id: "output", inputId: "input" });
+  expect(result.current).toMatchObject({ id: "output", inputId: "input" });
   act(() => useUI.getState().set({ viewerBefore: true }));
   expect(result.current.id).toBe("input");
   act(() => useUI.getState().set({ selectedArtifact: "attachment" }));
-  expect(result.current).toEqual({ id: "attachment", inputId: undefined });
+  expect(result.current).toMatchObject({ id: "attachment", inputId: undefined });
   act(() => useUI.getState().set({ viewerBefore: true }));
   expect(result.current.id).toBe("attachment");
   act(() => useUI.getState().set({ selectedArtifact: { invocationId: "invocation", outputKey: "result" } }));
-  expect(result.current).toEqual({ id: "output", inputId: "input" });
+  expect(result.current).toMatchObject({ id: "output", inputId: "input" });
 });
 
 it("does not redirect a missing named output to a different slot", () => {
@@ -45,4 +45,20 @@ it("does not redirect a missing named output to a different slot", () => {
   useUI.getState().set({ selectedStep: 'step', selectedArtifact: { invocationId: 'call', outputKey: 'right' } });
   const { result } = renderHook(() => useCanvasArtifact(session));
   expect(result.current.id).toBeNull();
+});
+
+it("distinguishes layout slots with the same name using the recorded slot index", () => {
+  const session = { steps: [
+    { id: "step", invocation_id: "invocation", tool: "layout", status: "done", outputs: ["image"], params: { captions: ["", "Words"] },
+      data: { layout: { slots: [
+        { name: "Panel", box: [0, 0, 20, 30] },
+        { name: "Panel", box: [40, 0, 60, 30], caption_box: [40, 30, 60, 40] },
+      ] } } },
+  ] } as unknown as Session;
+  const [first, second] = recordedElements(session, "image");
+  expect(first.id).not.toBe(second.id);
+  expect(first.label).not.toBe(second.label);
+  expect(first.slotIndex).toBe(0);
+  expect(second.slotIndex).toBe(1);
+  expect(second.captionBox).toEqual([40, 30, 60, 40]);
 });

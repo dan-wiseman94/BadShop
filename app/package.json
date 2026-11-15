@@ -14,6 +14,7 @@
     "check:unused:strict": "knip --include files,dependencies,unlisted,unresolved"
   },
   "dependencies": {
+    "98.css": "0.1.21",
     "@rjsf/core": "^6.0.0",
     "@rjsf/utils": "^6.0.0",
     "@rjsf/validator-cfworker": "6.11.0",
@@ -27,11 +28,13 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
+    "terminal.css": "0.7.5",
+    "xp.css": "0.2.6",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "@rjsf/validator-ajv8": "6.11.0",
     "@playwright/test": "^1.56.0",
+    "@rjsf/validator-ajv8": "6.11.0",
     "@tailwindcss/vite": "^4.1.0",
     "@tauri-apps/cli": "^2.8.0",
     "@testing-library/jest-dom": "^6.9.0",
@@ -43,6 +46,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "jsdom": "^26.1.0",
     "knip": "^6.44.1",
+    "postcss-prefix-selector": "^2.2.1",
     "tailwindcss": "^4.1.0",
     "typescript": "~5.9.2",
     "vite": "^6.4.0",

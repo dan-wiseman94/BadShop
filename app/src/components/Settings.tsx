@@ -573,7 +573,7 @@ function ProviderChecks({ profile }: { profile: Profile }) {
 
 export function Settings({ updates, initialTab, onRestore }: {
   updates: ReturnType<typeof useUpdates>;
-  initialTab?: "providers" | "updates";
+  initialTab?: "providers" | "updates" | "assets";
   onRestore?: () => void;
 }) {
   const [tab, setTab] = useState<string>(initialTab ?? (updates.info?.version ? "updates" : "providers"));

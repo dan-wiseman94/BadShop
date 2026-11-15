@@ -3,12 +3,11 @@ import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
-import { useEffect, useState } from "react";
-import { action, run, useCoreQuery, useSession } from "../data";
-import { useSelectedArtifact, useUI } from "../store";
-import { openLink } from "../native";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { action, imageUrl, queries, run, useArtifact, useCoreQuery, useSession } from "../data";
+import { showError, useSelectedArtifact, useUI } from "../store";
+import { openLink, native, pickImages } from "../native";
 import { sourceCard } from "../sourceCard";
-import { ArtifactThumb } from "./Viewer";
 import { LayoutsPacks } from "./LayoutsPacks";
 import { ImagePairs } from "./ImagePairs";
 import { RecentChoices } from "./RecentChoices";
@@ -17,8 +16,11 @@ import { IdeaMixer } from "./IdeaMixer";
 import { SpriteSheet } from "./SpriteSheet";
 import { RetroStudio } from "./RetroStudio";
 import { LibraryImage } from "./LibraryImage";
-import { directionLabel } from "../directions";
-import type { LibraryEntry, Params } from "../types";
+import { Cast } from "./Cast";
+import { RecipeStudio } from "./RecipeStudio";
+import "../materials.css";
+import type { Artifact, LibraryEntry, Session } from "../types";
+import type { AcquireParams, DiscoverParams, ResponseSourceHealth } from "../wire.generated";
 
 type Candidate = {
   id: string;
@@ -37,23 +39,101 @@ type Candidate = {
   };
   reasons?: string[];
 };
+export type MaterialReceipt = { operation_id?: string; base_revision?: number; result_revision?: number };
+export type MaterialTarget = {
+  label: string;
+  actionLabel?: string;
+  purpose?: DiscoverParams["purpose"];
+  beforeStepIndex?: number;
+  revision: number;
+  isCurrent: (revision: number) => boolean;
+  assign: (id: string, receipt?: MaterialReceipt) => void;
+};
+
+const materialDestinations = [
+  ["Find material", [["project", "In this project"], ["discover", "Find images"], ["local", "Local files and clips"]]],
+  ["My library", [["library", "Junk drawer"], ["characters", "Characters"], ["recent", "Recent choices"], ["recipes", "Recipes"]]],
+  ["Formats", [["layouts", "Layouts & packs"], ["retro", "Retro workbench"], ["ideas", "Idea mixer"], ["pairs", "Image pairs"]]],
+  ["More tools", [["sheets", "Sprite sheets"]]],
+] as const;
+export type MaterialDestination = (typeof materialDestinations)[number][1][number][0];
+const selectionDestinations: MaterialDestination[] = ["project", "discover", "local", "library", "characters"];
+
+type ImportResult = MaterialReceipt & { working: { id: string } };
+type ImportIntent = { revision: number; browser: object; generation: number; target?: MaterialTarget | null };
+
+function ProjectThumbnail({ artifact }: { artifact: Artifact }) {
+  const { data } = useArtifact(artifact.id, true);
+  return <img className="studio-thumb" src={imageUrl(data)} alt="" />;
+}
+
+function ProjectPictures({ session, target, disabled, onSelect }: {
+  session: Session | undefined;
+  target?: MaterialTarget | null;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const artifacts = Object.values(session?.artifacts ?? {});
+  const originals = new Set(artifacts.map(artifact => artifact.original_id));
+  const producers = new Map(session?.steps.map(step => [step.id, step.index]));
+  const pictures = artifacts.filter(artifact => !originals.has(artifact.id) &&
+    artifact.label.toLowerCase().includes(filter.trim().toLowerCase())).reverse();
+  const pageSize = 50;
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(pictures.length / pageSize) - 1));
+  const shown = pictures.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  return <>
+    <InputField label="Search project pictures" bind={[filter, value => { setPage(0); setFilter(value); }]} />
+    {!shown.length && <p>{filter.trim() ? "No project pictures match." : "Add a picture to use it in this project."}</p>}
+    {pictures.length > pageSize && <nav aria-label="Project picture pages">
+      <Button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} label="Previous pictures" />
+      <span> {currentPage + 1} of {Math.ceil(pictures.length / pageSize)} </span>
+      <Button type="button" disabled={(currentPage + 1) * pageSize >= pictures.length}
+        onClick={() => setPage(currentPage + 1)} label="Next pictures" />
+    </nav>}
+    <div className="studio-grid">
+      {shown.map(artifact => {
+        const madeLater = !!artifact.produced_by && target?.beforeStepIndex !== undefined &&
+          (producers.get(artifact.produced_by) ?? Infinity) >= target.beforeStepIndex;
+        return <article key={artifact.id} className="studio-card">
+          <ProjectThumbnail artifact={artifact} />
+          <strong>{artifact.label}</strong>
+          <small>{artifact.source?.license || "Rights not supplied"}</small>
+          {madeLater && <p>Made after this step. Choose an imported or earlier picture.</p>}
+          <Button type="button" disabled={disabled || madeLater} onClick={() => onSelect(artifact.id)}
+            label={target?.actionLabel ?? target?.label ?? "Show in canvas"} />
+        </article>;
+      })}
+    </div>
+  </>;
+}
+
 export function Studio({
+  open = true,
+  compact = true,
+  destination,
   onClose,
-  onViewImage,
   onAttach,
   onDraft,
+  target,
 }: {
+  open?: boolean;
+  compact?: boolean;
+  destination?: MaterialDestination;
   onClose: () => void;
-  onViewImage?: () => void;
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
+  target?: MaterialTarget | null;
 }) {
   const { busy, error, setError, perform } = useOperation();
-  const [tab, setTab] = useState("discover");
+  const [tab, setTab] = useState<MaterialDestination>("discover");
   const generation = useUI((s) => s.documentGeneration);
-  const [visited, setVisited] = useState<string[]>([]);
-  useEffect(() => { setVisited([tab]); }, [generation]);
-  function showTab(value: string) {
+  const [visited, setVisited] = useState<MaterialDestination[]>(["discover"]);
+  const scroll = useRef<HTMLDivElement>(null);
+  const scrollPositions = useRef(new Map<MaterialDestination, number>());
+  function showTab(value: MaterialDestination) {
+    if (value !== tab && scroll.current) scrollPositions.current.set(tab, scroll.current.scrollTop);
     setTab(value);
     setVisited((previous) => previous.includes(value) ? previous : [...previous, value]);
     setError("");
@@ -67,19 +147,19 @@ export function Studio({
   const [expression, setExpression] = useState("");
   const [sameSubject, setSameSubject] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [sheet, setSheet] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [searchHealth, setSearchHealth] = useState<Record<string, ResponseSourceHealth>>({});
   const [link, setLink] = useState("");
   const [filter, setFilter] = useState("");
   const [name, setName] = useState("");
   const [tags, setTags] = useState("");
-  const [branchName, setBranchName] = useState("");
-  const [fromStep, setFromStep] = useState("");
   const [editing, setEditing] = useState<LibraryEntry | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const { data: session } = useSession();
-  const { entries: library, controls: libraryPages } = useLibraryPage(filter);
-  const { data: branches } = useCoreQuery("branches.list");
+  const { entries: library, controls: libraryPages } = useLibraryPage(filter,
+    target && tab === "characters" ? ["cast"] : []);
+  const project = session?.context?.document_incarnation ?? session?.id;
+  const layoutDraftOwner = `${project ?? ""}:${session?.context?.branch_id ?? ""}`;
   const { data: sources = [], error: sourceError } = useCoreQuery("sources.status");
   useEffect(() => {
     if (sources.length && source !== "all" && !sources.some((item) => item.id === source && item.configured))
@@ -96,49 +176,152 @@ export function Studio({
       .reverse()
       .find((s) => s.outputs.length)?.outputs[0] ??
     Object.keys(session?.artifacts ?? {})[0];
-  useEffect(() => {
+  const previousProject = useRef(project);
+  useLayoutEffect(() => {
+    if (previousProject.current === project) return;
+    previousProject.current = project;
+    setTab("discover");
+    setVisited(["discover"]);
+    setQuery("");
+    setSource("all");
+    setPurpose("subject");
+    setMaterial("photo");
+    setPose("");
+    setExpression("");
+    setSameSubject(false);
     setCandidates([]);
-    setSheet(null);
     setNotes("");
-  }, [session?.id]);
-  const disabled = busy || !ready || !!session?.turn_running;
+    setSearchHealth({});
+    setLink("");
+    setFilter("");
+    setName("");
+    setTags("");
+    setEditing(null);
+    setConfirmRemove(null);
+    scrollPositions.current.clear();
+  }, [project]);
+  const disabled = busy || !ready || session?.turn_running || session?.batch_running;
 
-  async function acquire(params: Params) {
-    const step = await action("tools.run", { tool: "acquire", params });
-    if (step.status !== "done" || !step.outputs[0])
-      throw new Error(
-        [step.error?.message ?? "The image could not be imported.", step.error?.hint]
-          .filter(Boolean)
-          .join(" "),
-      );
-    onAttach(step.outputs[0]);
-    useUI.getState().set({
-      selectedArtifact: step.outputs[0],
-      notice: "Image added to your session and attached to chat",
+  const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const browser = useRef<object | null>(null);
+  const currentTarget = useRef(target);
+  currentTarget.current = target;
+  useLayoutEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (!open) {
+      if (node.open) node.close();
+      const previous = opener.current;
+      opener.current = null;
+      if (previous) requestAnimationFrame(() => {
+        if (!dialog.current?.open && previous.isConnected) previous.focus({ preventScroll: true });
+      });
+      return;
+    }
+    if (!opener.current && document.activeElement instanceof HTMLElement)
+      opener.current = document.activeElement;
+    if (node.open && node.matches(":modal") === compact) return;
+    if (node.open) node.close();
+    if (compact) node.showModal();
+    else node.show();
+    heading.current?.focus({ preventScroll: true });
+  }, [open, compact]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    browser.current = {};
+    const next = destination && (!target || selectionDestinations.includes(destination))
+      ? destination : target ? "project" : undefined;
+    if (next) showTab(next);
+    if (target?.purpose) setPurpose(target.purpose);
+    setError("");
+    return () => { browser.current = null; };
+  }, [open, destination, target, project]);
+  useLayoutEffect(() => {
+    if (!open || !scroll.current) return;
+    scroll.current.scrollTop = scrollPositions.current.get(tab) ?? 0;
+  }, [open, tab, compact]);
+
+  function closeBrowser() {
+    if (scroll.current) scrollPositions.current.set(tab, scroll.current.scrollTop);
+    browser.current = null;
+    onClose();
+  }
+
+  function beginImport(): ImportIntent {
+    const revision = queries.getQueryData<Session>(["session.get"])?.document_revision;
+    if (!browser.current || revision === undefined || (target && !target.isCurrent(revision)))
+      throw new Error("The edit target changed. Close Materials and reopen the current selection.");
+    return { revision, browser: browser.current, target, generation };
+  }
+
+  function stillBrowsing(intent: ImportIntent) {
+    return browser.current === intent.browser && currentTarget.current === intent.target &&
+      useUI.getState().documentGeneration === intent.generation;
+  }
+
+  function pickProjectPicture(id: string) {
+    void perform(async () => {
+      beginImport();
+      if (target) {
+        target.assign(id);
+        closeBrowser();
+      } else {
+        onAttach(id);
+        if (compact) closeBrowser();
+      }
     });
   }
-  async function search(variation = "balanced", candidate?: Candidate) {
-    const step = await action("tools.run", {
-      tool: "discover",
+
+  async function importMaterial(
+    load: (revision: number, operationId: string) => Promise<ImportResult>,
+    intent = beginImport(),
+  ) {
+    const operationId = crypto.randomUUID().replaceAll("-", "");
+    try {
+      const result = await load(intent.revision, operationId);
+      if (!stillBrowsing(intent)) return;
+      if (target) {
+        if (result.operation_id !== operationId) throw new Error("The import result could not be matched to this edit.");
+        target.assign(result.working.id, result);
+        closeBrowser();
+      } else {
+        onAttach(result.working.id);
+        useUI.getState().set({ notice: "Picture added to Materials." });
+      }
+    } catch (error) {
+      if (!stillBrowsing(intent)) return;
+      if (error instanceof Error && "operationId" in error) showError(error);
+      throw error;
+    }
+  }
+
+  function acquire(params: AcquireParams) {
+    return importMaterial((expected_revision, operationId) =>
+      action("materials.acquire", { params, expected_revision }, { operationId }));
+  }
+
+  async function search(variation: DiscoverParams["variation"] = "balanced", candidate?: Candidate) {
+    const result = await action("materials.discover", {
       params: {
-        query: query || candidate?.title,
-        source: sources.some((item) => item.id === source && item.configured) ? source : "all",
-        purpose,
-        material,
+        query: query || candidate?.title || "",
+        source: (sources.some(item => item.id === source && item.configured) ? source : "all") as DiscoverParams["source"],
+        purpose: purpose as DiscoverParams["purpose"],
+        material: material as DiscoverParams["material"],
         n: 8,
         ...(candidate ? { reference_url: candidate.thumbnail || candidate.url } : {}),
         ...(pose.trim() ? { pose: pose.trim() } : {}),
         ...(expression.trim() ? { expression: expression.trim() } : {}),
         same_subject: sameSubject,
         variation,
-        ...(variation === "different" ? { exclude_urls: candidates.map((c) => c.url) } : {}),
+        ...(variation === "different" ? { exclude_urls: candidates.map(c => c.url) } : {}),
       },
     });
-    if (step.status !== "done")
-      throw new Error([step.error?.message ?? "Search failed.", step.error?.hint].filter(Boolean).join(" "));
-    setCandidates((step.data?.candidates ?? []) as Candidate[]);
-    setSheet(step.outputs[0] ?? null);
-    setNotes(step.result_text);
+    if (useUI.getState().documentGeneration !== generation) return;
+    setCandidates(result.candidates as Candidate[]);
+    setSearchHealth(result.source_health);
+    setNotes((result.warnings ?? []).join("\n"));
   }
   const tagList = () =>
     tags
@@ -146,42 +329,52 @@ export function Studio({
       .map((t) => t.trim())
       .filter(Boolean);
   return (
-    <div className="modal-backdrop">
-      <section className="modal studio" role="dialog" aria-modal="true" aria-labelledby="studio-title">
+    <dialog className="modal studio materials-dialog materials-pane" ref={dialog}
+      data-docked={!compact} aria-modal={compact || undefined} aria-labelledby="studio-title"
+      onCancel={event => { event.preventDefault(); closeBrowser(); }}
+      onKeyDown={event => {
+        if (!compact && event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeBrowser();
+        }
+      }}>
         <div className="modal-heading">
           <div>
-            <h2 id="studio-title">Images & directions</h2>
-            <p>Find material, keep your favorites, and try another take.</p>
+            <h2 id="studio-title" ref={heading} tabIndex={-1}>{target?.label ?? "Materials"}</h2>
           </div>
-          <button aria-label="Close images and directions" onClick={onClose}>
+          <button type="button" aria-label="Close materials" onClick={closeBrowser}>
             <ThemeIcon name="close" size={18} />
           </button>
         </div>
-        <nav className="studio-tabs" aria-label="Images and directions">
-          {([
-            ["Find", [["discover", "Find images"], ["local", "Clips, pages & folders"]]],
-            ["Reuse", [["library", "Junk drawer"], ["layouts", "Layouts & packs"], ["recent", "Recent choices"]]],
-            ["Create", [["retro", "Retro workbench"], ["ideas", "Idea mixer"], ["branches", "Branches"],
-              ["sheets", "Sprite sheets"], ["pairs", "Image pairs"]]],
-          ] as const).map(([label, tabs]) => (
-            <div key={label} className="studio-tab-group" role="group" aria-label={label}>
-              <span>{label}</span>
-              <div>
-                {tabs.map(([id, title]) => (
-                  <Button key={id} aria-pressed={tab === id} onClick={() => showTab(id)} label={title} />
-                ))}
+        <div className="materials-scroll" ref={scroll} onScroll={event => {
+          if (open) scrollPositions.current.set(tab, event.currentTarget.scrollTop);
+        }}>
+        <nav className="studio-tabs" aria-label="Material destinations">
+          {materialDestinations.map(([label, tabs]) => {
+            const available = tabs.filter(([id]) => !target || selectionDestinations.includes(id));
+            return available.length ? (
+              <div key={label} className="studio-tab-group" role="group" aria-label={label}>
+                <span>{label}</span>
+                <div>
+                  {available.map(([id, title]) => <Button key={id} type="button"
+                    aria-pressed={tab === id} onClick={() => showTab(id)} label={title} />)}
+                </div>
               </div>
-            </div>
-          ))}
+            ) : null;
+          })}
         </nav>
         {error && (
           <p className="error-banner" role="alert">
             {error}
           </p>
         )}
-        {session?.turn_running && <p>Stop the agent before changing images or branches.</p>}
-        {tab === "discover" && (
-          <>
+        {session?.turn_running && <p>Stop the agent before changing images.</p>}
+        {visited.includes("project") && <div hidden={tab !== "project"}>
+          <ProjectPictures key={project} session={session} target={target} disabled={!!disabled} onSelect={pickProjectPicture} />
+        </div>}
+        {visited.includes("discover") && (
+          <div hidden={tab !== "discover"}>
             <p className="muted">
               {[
                 ["pexels", "Photos provided by Pexels", "https://www.pexels.com/"],
@@ -213,15 +406,17 @@ export function Studio({
                   </tr>
                 </thead>
                 <tbody>
-                  {sources.map((item) => (
-                    <tr key={item.id}>
+                  {sources.map(item => {
+                    const health = searchHealth[item.id] ?? item.health;
+                    const measuredAt = health?.step_id ? ` (Step ${health.step_id})` : "";
+                    return <tr key={item.id}>
                       <td>{item.name}</td>
                       <td>{item.configured ? "Configured" : "Needs configuration"}</td>
-                      <td>{item.health?.status === "responded" ? `Responded · ${item.health.results} results (${item.health.step_id})`
-                        : item.health?.status === "failed" ? `Failed (${item.health.step_id})` : "Not checked"}</td>
+                      <td>{health?.status === "responded" ? `Responded · ${health.results} results${measuredAt}`
+                        : health?.status === "failed" ? `Failed${measuredAt}` : "Not checked"}</td>
                       <td>{item.env_var ? <code>{item.env_var}</code> : "No key needed"}</td>
-                    </tr>
-                  ))}
+                    </tr>;
+                  })}
                 </tbody>
               </table>
               <p>
@@ -293,15 +488,6 @@ export function Studio({
                 </div>
               </details>
             </form>
-            {sheet && (
-              <div className="studio-sheet">
-                <ArtifactThumb
-                  id={sheet}
-                  label="Candidate contact sheet"
-                  onClick={() => useUI.getState().set({ selectedArtifact: sheet })}
-                />
-              </div>
-            )}
             {!!candidates.length && (
               <div className="studio-grid">
                 {candidates.map((c, i) => {
@@ -333,7 +519,7 @@ export function Studio({
                               }),
                             )
                           }
-                          label="Use image"
+                          label={target?.actionLabel ?? target?.label ?? "Add to Materials"}
                         />
                         <Button
                           disabled={disabled}
@@ -384,10 +570,10 @@ export function Studio({
               />
               <Button disabled={disabled || !link.trim()} label="Import selected web image" />
             </form>
-          </>
+          </div>
         )}
-        {tab === "library" && (
-          <>
+        {(visited.includes("library") || (target && visited.includes("characters"))) && (
+          <div hidden={tab !== "library" && !(target && tab === "characters")}>
             <form
               className="studio-form"
               onSubmit={(e) => {
@@ -471,19 +657,9 @@ export function Studio({
                     <div className="studio-actions">
                       <Button
                         disabled={disabled}
-                        onClick={() =>
-                          void perform(async () => {
-                            const result = await action("library.import", {
-                              id: entry.id,
-                            });
-                            onAttach(result.working.id);
-                            useUI.getState().set({
-                              selectedArtifact: result.working.id,
-                              notice: `${entry.name} attached to chat`,
-                            });
-                          })
-                        }
-                        label="Use image"
+                        onClick={() => void perform(() => importMaterial((expected_revision, operationId) =>
+                          action("library.import", { id: entry.id, expected_revision }, { operationId })))}
+                        label={target?.actionLabel ?? target?.label ?? "Add to Materials"}
                       />
                       <Button
                         disabled={disabled}
@@ -517,91 +693,23 @@ export function Studio({
                   </article>
                 ))}
             </div>
-          </>
+          </div>
         )}
-        {tab === "branches" && (
-          <>
-            <p>
-              Each branch keeps its own images, chat, and editable steps. Switching preserves your current
-              work; save the project to keep every branch together.
-            </p>
-            <form
-              className="studio-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void perform(async () => {
-                  await action("branches.create", {
-                    name: branchName,
-                    ...(fromStep ? { from_step: fromStep } : {}),
-                    expected_revision: session?.document_revision,
-                  });
-                  setBranchName("");
-                  setFromStep("");
-                });
-              }}
-            >
-              <InputField
-                label="New branch name"
-                placeholder="Giant dog version"
-                required
-                bind={[branchName, setBranchName]}
-              />
-              <SelectField label="Start from" bind={[fromStep, setFromStep]}>
-                <option value="">Current state</option>
-                {session?.steps
-                  .filter((s) => s.status === "done")
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      Step {s.index}: {s.tool}
-                    </option>
-                  ))}
-              </SelectField>
-              <Button disabled={disabled || !branchName.trim()} label="Create & switch" />
-            </form>
-            <div className="studio-grid">
-              {branches?.branches.map((branch) => (
-                <article className="studio-card" key={branch.id}>
-                  {branch.preview_id && session?.artifacts[branch.preview_id] && (
-                    <ArtifactThumb id={branch.preview_id} label={directionLabel(branch.name)} />
-                  )}
-                  <strong>
-                    {directionLabel(branch.name)}
-                    {branch.id === branches.active_id ? " (current)" : ""}
-                  </strong>
-                  <small>{branch.step_count} steps</small>
-                  <Button
-                    disabled={disabled || branch.id === branches.active_id}
-                    onClick={() =>
-                      void perform(async () => {
-                        await action("branches.switch", {
-                          id: branch.id,
-                          expected_revision: session?.document_revision,
-                        });
-                      })
-                    }
-                    label="Switch to this take"
-                  />
-                </article>
-              ))}
-            </div>
-          </>
-        )}
-        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={generation} onAttach={onAttach} /></div>}
+        {!target && visited.includes("characters") && <div hidden={tab !== "characters"}>
+          <Cast key={project} image={image ?? ""} disabled={!!disabled} onUse={onAttach} />
+        </div>}
+        {visited.includes("recipes") && <div hidden={tab !== "recipes"}><RecipeStudio key={project} /></div>}
+        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={layoutDraftOwner} onAttach={onAttach} /></div>}
         {visited.includes("retro") && <div hidden={tab !== "retro"}>
           <RetroStudio
-            key={generation}
+            key={project}
             onAttach={onAttach}
             onDraft={onDraft}
-            onInspect={(id) => {
-              useUI.getState().set({ selectedArtifact: id, selectedStep: null, viewerZoom: 1 });
-              onViewImage?.();
-              onClose();
-            }}
           />
         </div>}
         {visited.includes("ideas") && <div hidden={tab !== "ideas"}>
           <IdeaMixer
-            key={generation}
+            key={project}
             onDraft={onDraft}
             onSearch={(value) => {
               setQuery(value);
@@ -611,21 +719,34 @@ export function Studio({
               setExpression("");
               setSameSubject(false);
               setCandidates([]);
-              setSheet(null);
               setNotes("");
               showTab("discover");
             }}
           />
         </div>}
         {visited.includes("sheets") && <div hidden={tab !== "sheets"}>
-          <SpriteSheet key={generation} onAttach={onAttach} />
+          <SpriteSheet key={project} onAttach={onAttach} />
         </div>}
-        {visited.includes("local") && <div hidden={tab !== "local"}><LocalMedia key={generation} onAttach={onAttach} /></div>}
+        {visited.includes("local") && <div hidden={tab !== "local"}>
+          {target ? <div>
+            <p>Choose one picture to replace the selected slot.</p>
+            <button type="button" disabled={!native || disabled} onClick={() => void perform(async () => {
+              const intent = beginImport();
+              const paths = await pickImages();
+              const path = paths?.[0];
+              if (!path || !stillBrowsing(intent)) return;
+              if (paths.length !== 1) throw new Error("Choose one picture for this slot.");
+              await importMaterial((expected_revision, operationId) =>
+                action("artifacts.import", { path, expected_revision }, { operationId }), intent);
+            })}>Choose local picture</button>
+            {!native && <p>Open the desktop app to use the file picker here, or choose a picture from My library.</p>}
+          </div> : <LocalMedia key={project} onAttach={onAttach} />}
+        </div>}
         {visited.includes("pairs") && <div hidden={tab !== "pairs"}>
-          <ImagePairs key={generation} onAttach={onAttach} />
+          <ImagePairs key={project} onAttach={onAttach} />
         </div>}
-        {visited.includes("recent") && <div hidden={tab !== "recent"}><RecentChoices key={generation} /></div>}
-      </section>
-    </div>
+        {visited.includes("recent") && <div hidden={tab !== "recent"}><RecentChoices key={project} /></div>}
+        </div>
+    </dialog>
   );
 }

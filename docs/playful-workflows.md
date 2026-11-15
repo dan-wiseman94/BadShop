@@ -32,7 +32,7 @@ Recipes live in the project; save the `.badshop` file to retain them.
 
 ## Pass the edit on
 
-In **Export → Let someone remix this**, inspect every included picture. Export creates
+In **Share → Editable remix**, inspect every included picture. Export creates
 a new `.badshop` file in the configured output folder. It contains the selected result
 and the local edits and images needed to recreate it, without conversations, other
 branches, original photo containers or filenames. Source credits are opt-in and shown

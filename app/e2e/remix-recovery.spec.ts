@@ -33,11 +33,11 @@ project.save(s, Path(sys.argv[2]))
   const saved = await emptyCore.call("session.get") as Session;
   const output = saved.steps[0].outputs[0];
   const pixels = await emptyCore.call("artifacts.get", { id: output }) as { data: string };
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByText("Let someone remix this", { exact: true }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByText("Editable remix", { exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("custom font");
   await expect(page.getByRole("button", { name: "Save editable remix" })).toBeDisabled();
-  await page.getByRole("button", { name: "Save image file", exact: true }).click();
+  await page.getByRole("button", { name: "Save image", exact: true }).click();
   const status = page.getByRole("status").filter({ hasText: "Exported to " });
   await expect(status).toBeVisible();
   expect(await readFile((await status.innerText()).replace("Exported to ", "").trim())).toEqual(Buffer.from(pixels.data, "base64"));

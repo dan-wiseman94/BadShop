@@ -97,14 +97,3 @@
   height: 65px;
   object-fit: contain;
 }
-.retro-compare {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-.retro-compare img {
-  width: 100%;
-  height: 260px;
-  object-fit: contain;
-  image-rendering: pixelated;
-}

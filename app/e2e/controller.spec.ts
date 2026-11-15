@@ -105,6 +105,10 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
     .fill("Deep fry Lincoln.");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByText("Your call", { exact: true })).toBeVisible();
+  const waiting = await core.call("session.get") as Session;
+  await page.getByRole("button", { name: "Preview proposal", exact: true }).click();
+  await expect(page.getByAltText("Proposed result 1")).toBeVisible();
+  expect(await core.call("session.get")).toEqual(waiting);
   await page.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(
     page.getByText("The pixels are thoroughly questionable."),
@@ -114,6 +118,7 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await expect(
     steps.getByRole("button", { name: "Apply & replay" }),
   ).toBeVisible();
+  await steps.getByText("Advanced controls", { exact: true }).click();
   const seed = steps.getByLabel("Seed", { exact: false });
   await seed.fill("11");
   await steps.getByRole("button", { name: "Apply & replay" }).click();
@@ -131,7 +136,7 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   ).toHaveAttribute("aria-pressed", "true");
   const project = path.join(core.folder, "test.badshop");
   page.once("dialog", (dialog) => dialog.accept(project));
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await core.call("session.get") as Session).unsaved_changes).toBe(false);
   expect((await readFile(project)).length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
@@ -144,8 +149,8 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await expect(
     steps.getByRole("button").filter({ hasText: "info" }).first(),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file" }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image" }).click();
   await expect(page.getByRole("status")).toContainText("Exported to");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Untitled" }).click();
@@ -168,6 +173,12 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   await page.screenshot({
     path: test.info().outputPath("badshop.png"),
   });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption("classic");
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await expect(page.getByText("The pixels are thoroughly questionable.")).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("classic-conversation.png") });
   const errors = await page.evaluate(
     () => document.querySelectorAll(".error-banner").length,
   );
@@ -244,7 +255,7 @@ test("cloud provider presets save an editable model and the selected key environ
     api_key_ref: null,
     api_base: null,
   })]);
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Edit", exact: true }).click();
   await expect(model).toHaveValue("openrouter/google/gemini-3.8-flash");
   await expect(keyEnv).toHaveValue("OPENROUTER_API_KEY");
 });
@@ -453,8 +464,8 @@ test("exports the output of an older selected step", async ({ page, core }) => {
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.locator(".step").first().click();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file" }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image" }).click();
   await expect(page.getByRole("status")).toContainText("Exported to");
   const file = await page.getByRole("status").innerText();
   const exportedPath = file.replace("Exported to ", "").trim();
@@ -465,8 +476,8 @@ test("exports the output of an older selected step", async ({ page, core }) => {
   expect((await readFile(exportedPath)).toString("base64")).toBe(expected.data);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Before", exact: true }).click();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file" }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image" }).click();
   const original = (await core.call("artifacts.get", { id: image })) as { data: string };
   await expect.poll(async () => {
     const notice = await page.getByRole("status").innerText();
@@ -492,14 +503,15 @@ test("changes a profile from CLI to local and back without incompatible fields",
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Provider type").selectOption("local");
   await page.getByLabel("Model", { exact: true }).fill("ollama_chat/llava");
   await page.getByLabel("Credential storage").selectOption("environment");
   await page.getByLabel("Environment variable name").fill("TEST_MODEL_KEY");
   await page.getByRole("button", { name: "Save provider" }).click();
   await expect(page.getByText("Switchable", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await settings.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Provider type").selectOption("cli");
   await page.getByRole("button", { name: "Save provider" }).click();
   await expect(page.getByText("Switchable", { exact: true })).toBeVisible();

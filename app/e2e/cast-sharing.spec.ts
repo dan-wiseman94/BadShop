@@ -74,7 +74,7 @@ test("edited cast collections transfer to a fresh profile and removal keeps proj
     expect((await recipient.call("session.get") as Session).artifacts).toEqual(imported.artifacts);
     const project = path.join(recipient.folder, "kept-pictures.badshop");
     page.once("dialog", dialog => dialog.accept(project));
-    await page.getByRole("button", { name: "Save session", exact: true }).click();
+    await page.getByRole("button", { name: "Save project", exact: true }).click();
     await expect.poll(async () => (await recipient.call("session.get") as Session).unsaved_changes).toBe(false);
     await recipient.call("session.open", { path: project });
     for (const id of Object.keys(imported.artifacts)) {

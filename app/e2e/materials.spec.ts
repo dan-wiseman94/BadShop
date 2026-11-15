@@ -8,7 +8,7 @@ async function setup(page: import("@playwright/test").Page, core: { port: number
   await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
+  await page.getByRole("button", { name: "Materials", exact: true }).click();
 }
 
 test("real layouts, installed asset packs, and image pair composition stay editable", async ({ page, core }) => {
@@ -60,7 +60,7 @@ test("bundled PDF preview imports the selected page region and persists its byte
   const source = path.join(core.folder, "pages.pdf");
   execFileSync(python, ["-c", "from PIL import Image; import sys; Image.new('RGB',(80,60),'red').save(sys.argv[1],format='PDF',save_all=True,append_images=[Image.new('RGB',(80,60),'blue')])", source]);
   await setup(page, core);
-  await page.getByRole("button", { name: "Clips, pages & folders" }).click();
+  await page.getByRole("button", { name: "Local files and clips" }).click();
   await page.getByRole("button", { name: "Pages / scans" }).click();
   await page.getByLabel("Selected source file").fill(source);
   await page.getByLabel("Page number", { exact: true }).fill("2");
@@ -105,7 +105,7 @@ test("one file input routes pictures and clips and cancelling pending pages reta
   await dialog.getByRole("button", { name: "Preview source", exact: true }).click();
   await dialog.getByRole("checkbox", { name: "Select At 0.000s", exact: true }).check();
   await dialog.getByRole("button", { name: "Import selected frames", exact: true }).click();
-  await expect(dialog.getByText(/image\(s\) added to chat/)).toBeVisible();
+  await expect(dialog.getByText(/image\(s\) added to Materials/)).toBeVisible();
   const before = await emptyCore.call("session.get") as Session;
   const imported = Object.values(before.artifacts).find(item => item.source?.kind === "local-media")!;
   expect(imported.width).toBe(80);
@@ -143,17 +143,16 @@ test("private screen capture can be cancelled or cropped and annotated before re
   await dialog.getByLabel("Crop right").fill("100");
   await dialog.getByLabel("Crop bottom").fill("80");
   await dialog.getByRole("button", { name: "Import selected region", exact: true }).click();
-  await expect(dialog.getByText(/image\(s\) added to chat/)).toBeVisible();
+  await expect(dialog.getByText(/image\(s\) added to Materials/)).toBeVisible();
   await dialog.getByRole("button", { name: "Done / next file", exact: true }).click();
   const before = await emptyCore.call("session.get") as Session;
   const cropped = Object.values(before.artifacts).find(image => image.source?.kind === "screen-capture")!.id;
   expect(Object.keys(before.artifacts)).toHaveLength(1);
   expect(before.artifacts[cropped].original_id).toBeNull();
   expect([before.artifacts[cropped].width, before.artifacts[cropped].height]).toEqual([100, 80]);
-  const manual = viewer.locator("details.manual-tools");
-  await manual.locator("summary").click();
-  await manual.getByRole("button", { name: "Text", exact: true }).click();
-  await manual.getByRole("textbox", { name: /^Text/ }).fill("Look here");
+  await page.getByRole("navigation", { name: "Edit tools" }).getByRole("button", { name: "Text", exact: true }).click();
+  const manual = page.getByRole("region", { name: "Text", exact: true });
+  await manual.getByRole("textbox", { name: /^Exact caption/ }).fill("Look here");
   await manual.getByRole("button", { name: "Apply text", exact: true }).click();
   await expect.poll(async () => {
     const step = (await emptyCore.call("session.get") as Session).steps.at(-1);
@@ -177,7 +176,7 @@ test("local GIF frames, scanned regions and indexed folders import only selected
   const clip = path.join(core.folder, "reaction.gif");
   execFileSync(python, ["-c", "from PIL import Image; import sys; a=Image.new('RGB',(80,60),'red'); b=Image.new('RGB',(80,60),'blue'); a.save(sys.argv[1],save_all=True,append_images=[b],duration=200,loop=0)", clip]);
   await setup(page, core);
-  await page.getByRole("button", { name: "Clips, pages & folders" }).click();
+  await page.getByRole("button", { name: "Local files and clips" }).click();
   await page.getByLabel("Selected source file").fill(clip);
   await page.getByRole("button", { name: "Preview source", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: /Frame 1/ })).toBeVisible();
@@ -185,7 +184,7 @@ test("local GIF frames, scanned regions and indexed folders import only selected
   await page.getByRole("checkbox", { name: /Frame 2/ }).check();
   await page.getByLabel("Make an animated sequence").check();
   await page.getByRole("button", { name: "Import selected frames" }).click();
-  await expect(page.getByText(/image\(s\) added to chat/)).toBeVisible();
+  await expect(page.getByText(/image\(s\) added to Materials/)).toBeVisible();
   expect((await core.call("session.get") as Session).steps.at(-1)?.tool).toBe("animate");
   await page.getByRole("button", { name: "Pages / scans" }).click();
   await page.getByLabel("Selected source file").fill(path.join(folder, "president.png"));
@@ -194,7 +193,8 @@ test("local GIF frames, scanned regions and indexed folders import only selected
   await page.getByLabel("Crop right").fill("40");
   await page.getByLabel("Crop bottom").fill("30");
   await page.getByRole("button", { name: "Import selected region" }).click();
-  await expect(page.getByText(/image\(s\) added to chat/)).toBeVisible();
+  await expect(page.getByText(/image\(s\) added to Materials/)).toBeVisible();
+  await expect(page.locator(".attachments img")).toHaveCount(0);
   expect(Object.values((await core.call("session.get") as Session).artifacts).some(image => image.width === 40 && image.height === 30)).toBe(true);
   await page.getByRole("button", { name: "My folders" }).click();
   await page.getByLabel("Selected folder").fill(folder);

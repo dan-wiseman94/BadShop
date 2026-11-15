@@ -80,6 +80,10 @@ class ApprovalGate:
         fut.set_result(Decision(decision, params, note))
         self._emit("approval.resolved", {"step_id": step_id, "decision": decision, "note": note})
 
+    def waiting_step(self, step_id: str) -> Step | None:
+        entry = self._waiting.get(step_id)
+        return entry[0] if entry and not entry[1].done() else None
+
     def pending(self) -> list[str]:
         return [step_id for step_id, (_, fut) in self._waiting.items() if not fut.done()]
 

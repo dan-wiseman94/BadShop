@@ -20,6 +20,7 @@ from pydantic import TypeAdapter, ValidationError
 from PIL.PngImagePlugin import PngInfo
 
 from badshop import atomic, files
+from badshop.engine import manifest
 from badshop.engine.errors import EngineError
 from badshop.engine.result import Output
 from badshop.engine.types import FileName
@@ -313,6 +314,13 @@ class Session:
             self.step(sid)  # an unknown step id is this clean error
         return Message(id=self._next_id("m"), role=role, content=content, step_ids=list(step_ids))
 
+    def _discovery_params(self, raw: dict) -> dict:
+        defaults = getattr(self, 'source_defaults', {})
+        params = {**defaults, **raw}
+        if allowed := defaults.get('allow_sources'):
+            params['allow_sources'] = allowed
+        return params
+
     # the step lifecycle: propose -> run (done | error) or reject
 
     def propose(self, tool: str, raw: dict, actor: str, reason: str | None = None, *,
@@ -326,11 +334,8 @@ class Session:
             raw = {**defaults, **raw}
         if tool == 'animate_sticker':
             raw = {'delay': self.data.creative.animation_delay, **raw}
-        if tool == 'discover' and getattr(self, 'source_defaults', None):
-            raw = {**self.source_defaults, **raw}
-            allowed = self.source_defaults.get('allow_sources', [])
-            if allowed:
-                raw['allow_sources'] = allowed
+        if tool == 'discover':
+            raw = self._discovery_params(raw)
         checked = runner.validate(tool, raw, actor)
         params = self._resolved(checked)
         if visible_only:
@@ -413,11 +418,14 @@ class Session:
         return step
 
     def _execute(self, step: Step, cancel: threading.Event | None = None, *,
-                 replay: bool = False, user_edited: bool = False) -> Step:
+                 replay: bool = False, user_edited: bool = False, local_only: bool = False) -> Step:
         """Run a step's tool on its stored params and record the outcome. Never raises for a tool's
         failure: an EngineError, a crash, a killed worker or a stop (`cancel`, set by the caller) is a
         failed step with a clean error."""
         stem = self._stem(step)
+        if replay:
+            # The running autosave must retain the pixels named by output_ports.
+            step.previous_outputs = list(step.outputs or step.previous_outputs)
         step.status, step.started_at, step.finished_at = "running", time.time(), None
         step.outputs, step.result_text, step.data, step.error = [], "", None, None
         step.cache_key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
@@ -446,7 +454,7 @@ class Session:
                 inputs = self._inputs(step)
                 trusted = netpolicy.typed_urls(step.tool, step.params, actor)
                 call = ToolCall(step.tool, step.params, inputs, stem, trusted_urls=trusted,
-                                guard_network=True, no_remote=getattr(self, 'no_remote', False),
+                                guard_network=True, no_remote=local_only or getattr(self, 'no_remote', False),
                                 catalogue_font=replay or (not user_edited and not runner.is_trusted(actor)))
                 outcome = self.executor.run(call, cancel=cancel)  # the caller's stop goes with its call
             if outcome.ok and len(set(_output_keys(outcome))) != len(outcome.outputs):
@@ -461,6 +469,7 @@ class Session:
         step.data = {k: v for k, v in outcome.data.items() if k != "sources"} or None
         if outcome.ok:
             step.status, step.outputs = "done", outputs
+            step.previous_outputs = []
             ports = dict(zip(_output_keys(outcome), outputs, strict=True))
             legacy = {f'legacy:{i}': key for i, key in enumerate(_output_keys(outcome))}
             if any(key.startswith('legacy:') for key in step.output_ports):
@@ -631,6 +640,91 @@ class Session:
         self._refuse_later(step, pos, params)
         return params
 
+    @staticmethod
+    def _local_refusal(tool: str) -> tuple[str, str] | None:
+        spec = registry.get(tool)
+        if spec.writes_files:
+            return "file_write", "writes files"
+        if spec.network:
+            return "network_step", "requires network access"
+        return None
+
+    @staticmethod
+    def _missing_preview_asset(tool: str, params: dict) -> str | None:
+        if tool != "cutout" or params.get("no_ai") or params.get("oval"):
+            return None
+        model = params.get("model", "u2net")
+        asset = next((item for item in manifest.ASSETS if item.rembg_model == model), None)
+        if asset is not None and not manifest.is_present(asset):
+            return f"Install the {model} background-removal model in Settings → Assets to preview this cutout."
+        return None
+
+    def _final_preview_refusal(self, step_id: str, params: dict) -> tuple[str, str] | None:
+        if len(self.data.steps[self._position(step_id):]) > 60:
+            return "operation_limit", "Final preview is limited to 60 operations."
+        if self.local_replay_blocker(step_id) is not None:
+            return "network_step", "Final preview requires local steps without file writes."
+        for step in self._replay_suffix(step_id, include_target=True):
+            if not step.bypassed:
+                missing = self._missing_preview_asset(step.tool, params if step.id == step_id else step.params)
+                if missing:
+                    return "missing_asset", missing
+        return None
+
+    def plan_preview(self, raw: dict, scope: str, *, step_id: str | None, tool: str | None) -> dict:
+        """Describe the local preview and Apply paths without executing a tool."""
+        plan = {"eligible": False, "scope": "step", "later_steps": 0, "can_apply_local": False}
+
+        def refuse(reason, message):
+            return {**plan, "reason": reason, "message": message}
+
+        try:
+            self._refuse_busy(self.data.steps)
+        except EngineError as error:
+            return refuse("busy", error.message)
+        if step_id is not None:
+            try:
+                step = self.step(step_id)
+            except EngineError as error:
+                return refuse("missing_target", error.message)
+            tool = step.tool
+            if step.bypassed:
+                return refuse("bypassed", "Enable this effect before previewing its settings.")
+        try:
+            refusal = self._local_refusal(tool)
+            if refusal:
+                reason, detail = refusal
+                return refuse(reason, f"This tool {detail}.")
+            if step_id is not None:
+                params = self.validate_step_params(step_id, raw)
+            else:
+                params = self._resolved(runner.validate(tool, raw, "user"))
+        except EngineError as error:
+            return refuse("invalid_params", error.message)
+        if missing := self._missing_preview_asset(tool, params):
+            return refuse("missing_asset", missing)
+        plan["eligible"] = True
+        if step_id is None:
+            return plan
+        plan["later_steps"] = sum(item.status != "rejected" for item in self.data.steps[self._position(step_id) + 1:])
+        try:
+            blocker = self.local_replay_blocker(step_id)
+        except EngineError as error:
+            return refuse("earlier_stale", error.message)
+        if blocker:
+            step, reason, detail = blocker
+            message = f"Step {step.index} ({step.tool}) {detail}."
+            return {**refuse(reason, message), "blocker": {
+                "step_id": step.id, "invocation_id": step.invocation_id, "message": message,
+            }}
+        plan["can_apply_local"] = True
+        if scope == "final":
+            refusal = self._final_preview_refusal(step_id, params)
+            if refusal:
+                return refuse(*refusal)
+            plan["scope"] = "final"
+        return plan
+
     def preview_edit(self, step_id: str, raw: dict, *, final_result: bool = False) -> list[OutputRecord]:
         """Render one local step without publishing artifacts, history or change events."""
         step = self.step(step_id)
@@ -639,16 +733,8 @@ class Session:
             raise EngineError("enable this effect before previewing its settings")
         params = self.validate_step_params(step_id, raw)
         if final_result:
-            todo = self.data.steps[self._position(step_id):]
-            if len(todo) > 60:
-                raise EngineError("final preview is limited to 60 operations")
-            for item in todo:
-                if item.status == "rejected":
-                    continue
-                spec = registry.get(item.tool)
-                if spec.network or spec.writes_files:
-                    raise EngineError("final preview requires local steps without file writes",
-                                      hint="preview this step alone instead")
+            if refusal := self._final_preview_refusal(step_id, params):
+                raise EngineError(refusal[1], hint="preview this step alone instead")
             # Own metadata and dictionaries; immutable bytes can safely be shared.
             store = self.artifacts.fork()
             try:
@@ -668,18 +754,22 @@ class Session:
         # This form also carries stored step parameters, including from shared projects.
         return self.preview_tool(step.tool, params, portable=True)
 
+    def local_preview_call(self, tool: str, params: dict, *, portable: bool = False) -> ToolCall:
+        """Capture immutable inputs for a previously validated preview."""
+        if self._local_refusal(tool):
+            raise EngineError("preview requires a local image tool")
+        params = registry.map_image_refs(registry.get(tool).params, params, self.artifacts.resolve)
+        if missing := self._missing_preview_asset(tool, params):
+            raise EngineError(missing)
+        draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
+        return ToolCall(tool, params, self._inputs(draft), self._stem(draft),
+                        guard_network=True, no_remote=True, catalogue_font=portable)
+
     def preview_tool(self, tool: str, raw: dict, *, portable: bool = False) -> list[OutputRecord]:
         """Use the existing executor for a disposable preview; never publish project state."""
         self._refuse_busy(self.data.steps)
-        spec = registry.get(tool)
-        if spec.network or spec.writes_files:
-            raise EngineError("preview requires a local image tool")
-        params = self._resolved(runner.validate(tool, raw, "replay" if portable else "user"))
-        draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
-        inputs = self._inputs(draft)
-        outcome = self.executor.run(ToolCall(
-            tool, params, inputs, self._stem(draft), guard_network=True, no_remote=True, catalogue_font=portable,
-        ))
+        params = runner.validate(tool, raw, "replay" if portable else "user").model_dump(mode="json")
+        outcome = self.executor.run(self.local_preview_call(tool, params, portable=portable))
         if not outcome.ok:
             raise EngineError(outcome.error_message or "preview failed", hint=outcome.error_hint)
         return outcome.outputs
@@ -695,8 +785,13 @@ class Session:
         params = self.validate_step_params(step_id, raw)
         changed = params != step.params
         if changed:
+            saved_bindings = step.input_bindings
             step.params, step.edited = params, True
             self._bind_inputs(step)
+            # A text-only edit must still follow the previously selected output
+            # port, even when replay removed that port's current artifact.
+            step.input_bindings.update({aid: saved_bindings[aid] for aid in _image_refs(step)
+                                        if aid in saved_bindings})
         stale = [step] + [s for s in self.data.steps[pos + 1:] if s.status != "rejected"]
         for s in stale:
             s.status = "stale"
@@ -732,7 +827,25 @@ class Session:
         step.started_at = step.finished_at = time.time()
         self._emit("step.finished", step, step.outputs)
 
-    def replay_from(self, step_id: str, *, use_cache: bool = True) -> list[Step]:
+    def _replay_suffix(self, step_id: str, *, include_target: bool = False) -> list[Step]:
+        pos = self._position(step_id)
+        behind = next((s for s in self.data.steps[:pos] if s.status == "stale" or s.previous_outputs), None)
+        if behind is not None:
+            raise EngineError(f"step {behind.index} ({behind.tool}) comes first and is not up to date",
+                              hint=f"replay from step {behind.index} (if it failed, edit it first)")
+        todo = [s for s in self.data.steps[pos:]
+                if s.status != "rejected" or (include_target and s.id == step_id)]
+        self._refuse_busy(todo)
+        return todo
+
+    def local_replay_blocker(self, step_id: str) -> tuple[Step, str, str] | None:
+        # Editing revives the target even if it was previously rejected.
+        for step in self._replay_suffix(step_id, include_target=True):
+            if refusal := self._local_refusal(step.tool):
+                return step, *refusal
+        return None
+
+    def replay_from(self, step_id: str, *, use_cache: bool = True, local_only: bool = False) -> list[Step]:
         """Re-execute a step and every later step that was not rejected, in order (spec 5.3).
 
         Bound inputs follow the producing invocation's named output across re-execution.
@@ -741,13 +854,7 @@ class Session:
         step). Stops at the first failure: that step is `error`, the steps after it stay `stale`, and
         their references already follow what the steps before the failure made. Returns the steps it
         processed, run or reused, the failed one last."""
-        pos = self._position(step_id)
-        behind = next((s for s in self.data.steps[:pos] if s.status == "stale" or s.previous_outputs), None)
-        if behind is not None:  # these steps would run on inputs that are about to change
-            raise EngineError(f"step {behind.index} ({behind.tool}) comes first and is not up to date",
-                              hint=f"replay from step {behind.index} (if it failed, edit it first)")
-        todo = [s for s in self.data.steps[pos:] if s.status != "rejected"]
-        self._refuse_busy(todo)
+        todo = self._replay_suffix(step_id)
         cache = self._executions() if use_cache else {}
         fresh = [s for s in todo if s.status != "stale"]
         for s in fresh:
@@ -765,7 +872,7 @@ class Session:
                 if hit is not None and all(id in self.artifacts for id in hit.outputs):
                     self._reuse(step, hit, key)
                 else:
-                    self._execute(step, replay=True)
+                    self._execute(step, replay=True, local_only=local_only)
             except EngineError as error:
                 step.status, step.error = 'error', StepError(message=error.message, hint=error.hint)
                 step.finished_at = time.time()

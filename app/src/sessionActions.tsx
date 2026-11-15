@@ -34,7 +34,7 @@ async function snapshot() {
 }
 
 /** A user save baseline is distinct from the core's crash-recovery autosave. */
-export function useSessionActions() {
+export function useSessionActions(beforeLeaving?: () => Promise<boolean>) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const current = useRef<Pending | null>(null);
@@ -100,6 +100,7 @@ export function useSessionActions() {
   const request = useCallback(
     async (destination: Destination): Promise<boolean> => {
       if (current.current || working.current) return false;
+      if (beforeLeaving && !(await beforeLeaving())) return false;
       let session: Session;
       try {
         session = await snapshot();
@@ -124,7 +125,7 @@ export function useSessionActions() {
         setPending(item);
       });
     },
-    [replace],
+    [beforeLeaving, replace],
   );
 
   const decide = useCallback(

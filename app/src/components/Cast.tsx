@@ -11,7 +11,7 @@ import type { LibraryEntry } from "../types";
 const value = (entry: LibraryEntry, prefix: string) => entry.tags.find(tag => tag.startsWith(prefix))?.slice(prefix.length) ?? "";
 
 export function Cast({ image, disabled, onUse }: { image: string; disabled: boolean; onUse: (id: string) => void }) {
-  const { busy, error, perform } = useOperation();
+  const { busy, error, notice, setNotice, perform } = useOperation();
   const [name, setName] = useState("");
   const [expression, setExpression] = useState("");
   const [collection, setCollection] = useState("");
@@ -35,6 +35,7 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
       if (editing) await action("library.update", { id: editing.id, name: name.trim(), tags });
       else await action("library.save", { artifact_id: image, name: name.trim(), tags });
       reset();
+      setNotice("Saved in My library.");
     }); }}>
       <label>Character name<input value={name} maxLength={100} required disabled={locked} onChange={e => setName(e.target.value)} /></label>
       <label>Expression or role<input value={expression} maxLength={60} disabled={locked} onChange={e => setExpression(e.target.value)} placeholder="Triumphant, disappointed, suspicious…" /></label>
@@ -68,6 +69,7 @@ export function Cast({ image, disabled, onUse }: { image: string; disabled: bool
     })}>Export this cast collection</button>
     <button disabled={locked} onClick={() => void perform(async () => { const path = await packPath(false); if (path) await action("packs.import", { path }); })}>Import a cast pack</button>
     <p>Cast packs contain the selected pictures, available originals and source credits. Review those pictures before sharing.</p>
+    {notice && <p role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
   </section>;
 }

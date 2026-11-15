@@ -25,7 +25,7 @@ async function deepfry(page: Page) {
 
 async function save(page: Page, core: Core, filename: string) {
   page.once("dialog", dialog => dialog.accept(filename));
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await snapshot(core)).unsaved_changes).toBe(false);
   expect((await readFile(filename)).length).toBeGreaterThan(0);
 }
@@ -43,8 +43,8 @@ async function expectImage(page: Page, core: Core, id: string) {
 }
 
 async function exported(page: Page, previous = "") {
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: "Save image file", exact: true }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await page.getByRole("button", { name: "Save image", exact: true }).click();
   let filename = "";
   await expect.poll(async () => {
     const message = await page.getByRole("status").innerText();
@@ -67,6 +67,7 @@ test("manual editing, replay, a fresh process reopen and export preserve the act
   expect(before.steps[1].params.image).toBe(before.steps[0].outputs[0]);
   await page.locator(".step").first().click();
   const detail = page.locator(".step-detail");
+  await detail.getByText("Advanced controls", { exact: true }).click();
   await detail.getByLabel("Seed", { exact: false }).fill("19");
   await detail.getByRole("button", { name: "Apply & replay" }).click();
   await expect.poll(async () => {
@@ -158,6 +159,7 @@ test("replaying a selected output refreshes the canvas and exported bytes", asyn
   await detail.locator(".provenance .artifact-thumb").click();
   const oldBytes = await expectImage(page, core, before);
 
+  await detail.getByText("Advanced controls", { exact: true }).click();
   await detail.getByLabel("Seed", { exact: false }).fill("19");
   await detail.getByRole("button", { name: "Apply & replay" }).click();
   await expect.poll(async () => {
@@ -171,56 +173,112 @@ test("replaying a selected output refreshes the canvas and exported bytes", asyn
   expect((await exported(page)).bytes).toEqual(newBytes);
 });
 
-test("branch counts and previews follow timeline edits and survive reopening", async ({ page, core }) => {
+test("Versions compares stored pixels without switching and preserves renamed takes after reopen", async ({ page, core }) => {
   await page.addInitScript(() => localStorage.setItem("badshop.welcome", "1"));
+  const source = Object.keys((await snapshot(core)).artifacts)[0];
+  const first = await core.call("tools.run", {
+    tool: "deepfry", params: { image: source, seed: 7, level: 1 },
+  }) as Session["steps"][number];
   await connect(page, core);
-  await deepfry(page);
-  const first = (await snapshot(core)).steps[0];
-  const studio = page.getByRole("button", { name: "Images & directions", exact: true });
-  const closeStudio = page.getByRole("button", { name: "Close images and directions" });
-  const branches = page.getByRole("button", { name: "Branches", exact: true });
-  const take = page.locator(".studio-card").filter({ hasText: "Fried version" });
+  const original = await core.call("artifacts.get", { id: first.outputs[0] }) as { data: string };
+  const versions = page.getByRole("button", { name: "Versions", exact: true });
+  const panel = page.getByRole("dialog", { name: "Versions", exact: true });
+  const close = panel.getByRole("button", { name: "Close Versions" });
+  const take = panel.getByRole("article", { name: "Fried version", exact: true });
+  const originalTake = panel.getByRole("article", { name: "Original", exact: true });
 
-  await studio.click();
-  await branches.click();
-  await page.getByLabel("New branch name").fill("Fried version");
-  await page.getByRole("button", { name: "Create & switch" }).click();
-  await expect(take).toContainText("1 steps");
-  await expect(take.locator("img")).toHaveAttribute("src", /^(data:image|blob:)/);
-  const oldPreview = (await take.locator("img").getAttribute("src"))!;
-  await closeStudio.click();
+  await versions.click();
+  await panel.getByLabel("New take name").fill("Fried version");
+  await panel.getByRole("button", { name: "Duplicate", exact: true }).click();
+  await expect(take).toContainText("Active");
+  await expect(take).toContainText("1 step");
+  await expect(panel.getByRole("status")).toContainText("Save project to keep them on disk.");
+  await close.click();
+  await expect(versions).toBeFocused();
 
-  await deepfry(page);
-  const second = (await snapshot(core)).steps[1];
+  const second = await core.call("tools.run", {
+    tool: "deepfry", params: { image: first.outputs[0], seed: 73, level: 2 },
+  }) as Session["steps"][number];
   const expectedBytes = await expectImage(page, core, second.outputs[0]);
-  await studio.click();
-  await branches.click();
+  const secondImage = Buffer.from(expectedBytes).toString("base64");
+
+  await versions.click();
   await expect(take).toContainText("2 steps");
-  await expect(take.locator("img")).toHaveAttribute("src", /^(data:image|blob:)/);
-  await expect(take.locator("img")).not.toHaveAttribute("src", oldPreview);
-  await page.locator(".studio-card").filter({ hasText: "Original" })
-    .getByRole("button", { name: "Switch to this take" }).click();
-  await closeStudio.click();
-  await expect(page.locator(".step")).toHaveCount(1);
+  await originalTake.getByRole("checkbox", { name: "Compare", exact: true }).check();
+  await take.getByRole("checkbox", { name: "Compare", exact: true }).check();
+  const comparison = panel.getByRole("region", { name: "Take comparison" });
+  await expectImageBytes(comparison.getByRole("img", { name: "Original" }), original.data);
+  await expectImageBytes(comparison.getByRole("img", { name: "Fried version" }), secondImage);
+  await expect(comparison.getByText(/\d+ × \d+/)).toHaveCount(2);
+  expect((await snapshot(core)).steps).toEqual([first, second]);
+  await expectImageBytes(page.locator(".canvas-image"), secondImage);
+
+  await take.getByRole("button", { name: "Rename", exact: true }).click();
+  await take.getByLabel("Take name").fill("Extra crispy");
+  await take.getByRole("button", { name: "Save name", exact: true }).click();
+  const renamed = panel.getByRole("article", { name: "Extra crispy", exact: true });
+  await expect(renamed).toContainText("Active");
+  await originalTake.getByRole("button", { name: "Open take", exact: true }).click();
+  await expect(panel.getByRole("status")).toHaveText("Editing: Original");
+  await close.click();
   await expectImage(page, core, first.outputs[0]);
-  expect((await snapshot(core)).artifacts[second.outputs[0]]).toBeUndefined();
 
   const filename = path.join(core.folder, "two-takes.badshop");
-  await save(page, core, filename);
-  await page.locator(".step").first().click();
-  const detail = page.locator(".step-detail");
-  await expect(detail).toBeVisible();
-  await page.locator(".session-name").click();
-  page.once("dialog", dialog => dialog.accept(filename));
-  await page.getByRole("button", { name: /^Open session/ }).click();
-  await expect(detail).toHaveCount(0);
-  await studio.click();
-  await branches.click();
-  await take.getByRole("button", { name: "Switch to this take" }).click();
-  await closeStudio.click();
-  await expect(page.locator(".step")).toHaveCount(2);
+  await core.call("session.save_as", { path: filename });
+  expect((await readFile(filename)).length).toBeGreaterThan(0);
+  await core.call("session.open", { path: filename });
+  await page.reload();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await versions.click();
+  await expect(originalTake).toContainText("Active");
+  await renamed.getByRole("button", { name: "Open take", exact: true }).click();
+  await expect(panel.getByRole("status")).toHaveText("Editing: Extra crispy");
+  await close.click();
   expect((await snapshot(core)).steps).toEqual([first, second]);
   expect(await expectImage(page, core, second.outputs[0])).toEqual(expectedBytes);
+
+  await versions.click();
+  await originalTake.getByRole("button", { name: "Delete", exact: true }).click();
+  await originalTake.getByRole("button", { name: "Delete take", exact: true }).click();
+  await expect(originalTake).toHaveCount(0);
+  const shared = await core.call("artifacts.get", { id: first.outputs[0] }) as { data: string };
+  expect(shared.data).toBe(original.data);
+});
+
+test("Versions protects a dirty Quick ideas draft until the user chooses to discard it", async ({ page, core }) => {
+  await connect(page, core);
+  await page.getByRole("button", { name: "Start with a quick idea" }).click();
+  await page.getByRole("button", { name: /An error with no solution/ }).click();
+  await page.getByRole("button", { name: "Make this shitpost" }).click();
+  const edit = page.getByRole("textbox", { name: "Headline", exact: true });
+  await expect(edit).toBeVisible();
+  const versions = page.getByRole("button", { name: "Versions", exact: true });
+  const panel = page.getByRole("dialog", { name: "Versions", exact: true });
+  const close = panel.getByRole("button", { name: "Close Versions" });
+  await versions.click();
+  await panel.getByLabel("New take name").fill("Working copy");
+  await panel.getByRole("button", { name: "Duplicate", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("Editing: Working copy");
+  await close.click();
+  await edit.fill("Unsaved punchline");
+  const before = await snapshot(core);
+  const openOriginal = panel.getByRole("article", { name: "Original", exact: true })
+    .getByRole("button", { name: "Open take", exact: true });
+  await versions.click();
+  await openOriginal.click();
+  const decision = page.getByRole("dialog", { name: "Unsaved changes to this joke" });
+  await decision.getByRole("button", { name: "Keep editing" }).click();
+  await close.click();
+  await expect(edit).toHaveValue("Unsaved punchline");
+  expect((await snapshot(core)).context?.branch_id).toBe(before.context?.branch_id);
+
+  await versions.click();
+  await openOriginal.click();
+  await decision.getByRole("button", { name: "Discard changes" }).click();
+  await expect(panel.getByRole("status")).toContainText("Editing: Original");
+  await close.click();
+  expect((await snapshot(core)).steps).toEqual(before.steps);
+  await expect(edit).toHaveValue(String(before.steps.at(-1)?.params.title));
 });
 
 test("a failed crop can be saved, reopened and repaired without losing its dependent output", async ({ page, core }) => {

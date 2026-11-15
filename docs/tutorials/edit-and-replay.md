@@ -14,7 +14,7 @@ This tutorial runs the tools manually.*
 ## 1. Import and select a picture
 
 On first launch, **Edit a photo without AI** opens the workbench. From Quick ideas,
-choose **All tools** or **Art director / All tools**. Use **Import images**, or drop
+choose **Edit**. Use **Import images**, or drop
 a supported image into the window. Click its thumbnail if it is not already shown
 in the viewer.
 
@@ -24,7 +24,8 @@ to the working image. Enlarging an export later cannot restore discarded detail.
 
 ## 2. Run an effect twice
 
-1. Click **Run tool**, search for `deepfry`, and select it.
+1. Click **More tools**, search for `deep fry`, and select `deepfry`. You can also
+   search by task, for example `remove background`, `add words` or `resize`.
 2. Check that **Image** points to the picture you want. The selected image usually
    supplies the default. Leave the other parameters at their defaults.
 3. Click **Run tool** in the form. A `deepfry` step should finish with status **done**,
@@ -38,8 +39,8 @@ it without deleting later work.
 ## 3. Edit the first step and replay
 
 Select the first `deepfry` step in the **Steps** timeline (open **History** if it is
-hidden in Quick ideas). In its parameter form, change
-**Seed** to `19`, then click **Apply & replay**. Wait until both steps finish.
+hidden in Quick ideas). Open **Advanced controls**, change **Seed** to `19`, then
+click **Apply & replay**. Wait until both steps finish.
 
 The first effect is regenerated with that seed. The second step follows the new
 output of the first; you do not have to manually replace its image reference.
@@ -48,8 +49,10 @@ that step's input and output. **Replay from here** reruns the selected step and
 later work using the stored parameters; unchanged deterministic work may be cached.
 
 For corrections you want to inspect before committing, **Preview changes** renders
-a draft and **Cancel changes** discards it. The **Manual tools** row under the viewer
-also offers crop, resize, rotation, text and other basic edits. See
+a draft and **Cancel changes** discards it. The **Edit tools** toolbar opens
+Text, Cutout, Compose and Transform. In Compose, **Find subject** and **Find
+background** assign a picture to the corresponding field. Materials docks
+beside the canvas when space allows. See
 [manual corrections](../manual-controls.md) for preview limits, effect bypass,
 placement controls and source/wording pins.
 
@@ -65,20 +68,23 @@ for the main panels.
 | **Ctrl+S / Cmd+S** | Save the current `.badshop` project with editable steps and images |
 | **Ctrl+Shift+S / Cmd+Shift+S** | Save a separate project copy |
 | **Ctrl+O / Cmd+O** | Reopen a saved project |
-| **Export → Save image file** | Write the selected image to the output folder |
+| **Share → Save image** | Write the selected image to the output folder |
 | **Copy image** | Put the selected image on the clipboard as PNG |
 
 Save as `my-first-replay.badshop`, close and reopen it, then select the second
 step. Confirm that the first step still has Seed `19` and both outputs are present.
-Use **Export** to save the result shown in the viewer. If **Before** or an older
-step is selected, that is the image you will export. Select **After** on the final
-step when you want the final output.
+Open **Share** to check the selected image, its dimensions and the destination.
+If you select an earlier step or its **Before** image, Share uses that image.
+Select the final result when you want to share your latest work.
 
-The default output folder is **Pictures → badshop**, configurable in
-**Settings → Preferences**. Export creates a unique filename. Format or resize
-preparation can create another History result; select the prepared result before
-saving it. A copied animation is a still frame; export the animation file to keep
-motion. See [sharing formats](../compatibility.md#pictures-and-sharing).
+The default output folder is **Pictures → badshop**. **Change folder** sets the
+destination for future exports. The filename shown uses the image's label.
+BadShop adds a number when a file already has that name and reports the final path.
+
+Use **Size and format** to prepare another image. The prepared result becomes the
+Share target and is also available in History. If saving it fails, **Save image**
+retries the file write. For animations, **Copy still frame** names the copied frame
+and **Save original** keeps the animation. See [sharing formats](../compatibility.md#pictures-and-sharing).
 
 ## Recover from a mistake or interruption
 
@@ -95,5 +101,5 @@ motion. See [sharing formats](../compatibility.md#pictures-and-sharing).
   launch's recovery prompt and save the recovered project explicitly.
 
 To explore variations without repeatedly overwriting a timeline, use
-[branches in Images & directions](../image-discovery.md). To let a model propose
+[takes in Versions](../image-discovery.md). To let a model propose
 the same kinds of edits, continue with [Guide an AI art director](art-director.md).

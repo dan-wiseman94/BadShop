@@ -1,0 +1,8 @@
+.share-destination { overflow-wrap: anywhere; }
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: .5rem;
+}
+.share-actions > details[open] { flex-basis: 100%; }

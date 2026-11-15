@@ -5,12 +5,10 @@ import { useState } from "react";
 import { action, run, useCoreQuery, useSession } from "../data";
 import { useSelectedArtifact, useUI } from "../store";
 import { openLink } from "../native";
-import { ArtifactThumb } from "./Viewer";
 import { ShareImage } from "./ShareImage";
 import type { Params, Step } from "../types";
 import "../retro.css";
 import { RecipeStudio } from "./RecipeStudio";
-import { directionLabel } from "../directions";
 
 function finished(step: Step) {
   if (step.status !== "done") throw new Error(step.error?.message ?? "The tool did not finish.");
@@ -19,16 +17,13 @@ function finished(step: Step) {
 export function RetroStudio({
   onAttach,
   onDraft,
-  onInspect,
 }: {
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
-  onInspect: (id: string) => void;
 }) {
   const { busy, error, notice: message, setNotice: setMessage, perform } = useOperation();
   const { data: session } = useSession();
   const { data: styles = [], error: catalogError } = useCoreQuery("retro.list");
-  const { data: branches } = useCoreQuery("branches.list");
   const prefs = session?.creative;
   const [section, setSection] = useState("styles");
   const [filter, setFilter] = useState("");
@@ -49,7 +44,6 @@ export function RetroStudio({
   const [fryLevel, setFryLevel] = useState(2);
   const [jpegQuality, setJpegQuality] = useState(35);
   const [jpegPasses, setJpegPasses] = useState(2);
-  const [comparison, setComparison] = useState<string[]>([]);
   const chosen = useSelectedArtifact(session?.steps);
   const selectedStep = useUI((s) => s.selectedStep);
   const artifacts = Object.values(session?.artifacts ?? {});
@@ -81,7 +75,7 @@ export function RetroStudio({
   return (
     <div className="retro-studio">
       <nav aria-label="Retro workbench" className="studio-tabs">
-        {["styles", "sources", "recipes", "compare", "worse", "export"].map((id) => (
+        {["styles", "sources", "recipes", "worse", "export"].map((id) => (
           <Button
             key={id}
             aria-pressed={section === id}
@@ -383,42 +377,6 @@ export function RetroStudio({
         </>
       )}
       {section === "recipes" && <RecipeStudio />}
-      {section === "compare" && (
-        <>
-          <p>Choose up to four branch results to compare without switching the active direction.</p>
-          <div className="retro-controls">
-            {branches?.branches
-              .filter((b) => b.preview_id)
-              .map((b) => (
-                <label key={b.id}>
-                  <input
-                    type="checkbox"
-                    checked={comparison.includes(b.preview_id!)}
-                    onChange={(e) =>
-                      setComparison(
-                        e.target.checked
-                          ? [...comparison, b.preview_id!].slice(-4)
-                          : comparison.filter((id) => id !== b.preview_id),
-                      )
-                    }
-                  />
-                  {directionLabel(b.name)}
-                </label>
-              ))}
-          </div>
-          <div className="retro-compare">
-            {comparison.map((id) => (
-              <div key={id}>
-                <ArtifactThumb id={id} />
-                <Button
-                  onClick={() => onInspect(id)}
-                  label="Inspect full size"
-                />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
       {section === "worse" && (
         <>
           <p>

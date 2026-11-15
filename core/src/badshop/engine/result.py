@@ -19,6 +19,7 @@ class Output:
     duration: int | list[int] | None = None
     caption: str = ""  # printed after the path on the same line
     loop: int = 0
+    original_data: bytes | None = field(default=None, repr=False, compare=False)
 
     def ext(self) -> str:
         return EXT[self.fmt]

@@ -43,14 +43,14 @@ test("a killed core restores unsaved pixels through project home and saves a reu
     expect(restored.steps).toEqual(before.steps);
     expect(restored.unsaved_changes).toBe(true);
     expect(await recovered.call("artifacts.get", { id: output })).toEqual(pixels);
-    await expect(page.getByLabel("Revised punchline")).toBeVisible();
+    await expect(page.getByRole("form", { name: "Edit this joke" }).getByLabel(/^Caption/).first()).toBeVisible();
     const project = path.join(emptyCore.folder, "recovered.badshop");
     page.once("dialog", dialog => dialog.accept(project));
-    await page.getByRole("button", { name: "Save session", exact: true }).click();
+    await page.getByRole("button", { name: "Save project", exact: true }).click();
     await expect.poll(async () => (await recovered.call("session.get") as Session).unsaved_changes).toBe(false);
     expect((await readFile(project)).subarray(0, 2).toString()).toBe("PK");
     await page.getByRole("button", { name: "Export image", exact: true }).click();
-    await page.getByRole("button", { name: "Save image file", exact: true }).click();
+    await page.getByRole("button", { name: "Save image", exact: true }).click();
     const status = page.getByRole("status").filter({ hasText: "Exported to " });
     await expect(status).toBeVisible();
     const filename = (await status.innerText()).replace("Exported to ", "").trim();

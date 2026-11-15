@@ -89,6 +89,26 @@ def test_replay_follows_names_and_missing_output_stays_unresolved_after_reopen(t
     assert 'no longer available' in restored.step(consumer.id).error.message
 
 
+def test_editing_text_keeps_a_missing_input_port_unresolved():
+    executor = Ports()
+    session = Session.new(executor=executor)
+    source = session.import_image(png('green'), 'source.png')
+    producer = session.run_tool('filter', {'image': source.id, 'names': ['invert']}, 'user')
+    layout = session.run_tool('layout', {
+        'template': 'desktop-error', 'images': [producer.output_ports['right']], 'title': 'First',
+    }, 'user')
+    executor.names = ['left']
+    session.replay_from(producer.id, use_cache=False)
+    assert layout.status == 'error'
+    session.edit(layout.id, {**layout.params, 'title': 'Revised'})
+    session.replay_from(layout.id)
+    assert layout.status == 'error' and "'right' is no longer available" in layout.error.message
+    session.edit(layout.id, {**layout.params, 'images': [source.id]})
+    session.replay_from(layout.id)
+    assert layout.status == 'done'
+    assert layout.params['title'] == 'Revised'
+
+
 def test_acquired_members_follow_source_evidence_instead_of_search_position():
     class Acquired:
         names = ['red', 'blue']

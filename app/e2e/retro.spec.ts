@@ -10,7 +10,7 @@ test("retro catalog, persisted defaults, recipes and credited export use real co
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page
-    .getByRole("button", { name: "Images & directions", exact: true })
+    .getByRole("button", { name: "Materials", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Retro workbench", exact: true })
@@ -72,7 +72,7 @@ test("default workbench follows the desktop until an explicit skin is saved", as
   await page.screenshot({ path: test.info().outputPath("default-light-empty.png") });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
-  await page.locator(".theme-card").filter({ has: page.getByText("Dark", { exact: true }) }).click();
+  await page.locator(".theme-card").filter({ has: page.getByText("Modern-ish Dark", { exact: true }) }).click();
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   // Returning to Follow system uses the current desktop, not the previous skin.
@@ -85,8 +85,8 @@ test("default workbench follows the desktop until an explicit skin is saved", as
 });
 
 for (const [theme, name] of [
-  ["dark", "Dark"],
-  ["light", "Light"],
+  ["dark", "Modern-ish Dark"],
+  ["light", "Modern-ish Light"],
   ["classic", "Classic Desktop"],
   ["xp", "XP"],
   ["terminal", "Terminal"],
@@ -115,8 +115,21 @@ for (const [theme, name] of [
   await page.locator(".theme-card").filter({ has: page.getByText(name, { exact: true }) }).click();
   await expect(page.getByRole("combobox", { name: "Theme", exact: true })).toHaveValue(theme);
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  if (["classic", "xp", "geocities"].includes(theme)) {
+    const themeField = page.getByRole("combobox", { name: "Theme", exact: true });
+    await expect(themeField.locator("..")).toHaveCSS("display", "flex");
+    await expect(themeField.locator("..")).toHaveCSS("align-items", "stretch");
+  }
   await page.evaluate(() => document.fonts.ready);
   await page.locator(".theme-grid").screenshot({ path: test.info().outputPath(`theme-${theme}-picker.png`) });
+  if (theme === "terminal") {
+    const budget = page.getByRole("spinbutton", { name: "Maximum steps per turn" });
+    await budget.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(budget).toBeFocused();
+    await expect(budget).not.toHaveCSS("outline-style", "none");
+  }
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await expect(page.getByRole("button", { name: "Settings", exact: true }).locator("svg")).toHaveAttribute("data-icon-skin", theme);
   await expect(page.getByRole("button", { name: "Replay all steps", exact: true })).toBeDisabled();
@@ -124,6 +137,15 @@ for (const [theme, name] of [
   await expect(page.getByRole("dialog", { name: "Run a tool", exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath(`theme-${theme}-tools.png`) });
   // Exercise real form controls and keyboard focus, then cancel without making a step.
+  if (theme === "terminal") {
+    for (const control of [page.getByRole("button", { name: "Close tools", exact: true }), page.getByLabel("Search tools")]) {
+      await control.focus();
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Shift+Tab");
+      await expect(control).toBeFocused();
+      await expect(control).not.toHaveCSS("outline-style", "none");
+    }
+  }
   await page.getByLabel("Search tools").fill("cutout");
   await page.getByRole("button", { name: /^cutout crop/ }).click();
   const noAI = page.getByRole("dialog", { name: "Run a tool" }).getByLabel("No Ai", { exact: false });
@@ -135,10 +157,10 @@ for (const [theme, name] of [
   await page.screenshot({ path: test.info().outputPath(`theme-${theme}-form.png`) });
   await page.getByRole("button", { name: "Close tools", exact: true }).click();
   expect(((await core.call("session.get")) as Session).steps).toEqual(before.steps);
-  await page.getByRole("button", { name: "Images & directions", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Images & directions", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Materials", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Materials", exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath(`theme-${theme}-studio.png`) });
-  await page.getByRole("button", { name: "Close images and directions", exact: true }).click();
+  await page.getByRole("button", { name: "Close materials", exact: true }).click();
   await expect(artwork).toHaveAttribute("src", source!);
   // A theme must not tint, blur or fade the image through any ancestor.
   const effects = await artwork.evaluate(image => {

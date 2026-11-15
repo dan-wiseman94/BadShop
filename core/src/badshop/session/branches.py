@@ -48,7 +48,7 @@ def listing(session) -> dict:
         steps = session.data.steps if branch.id == active else session.data.branch_state(branch).steps
         preview = next((s.outputs[0] for s in reversed(steps) if s.status == "done" and s.outputs), None)
         rows.append({"id": branch.id, "name": branch.name, "created_at": branch.created_at,
-                     "step_count": len(steps), "preview_id": preview})
+                     "step_count": len(steps), "preview_id": preview, "automatic": branch.automatic})
     return {"active_id": active, "branches": rows}
 
 

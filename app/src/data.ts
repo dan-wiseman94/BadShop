@@ -147,6 +147,7 @@ function acceptSessionReplacement(
 export async function action<K extends keyof MethodMap>(
   method: K,
   params?: MethodMap[K][0],
+  options?: { operationId: string },
 ): Promise<MethodMap[K][1]> {
   const documentGeneration = useUI.getState().documentGeneration;
   if (useUI.getState().status !== "ready")
@@ -165,7 +166,8 @@ export async function action<K extends keyof MethodMap>(
   let value: MethodMap[K][1];
   let downloadError: string | undefined;
   try {
-    value = await rpc.request(method, params, undefined, queries.getQueryData<Session>(["session.get"])?.context);
+    value = await rpc.request(method, params, undefined, queries.getQueryData<Session>(["session.get"])?.context,
+      false, options?.operationId);
   } catch (error) {
     downloadError = error instanceof Error ? error.message : String(error);
     // A conflict is not permission to replay the command. Refresh the visible

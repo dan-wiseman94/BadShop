@@ -1,20 +1,22 @@
 import { useLibraryPage } from '../libraryPage';
 import { Button } from "./Button";
-import { ManualTools } from "./ManualTools";
 import { ThemeIcon } from "./ThemeIcon";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import { Grid2X2, ScanFace, ChevronDown, MousePointer2, Undo2, Redo2 } from "lucide-react";
-import { action, imageUrl, useArtifact, useSession, run } from "../data";
+import { action, imageUrl, queries, useArtifact, useCoreQuery, useSession, run } from "../data";
 import { LibraryImage } from "./LibraryImage";
 import { useOperation } from "../useOperation";
-import { outputSelection, useCanvasArtifact, useUI } from "../store";
+import { outputSelection, useCanvasArtifact, useUI, type SelectedElement } from "../store";
 import { useStream } from '../stream';
 import { useReducedMotion } from "../appearance";
 import { openLink } from "../native";
+import { Cast } from "./Cast";
 import { CopyImage, ShareImage } from "./ShareImage";
-import type { Artifact, Params } from "../types";
+import type { Artifact, Params, Session } from "../types";
+import { directionLabel } from "../directions";
 import { recordedElements } from "../recordedElements";
+import { CanvasPlacementContext, type CanvasPlacement } from "../canvasPlacement";
 import { useDocumentProjection } from '../documentProjection';
 export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
   const { data } = useArtifact(id, true);
@@ -74,34 +76,76 @@ function faceBoxes(data: Params | null | undefined): number[][] {
     return Array.isArray(value) && value.length === 4 ? [value as number[]] : [];
   });
 }
-export function Viewer({ onImport }: { onImport: () => void }) {
+type ViewerProps = {
+  onImport: () => void;
+  onSelectElement?: (select: () => void, element: SelectedElement | null) => void;
+  onOpenHistory?: () => void;
+};
+
+type PlacementDrag = {
+  pointer: HTMLButtonElement;
+  pointerId: number;
+  x: number;
+  y: number;
+  scale: number;
+  context: NonNullable<Session["context"]>;
+  generation: number;
+  elementId: string;
+  placement: CanvasPlacement;
+};
+
+export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps) {
   const { data: session } = useSession();
   const { visibleArtifacts } = useDocumentProjection(session);
   const [materialSearch, setMaterialSearch] = useState("");
   const { entries: library, controls: libraryPages } = useLibraryPage(materialSearch);
   const { busy: materialBusy, error: materialError, perform: materialAction } = useOperation();
   const selectedStep = useUI((s) => s.selectedStep);
-  const { id: canvasId, inputId } = useCanvasArtifact(session);
+  const selectedElement = useUI((s) => s.selectedElement);
+  const { id: canvasId, inputId, kind, producer, outputKey } = useCanvasArtifact(session);
+  const { data: takes } = useCoreQuery("branches.list");
+  const take = directionLabel(takes?.branches.find(branch => branch.id === takes.active_id)?.name ?? "Original");
   const pick = useUI((s) => s.pick);
   const [grid, setGrid] = useState(false);
   const [boxes, setBoxes] = useState(false);
-  const [selectElements, setSelectElements] = useState(false);
+  const [selectElements, setSelectElements] = useState(true);
   const before = useUI((state) => state.viewerBefore);
   const setBefore = (viewerBefore: boolean) => useUI.getState().set({ viewerBefore });
-  const [sharing, setSharing] = useState(false);
+  const [shareTarget, setShareTarget] = useState<{ id: string; label: string; frame: number } | null>(null);
+  const [castOpen, setCastOpen] = useState(false);
+  const [confirmedSaved, confirmSaved] = useState<{ id: string; revision: number } | null>(null);
   const shareDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    if (sharing) shareDialog.current?.showModal();
+    if (shareTarget) shareDialog.current?.showModal();
     else shareDialog.current?.close();
-  }, [sharing]);
+  }, [shareTarget]);
   const zoom = useUI((state) => state.viewerZoom);
   const setZoom = (viewerZoom: "fit" | number) => useUI.getState().set({ viewerZoom });
   const [size, setSize] = useState({ width: 600, height: 500 });
   const stage = useRef<HTMLDivElement>(null);
   const origin = useRef<number[] | null>(null);
+  const ignoreSurfaceClick = useRef(false);
   const [selection, setSelection] = useState<number[] | null>(null);
+  const placementOwner = useContext(CanvasPlacementContext);
+  const placementDrag = useRef<PlacementDrag | null>(null);
+  const [placementGuide, setPlacementGuide] = useState<[number, number] | null>(null);
+  const generation = useUI(state => state.documentGeneration);
   const [cursor, setCursor] = useState<number[] | null>(null);
   const id = pick?.artifactId ?? canvasId;
+  const currentDraft = useUI(state => state.canvasDraft);
+  const draft = !pick && currentDraft?.revision === session?.document_revision ? currentDraft : null;
+  const confirmed = confirmedSaved?.id === id && confirmedSaved?.revision === session?.document_revision;
+  const canShare = !!id && !pick && !draft && kind !== "missing" && (kind !== "last_saved" || confirmed);
+  const canvasLabel = draft ? `Draft preview · ${draft.scope === "final" ? "Includes later steps" : "This step only"}`
+    : kind === "before" ? `Before step ${selectedStep ? session?.steps.find(step => step.id === selectedStep)?.index : ""}`
+    : kind === "missing" ? "This output is no longer available"
+    : kind === "last_saved" ? "Last successful image · Changes not fully applied"
+    : kind === "final" ? `Final result · ${take}`
+    : kind === "earlier" ? `Step ${producer?.index} output`
+    : kind === "source" ? "Source picture" : "";
+  const outputLabel = outputKey && Object.keys(producer?.output_ports ?? {}).length > 1 ? ` · ${outputKey}` : "";
+  const openShare = () => { if (id && canShare) setShareTarget({ id, label: canvasLabel + outputLabel, frame: paused ? frame : 0 }); };
+
   const motion = useUI((s) => s.motion);
   const reduced = useReducedMotion(motion);
   const [playing, setPlaying] = useState<boolean | null>(null);
@@ -113,11 +157,27 @@ export function Viewer({ onImport }: { onImport: () => void }) {
   const paused = playing === null ? reduced : !playing;
   const { data, error } = useArtifact(id, false, paused, frame);
   const meta = data?.meta;
-  const elements = recordedElements(session, id);
-  const selectElement = (stepId: string) => {
-    const output = session?.steps.slice().reverse().find(step => step.outputs.includes(id ?? ""));
-    useUI.getState().set({ selectedStep: stepId, selectedArtifact: output
-      ? outputSelection(output, id!) : id });
+  const elements = draft ? [] : recordedElements(session, canvasId);
+  const selected = elements.find(element => element.id === selectedElement?.id);
+  const selectElement = (elementId: string, focusText?: number) => {
+    const element = elements.find(item => item.id === elementId);
+    const next = element ? {
+      id: element.id, stepId: element.step.id, label: element.label, slotIndex: element.slotIndex, focusText,
+    } : null;
+    const output = session?.steps.slice().reverse().find(step => step.outputs.includes(canvasId ?? ""));
+    const selectedArtifact = output ? outputSelection(output, canvasId!) : canvasId;
+    const generation = useUI.getState().documentGeneration;
+    const select = () => {
+      const ui = useUI.getState();
+      const active = queries.getQueryData<Session>(["session.get"]);
+      if (ui.documentGeneration === generation && !ui.pick && active?.context?.branch_id === session?.context?.branch_id)
+        ui.set({ selectedElement: next, selectedStep: next?.stepId ?? null, selectedArtifact });
+    };
+    if (onSelectElement) onSelectElement(select, next);
+    else select();
+  };
+  const clearSelection = () => {
+    if (!pick && !ignoreSurfaceClick.current && selected) selectElement("");
   };
   const progress = useStream(state => state.text);
   useEffect(() => {
@@ -131,13 +191,61 @@ export function Viewer({ onImport }: { onImport: () => void }) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    origin.current = null;
     setSelection(null);
-  }, [selectedStep]);
+  }, [pick]);
   const scale = meta
     ? pick || zoom === "fit"
       ? Math.max(0.001, Math.min(Math.max(1, size.width - 24) / meta.width, Math.max(1, size.height - 24) / meta.height, 1))
       : zoom
     : 1;
+  const cancelPlacement = () => {
+    const drag = placementDrag.current;
+    if (!drag) return;
+    placementDrag.current = null;
+    ignoreSurfaceClick.current = true;
+    setPlacementGuide(null);
+    if (drag.pointer.hasPointerCapture(drag.pointerId))
+      drag.pointer.releasePointerCapture(drag.pointerId);
+  };
+  useEffect(cancelPlacement, [canvasId, generation, pick, scale, selectElements, selected?.id,
+    session?.context?.branch_id, session?.context?.document_incarnation, session?.document_revision]);
+
+  const beginPlacement = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const placement = placementOwner?.current;
+    if (event.button !== 0 || placementDrag.current || !session?.context || pick ||
+        (kind !== "final" && kind !== "earlier") || selected?.step.id !== placement?.stepId || !placement || !selected) return;
+    const pointer = event.currentTarget;
+    pointer.focus({ preventScroll: true });
+    pointer.setPointerCapture(event.pointerId);
+    placementDrag.current = {
+      pointer, pointerId: event.pointerId, x: event.clientX, y: event.clientY, scale,
+      context: session.context, generation, elementId: selected.id, placement,
+    };
+  };
+  const placementOffset = (event: React.PointerEvent, drag: PlacementDrag): [number, number] =>
+    [Math.round((event.clientX - drag.x) / drag.scale), Math.round((event.clientY - drag.y) / drag.scale)];
+  const finishPlacement = (event: React.PointerEvent) => {
+    const drag = placementDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const [x, y] = placementOffset(event, drag);
+    if (!x && !y && !ignoreSurfaceClick.current) {
+      placementDrag.current = null;
+      return;
+    }
+    cancelPlacement();
+
+    const ui = useUI.getState();
+    const current = queries.getQueryData<Session>(["session.get"])?.context;
+    const owner = placementOwner?.current;
+    if (!current || ui.pick || ui.viewerBefore || ui.documentGeneration !== drag.generation ||
+        ui.selectedElement?.id !== drag.elementId || ui.selectedStep !== drag.placement.stepId ||
+        current.core_instance_id !== drag.context.core_instance_id || current.document_id !== drag.context.document_id ||
+        current.document_incarnation !== drag.context.document_incarnation || current.branch_id !== drag.context.branch_id ||
+        current.revision !== drag.context.revision || owner?.stepId !== drag.placement.stepId ||
+        owner.draft !== drag.placement.draft) return;
+    if (x || y) owner.moveBy(x, y);
+  };
   const point = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!meta) return [0, 0];
     const rect = event.currentTarget.getBoundingClientRect();
@@ -153,16 +261,30 @@ export function Viewer({ onImport }: { onImport: () => void }) {
       )
       .flatMap((step) => faceBoxes(step.data)) ?? [];
   return (
-    <section className="viewer pane" data-picking={!!pick} aria-label="Image viewer">
-      <div className="pane-heading">
+    <section className="viewer pane window" data-picking={!!pick} aria-label="Image viewer">
+      <div className="pane-heading title-bar">
         <span className="flex items-center gap-2">
           <ThemeIcon name="canvas" size={16} />
           Canvas
         </span>
         <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
       </div>
+      {canvasLabel && !pick && <div className="canvas-view-state">
+        <span>{canvasLabel}{!draft && outputLabel}</span>
+        {draft && <button onClick={() => useUI.getState().set({ canvasDraft: null })}>Return to saved image</button>}
+        {!draft && ["before", "earlier", "missing", "source"].includes(kind) && !!session?.steps.some(step => step.outputs.length) &&
+          <button onClick={() => useUI.getState().set({ selectedStep: null, selectedArtifact: null })}>Return to final result</button>}
+        {kind === "last_saved" && !confirmed && canvasId && session && <button onClick={() =>
+          confirmSaved({ id: canvasId, revision: session.document_revision })}>Choose this saved image</button>}
+        {producer && kind !== "before" && Object.keys(producer.output_ports ?? {}).length > 1 &&
+          <label>Output <select value={outputKey ?? ""} onChange={event => useUI.getState().set({
+            selectedArtifact: { invocationId: producer.invocation_id!, outputKey: event.target.value },
+          })}>
+            {Object.keys(producer.output_ports ?? {}).map(key => <option key={key} value={key}>{key}</option>)}
+          </select></label>}
+      </div>}
       {(meta || session?.manual_history?.undo || session?.manual_history?.redo) && <div className="viewer-tools">
-        <button aria-label="Select elements" title="Select elements" aria-pressed={selectElements} disabled={!elements.length || !!pick}
+        <button aria-label="Select elements" title="Select elements" aria-pressed={selectElements && !!elements.length && !pick} disabled={!elements.length || !!pick}
           onClick={() => setSelectElements(!selectElements)}><MousePointer2 size={16} /></button>
         <button aria-label="Undo" disabled={!session?.manual_history?.undo || session.turn_running || !!session.pending_approvals.length}
           title={session?.manual_history?.undo ? `Undo ${session.manual_history.undo}` : "No manual change to undo"}
@@ -170,7 +292,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         <button aria-label="Redo" disabled={!session?.manual_history?.redo || session.turn_running || !!session.pending_approvals.length}
           title={session?.manual_history?.redo ? `Redo ${session.manual_history.redo}` : "No manual change to redo"}
           onClick={() => run(() => action("history.redo", { expected_revision: session?.document_revision }))}><Redo2 size={16} /></button>
-        {id && <CopyImage id={id} frame={paused ? frame : 0} animated={(meta?.frames ?? 1) > 1} />}
+        {canShare && kind !== "before" && id && <CopyImage id={id} frame={paused ? frame : 0} animated={(meta?.frames ?? 1) > 1} />}
         {meta && <div className="segmented">
           <Button
             disabled={!inputId}
@@ -225,8 +347,10 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </select>
         </div>}
       </div>}
-      <div className={`viewer-stage ${pick ? "picking" : ""}`} ref={stage}>
-        {meta ? (
+      <div className={`viewer-stage ${pick ? "picking" : ""}`} ref={stage}
+        onPointerDownCapture={() => { ignoreSurfaceClick.current = !!pick; }}
+        onClick={event => { if (event.target === event.currentTarget) clearSelection(); }}>
+        {draft ? <img className="canvas-draft-image" alt="Draft preview on canvas" src={draft.source} /> : meta ? (
           <div
             className="image-surface"
             style={{
@@ -239,8 +363,29 @@ export function Viewer({ onImport }: { onImport: () => void }) {
               const p = point(event);
               setCursor(p);
               if (origin.current && pick && pick.kind !== "point") setSelection([...origin.current, ...p]);
+              const drag = placementDrag.current;
+              if (drag?.pointerId === event.pointerId) {
+                const offset = placementOffset(event, drag);
+                if (offset[0] || offset[1]) ignoreSurfaceClick.current = true;
+                if (ignoreSurfaceClick.current) setPlacementGuide(offset);
+              }
             }}
             onPointerLeave={() => setCursor(null)}
+            onClick={clearSelection}
+            onKeyDown={event => {
+              if (event.key !== "Escape" || !placementDrag.current) return;
+              event.preventDefault();
+              event.stopPropagation();
+              cancelPlacement();
+            }}
+            onPointerCancel={event => {
+              if (placementDrag.current?.pointerId === event.pointerId) cancelPlacement();
+              origin.current = null;
+              setSelection(null);
+            }}
+            onLostPointerCapture={event => {
+              if (placementDrag.current?.pointerId === event.pointerId) cancelPlacement();
+            }}
             onPointerDown={(event) => {
               if (!pick) return;
               event.currentTarget.setPointerCapture(event.pointerId);
@@ -252,6 +397,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
               }
             }}
             onPointerUp={(event) => {
+              finishPlacement(event);
               if (!pick || pick.kind === "point" || !origin.current) return;
               const end = point(event);
               const start = origin.current;
@@ -271,17 +417,29 @@ export function Viewer({ onImport }: { onImport: () => void }) {
             }}
           >
             <img className="canvas-image" src={imageUrl(data)} alt={meta.label} draggable={false} />
-            {selectElements && !pick && elements.map((element, index) => {
-              const [left, top, right, bottom] = element.box;
-              const x = Math.max(0, left), y = Math.max(0, top);
-              const width = Math.min(meta.width, right) - x, height = Math.min(meta.height, bottom) - y;
-              return width > 0 && height > 0 && <button key={`${element.step.id}-${index}`}
-                className="recorded-element" aria-label={`Edit ${element.label}`} title={`Edit ${element.label}`}
-                aria-pressed={selectedStep === element.step.id}
-                style={{ left: x * scale, top: y * scale, width: width * scale, height: height * scale }}
-                onClick={() => selectElement(element.step.id)} />;
+            {selectElements && !pick && elements.flatMap(element => {
+              const hitAreas = [{ box: element.box, caption: element.step.tool === "text", label: element.label }];
+              if (element.captionBox) hitAreas.push({
+                box: element.captionBox, caption: true, label: `Caption for ${element.label}`,
+              });
+              return hitAreas.map(({ box, caption, label }) => {
+                const [left, top, right, bottom] = box;
+                const x = Math.max(0, left), y = Math.max(0, top);
+                const width = Math.min(meta.width, right) - x, height = Math.min(meta.height, bottom) - y;
+                return width > 0 && height > 0 && <button key={`${element.id}-${caption ? "caption" : "picture"}`}
+                  type="button" className="recorded-element" aria-label={`Edit ${label}`} title={`Edit ${label}`}
+                  aria-pressed={selected?.id === element.id}
+                  tabIndex={-1}
+                  style={{ left: x * scale, top: y * scale, width: width * scale, height: height * scale }}
+                  onPointerDown={selected?.id === element.id && element.step.tool === "paste" ? beginPlacement : undefined}
+                  onClick={event => {
+                    event.stopPropagation();
+                    if (!ignoreSurfaceClick.current && event.detail < 2) selectElement(element.id);
+                  }}
+                  onDoubleClick={caption ? event => selectElement(element.id, event.timeStamp) : undefined} />;
+              });
             })}
-            {(grid || boxes || selection) && (
+            {(grid || boxes || selection || placementGuide) && (
               <svg className="image-overlay" viewBox={`0 0 ${meta.width} ${meta.height}`} aria-hidden="true">
                 {grid && (
                   <>
@@ -314,6 +472,11 @@ export function Viewer({ onImport }: { onImport: () => void }) {
                       height={box[3] - box[1]}
                     />
                   ))}
+                {placementGuide && selected && (
+                  <rect className="selection-box canvas-placement-guide"
+                    x={selected.box[0] + placementGuide[0]} y={selected.box[1] + placementGuide[1]}
+                    width={selected.box[2] - selected.box[0]} height={selected.box[3] - selected.box[1]} />
+                )}
                 {selection && (
                   <rect
                     className="selection-box"
@@ -342,22 +505,29 @@ export function Viewer({ onImport }: { onImport: () => void }) {
           </div>
         )}
       </div>
-      {selectElements && !!elements.length && <label>Recorded elements (including overlaps)
-        <select aria-label="Recorded element" value={elements.some(element => element.step.id === selectedStep) ? selectedStep! : ""}
-          onChange={event => { if (event.target.value) selectElement(event.target.value); }}>
+      {elements.length > 0 && <label>Elements in this image
+        <select disabled={!!pick} value={selected?.id ?? ""} onChange={event => selectElement(event.target.value)}>
           <option value="">Choose an element</option>
-          {elements.map((element, index) => <option key={`${element.step.id}-${index}`} value={element.step.id}>{element.label}</option>)}
+          {elements.map(element => <option key={element.id} value={element.id}>{element.label}</option>)}
         </select>
-        <small>Outlines show recorded bounds. Cropped or transformed results can be edited from their timeline steps.</small>
       </label>}
-      {id && <ManualTools key={id} image={id} />}
+      {meta && !pick && !elements.length && <p className="muted">
+        This image has no selectable recorded elements. {onOpenHistory
+          ? <><button type="button" onClick={onOpenHistory}>Open History</button> to edit its steps.</>
+          : "Open History to edit its steps."}
+      </p>}
+      {canShare && id && <details className="manual-tools" onToggle={event => setCastOpen(event.currentTarget.open)}>
+        <summary>Save character</summary>
+        {castOpen && <Cast key={id} image={id} disabled={!!session?.turn_running} onUse={artifact =>
+          useUI.getState().set({ selectedArtifact: artifact, selectedStep: null })} />}
+      </details>}
       {id && <div role="group" aria-label="Selected material actions" className="manual-tools">
         {["subject", "background", "prop"].map(role => <button key={role} disabled={materialBusy || session?.turn_running}
           onClick={() => void materialAction(async () => {
             await action("creative.set", { values: { source_roles: { ...session?.creative?.source_roles, [role]: id } } });
             useUI.getState().set({ notice: `Selected picture is your ${role}.` });
           })}>Use as {role}</button>)}
-        <button onClick={() => setSharing(true)}>Finish this image</button>
+        <button onClick={openShare} disabled={!canShare}>Share image</button>
         {meta?.original_id && (session?.artifacts[meta.original_id]?.frames ?? 1) > 1 &&
           <button onClick={() => useUI.getState().set({ selectedArtifact: meta.original_id! })}>Use animated original</button>}
       </div>}
@@ -422,8 +592,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         className="artifact-strip"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!id) return;
-          setSharing(true);
+          openShare();
         }}
       >
         <div className="strip-title">
@@ -433,7 +602,7 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         <button type="button" onClick={onImport}>Add material</button>
         <MaterialGallery artifacts={visibleArtifacts.filter(a => a.label.toLowerCase().includes(materialSearch.toLowerCase()))} />
         {id && (
-          <button type="submit" title="Export image">
+          <button type="submit" title="Export image" disabled={!canShare}>
             <ThemeIcon name="export" size={16} />
           </button>
         )}
@@ -453,9 +622,9 @@ export function Viewer({ onImport }: { onImport: () => void }) {
         {!library.length && <p>Save characters in Cast or pictures in the Junk drawer to reuse them here.</p>}
       </details>
       {materialError && <p role="alert">{materialError}</p>}
-      <dialog ref={shareDialog} className="share-dialog" aria-label="Export image" onClose={() => setSharing(false)}>
-        <button onClick={() => setSharing(false)} aria-label="Close export">Close</button>
-        {sharing && id && <ShareImage key={id} id={id} />}
+      <dialog ref={shareDialog} className="share-dialog" aria-label="Export image" onClose={() => setShareTarget(null)}>
+        <button onClick={() => setShareTarget(null)} aria-label="Close export">Close</button>
+        {shareTarget && <ShareImage key={shareTarget.id} {...shareTarget} />}
       </dialog>
     </section>
   );

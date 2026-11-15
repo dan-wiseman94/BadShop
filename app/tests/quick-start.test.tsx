@@ -1,51 +1,66 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
-import { fireEvent, render as renderView, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { QuickStart } from "../src/components/QuickStart";
 import { action } from "../src/data";
 import { useUI } from "../src/store";
-const state = vi.hoisted(() => ({ step: { id: "s1", tool: "layout", status: "done", outputs: [] as string[], params: { captions: ["old joke"] }, error: null as null | { message: string } } }));
-vi.mock("../src/data", () => ({
-  action: vi.fn(), importBlob: vi.fn(),
-  useSession: () => ({ data: { steps: [state.step], artifacts: {}, turn_running: false } }),
-  useCoreQuery: (method: string) => ({ data: method === "branches.list" ? { branches: [] } : [] }),
+
+const state = vi.hoisted(() => ({
+  step: {
+    id: "s1", invocation_id: "layout", tool: "layout", status: "done",
+    outputs: ["output"], params: { template: "desktop-error", title: "Original", captions: ["old joke"], images: [] },
+  },
+  revision: 1,
 }));
-function render(view: ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return renderView(view, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+const session = () => ({ steps: [state.step], artifacts: {}, document_revision: state.revision, turn_running: false });
+vi.mock("../src/data", () => ({
+  action: vi.fn(), importBlob: vi.fn(), useArtifact: () => ({}), imageUrl: () => undefined,
+  useSession: () => ({ data: session() }),
+  queries: { getQueryData: () => session() },
+  useCoreQuery: (method: string) => ({ data: method === "branches.list" ? { branches: [] }
+    : method === "layouts.list" ? [{ id: "desktop-error", slots: [{ name: "Message" }] }] : [] }),
+}));
+function editor() {
+  return <QuickStart onImport={vi.fn()} onAdvanced={vi.fn()} onHistory={vi.fn()} />;
 }
 beforeEach(() => {
-  state.step = { id: "s1", tool: "layout", status: "done", outputs: [] as string[], params: { captions: ["old joke"] }, error: null };
+  state.step = { ...state.step, id: "s1", invocation_id: "layout", status: "done",
+    params: { ...state.step.params, title: "Original", captions: ["old joke"] } };
+  state.revision = 1;
   vi.mocked(action).mockReset();
-  useUI.getState().set({ status: "ready", selectedStep: null });
+  useUI.getState().set({ status: "ready", selectedStep: null, selectedArtifact: null });
 });
-it("preserves a typed punchline when its running step finishes, and loads another step's caption", () => {
+
+it("retains typed text across updates and prevents a stale draft from applying", () => {
+  const view = render(editor());
+  fireEvent.change(screen.getByLabelText("Caption Message"), { target: { value: "my next joke" } });
   state.step = { ...state.step, status: "running" };
-  const view = render(<QuickStart onImport={vi.fn()} onAdvanced={vi.fn()} />);
-  fireEvent.change(screen.getByLabelText("Revised punchline"), { target: { value: "my next joke" } });
-  state.step = { ...state.step, status: "done" };
-  view.rerender(<QuickStart onImport={vi.fn()} onAdvanced={vi.fn()} />);
-  expect(screen.getByLabelText("Revised punchline")).toHaveValue("my next joke");
-  state.step = { ...state.step, id: "s2", params: { captions: ["another step's joke"] } };
-  view.rerender(<QuickStart onImport={vi.fn()} onAdvanced={vi.fn()} />);
-  expect(screen.getByLabelText("Revised punchline")).toHaveValue("another step's joke");
+  view.rerender(editor());
+  expect(screen.getByLabelText("Caption Message")).toHaveValue("my next joke");
+  state.revision += 1;
+  state.step = { ...state.step, status: "done", params: { ...state.step.params, captions: ["saved elsewhere"] } };
+  view.rerender(editor());
+  expect(screen.getByLabelText("Caption Message")).toHaveValue("my next joke");
+  expect(screen.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved controls" }));
+  expect(screen.getByLabelText("Caption Message")).toHaveValue("saved elsewhere");
 });
-it("retains a failed caption and offers retry when replay resolves with an error step", async () => {
-  useUI.getState().set({ status: "ready", selectedStep: "s1" });
-  vi.mocked(action).mockImplementation(async method => {
-    if (method === "steps.edit") state.step = { ...state.step, params: { captions: ["retry this joke"] } };
-    if (method === "steps.replay_from") {
-      state.step = { ...state.step, status: "error", error: { message: "storage limit" } };
-      return [state.step] as never;
-    }
-    return state.step as never;
+
+it("reports a terminal replay failure and offers undo and inspection", async () => {
+  vi.mocked(action).mockResolvedValue({
+    stale: ["s1", "s2"],
+    replay: { status: "failed", revision: 1, completed_invocations: ["layout"],
+      failed_step: { step_id: "s2", invocation_id: "effect", message: "storage limit" } },
+  } as never);
+  const view = render(editor());
+  fireEvent.change(screen.getByLabelText("Caption Message"), { target: { value: "retry this joke" } });
+  fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+  expect(await screen.findByText(/Changes were saved, but replay failed.*storage limit/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Undo edit" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Inspect failed step" })).toBeEnabled();
+  expect(action).toHaveBeenCalledWith("steps.edit", {
+    step_id: "s1", params: { ...state.step.params, captions: ["retry this joke"] }, replay: "local",
   });
-  const view = render(<QuickStart onImport={vi.fn()} onAdvanced={vi.fn()} />);
-  fireEvent.change(screen.getByLabelText("Revised punchline"), { target: { value: "retry this joke" } });
-  fireEvent.click(screen.getByRole("button", { name: "Change caption only" }));
-  expect(await screen.findByText("storage limit", { exact: true })).toBeVisible();
-  view.rerender(<QuickStart onImport={vi.fn()} onAdvanced={vi.fn()} />);
-  expect(screen.getByLabelText("Revised punchline")).toHaveValue("retry this joke");
-  expect(screen.getByRole("button", { name: "Change caption only" })).toBeEnabled();
+  state.revision += 1;
+  view.rerender(editor());
+  expect(screen.queryByRole("button", { name: "Undo edit" })).toBeNull();
 });
