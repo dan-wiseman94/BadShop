@@ -6,10 +6,11 @@ import copy
 import io
 import json
 
+import jsonschema
 from PIL import Image
 
 from badshop.agent.approval import ApprovalGate
-from badshop.agent.context import MAX_IMAGES, SYSTEM_PROMPT, build_messages, model_result
+from badshop.agent.context import MAX_IMAGES, SYSTEM_PROMPT, build_messages, model_result, tool_definitions
 from badshop.agent.fake import ScriptedProvider
 from badshop.agent.loop import TurnConfig, run_turn
 from badshop.agent.provider import ProviderError, Reply, ToolCallRequest
@@ -17,6 +18,39 @@ from badshop.session import project
 from badshop.session.models import Step
 from badshop.session.session import Session
 from badshop.tools import REGISTRY
+from badshop.tools.registry import llm_schema
+
+
+def test_provider_catalog_is_smaller_and_preserves_tool_arguments():
+    tools = tool_definitions()
+    baseline = copy.deepcopy(tools)
+    assert [tool["function"]["name"] for tool in tools] == list(REGISTRY)
+    for tool in baseline:
+        fn = tool["function"]
+        fn["parameters"] = llm_schema(REGISTRY[fn["name"]])
+
+    def wire_size(catalog):
+        return len(json.dumps(catalog, separators=(",", ":")))
+
+    assert wire_size(tools) < wire_size(baseline) * 0.88
+
+    for sent, full in zip(tools, baseline, strict=True):
+        sent_fn, full_fn = sent["function"], full["function"]
+        schema, source = sent_fn["parameters"], full_fn["parameters"]
+        assert sent_fn["description"] == full_fn["description"]
+        assert schema["properties"].keys() == source["properties"].keys()
+        assert schema.get("required") == source.get("required")
+        jsonschema.Draft202012Validator.check_schema(schema)
+
+    validators = {tool["function"]["name"]: jsonschema.Draft202012Validator(tool["function"]["parameters"])
+                  for tool in tools}
+    paste = {"base": "a3f9c1d2", "piece": "a3f9c1d3", "fit_box": [0, 0, 100, 100]}
+    for args in (paste, {**paste, "fit_box": None}):
+        assert validators["paste"].is_valid(args)
+    for box in ([0, 0, 100], [0, 0, 100, 100, 200], [0, 0, "100", 100], [0, 0, 100001, 100]):
+        assert not validators["paste"].is_valid({**paste, "fit_box": box})
+    assert not validators["paste"].is_valid({**paste, "unrecognized": True})
+    assert not validators["fetch"].is_valid({"clipboard": True})
 
 
 def picture(session, color="red", size=(40, 20)):
