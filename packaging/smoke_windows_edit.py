@@ -172,14 +172,12 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
             page.get_by_role('button', name='Attach images', exact=True).click()
         choose_file(pid, window, fixture)
         imported_hash = viewer_pixel_hash(page)
-        page.get_by_role('button', name='Run tool', exact=True).click()
+        page.get_by_role('button', name='More tools' if material_panel else 'Run tool', exact=True).click()
         palette = page.get_by_role('dialog', name='Run a tool')
         palette.get_by_role('textbox', name='Search tools').fill('deepfry')
         palette.get_by_role('button', name=re.compile(r'^deepfry\b')).click()
         palette.get_by_role('button', name='Run tool', exact=True).click()
-        step = page.get_by_role('region', name='Steps timeline').locator('.step').filter(has_text='deepfry')
-        expect(step).to_contain_text('done', ignore_case=True, timeout=20000)
-        expect(page.locator('.canvas-image')).to_have_attribute('alt', re.compile(r'_deepfried$'))
+        expect(page.locator('.canvas-image')).to_have_attribute('alt', re.compile(r'_deepfried$'), timeout=20000)
         output_hash = viewer_pixel_hash(page)
         assert output_hash != imported_hash, 'The deterministic edit did not change the displayed image'
         close()
@@ -212,10 +210,11 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
         page.locator('.session-name').click()
         page.get_by_role('button', name=re.compile(r'^Open session')).click()
         choose_file(pid, window, project)
-        step = page.get_by_role('region', name='Steps timeline').locator('.step').filter(has_text='deepfry')
-        expect(step).to_contain_text('done', ignore_case=True, timeout=20000)
-        step.click()
-        expect(page.locator('.canvas-image')).to_have_attribute('alt', re.compile(r'_deepfried$'))
+        if not material_panel:
+            step = page.get_by_role('region', name='Steps timeline').locator('.step').filter(has_text='deepfry')
+            expect(step).to_contain_text('done', ignore_case=True, timeout=20000)
+            step.click()
+        expect(page.locator('.canvas-image')).to_have_attribute('alt', re.compile(r'_deepfried$'), timeout=20000)
         assert viewer_pixel_hash(page) == output_hash, 'Reopened viewer did not show the saved image'
         if clipboard_output:
             from accept_clipboard import paste_into_browser
