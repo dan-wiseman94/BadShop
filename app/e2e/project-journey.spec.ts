@@ -55,6 +55,37 @@ async function exported(page: Page, previous = "") {
   return { filename, bytes: await readFile(filename) };
 }
 
+test("compact workspace imports, edits and reopens the saved canvas from More tools", async ({ page, emptyCore }) => {
+  await page.setViewportSize({ width: 900, height: 600 });
+  await connect(page, emptyCore);
+  await page.getByRole("button", { name: "Edit a photo without AI" }).click();
+  const viewer = page.getByRole("region", { name: "Image viewer" });
+  await viewer.getByRole("button", { name: "Add images", exact: true }).click();
+  const selecting = page.waitForEvent("filechooser");
+  await page.getByRole("dialog", { name: "Add material" }).getByRole("button", { name: "Choose files" }).click();
+  await (await selecting).setFiles(path.join(root, "core/tests/fixtures/lincoln.png"));
+  await expect(viewer.locator(".canvas-image")).toHaveAttribute("alt", /lincoln_work/);
+  await page.getByRole("button", { name: "More tools", exact: true }).click();
+  const palette = page.getByRole("dialog", { name: "Run a tool" });
+  await palette.getByLabel("Search tools").fill("deepfry");
+  await palette.getByRole("button", { name: /^deepfry / }).click();
+  await palette.getByRole("button", { name: "Run tool", exact: true }).click();
+  await expect(viewer.locator(".canvas-image")).toHaveAttribute("alt", /_deepfried$/);
+  const before = await snapshot(emptyCore);
+  expect(before.steps).toHaveLength(1);
+  expect(before.steps[0]).toMatchObject({ tool: "deepfry", status: "done" });
+  const output = before.steps[0].outputs[0];
+  const expected = await expectImage(page, emptyCore, output);
+
+  const project = path.join(emptyCore.folder, "compact.badshop");
+  await save(page, emptyCore, project);
+  await page.locator(".session-name").click();
+  page.once("dialog", dialog => dialog.accept(project));
+  await page.getByRole("button", { name: /^Open session/ }).click();
+  expect(await expectImage(page, emptyCore, output)).toEqual(expected);
+  expect((await snapshot(emptyCore)).steps).toEqual(before.steps);
+});
+
 test("manual editing, replay, a fresh process reopen and export preserve the actual image bytes", async ({ page, context, emptyCore }) => {
   await connect(page, emptyCore);
   await page.getByRole("button", { name: "Edit a photo without AI" }).click();
