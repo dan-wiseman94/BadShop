@@ -255,7 +255,7 @@ test("cloud provider presets save an editable model and the selected key environ
     api_key_ref: null,
     api_base: null,
   })]);
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Edit", exact: true }).click();
   await expect(model).toHaveValue("openrouter/google/gemini-3.8-flash");
   await expect(keyEnv).toHaveValue("OPENROUTER_API_KEY");
 });
@@ -503,14 +503,15 @@ test("changes a profile from CLI to local and back without incompatible fields",
   await page.goto(`/?core_port=${core.port}&core_token=${core.token}`);
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Provider type").selectOption("local");
   await page.getByLabel("Model", { exact: true }).fill("ollama_chat/llava");
   await page.getByLabel("Credential storage").selectOption("environment");
   await page.getByLabel("Environment variable name").fill("TEST_MODEL_KEY");
   await page.getByRole("button", { name: "Save provider" }).click();
   await expect(page.getByText("Switchable", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await settings.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Provider type").selectOption("cli");
   await page.getByRole("button", { name: "Save provider" }).click();
   await expect(page.getByText("Switchable", { exact: true })).toBeVisible();

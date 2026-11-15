@@ -22,6 +22,7 @@ test("a failed recipe keeps completed pixels, explains the failure and can be re
   expect(failed.steps.map(step => step.status)).toEqual(["done", "error"]);
   const kept = failed.steps[0].outputs[0];
   const bytes = await emptyCore.call("artifacts.get", { id: kept });
+  await studio.getByRole("button", { name: "Edit recipe", exact: true }).click();
   await studio.getByRole("button", { name: "Edit recipe step 2: cutout" }).click();
   await studio.getByLabel("Box X1", { exact: true }).fill("0");
   await studio.getByLabel("Box Y1", { exact: true }).fill("0");

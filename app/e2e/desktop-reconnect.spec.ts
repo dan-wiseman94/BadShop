@@ -123,6 +123,7 @@ for (const outcome of ["restored", "damaged", "older"] as const) {
         .getByLabel("Import image files")
         .setInputFiles(path.join(root, "core/tests/fixtures/trump.png"));
       await expect(page.locator(".attachments img")).toHaveCount(2);
+      await page.getByRole("button", { name: "AI assistant", exact: true }).click();
       await page
         .getByLabel("Message your agent")
         .fill("Draft survives real core recovery");
@@ -155,15 +156,11 @@ for (const outcome of ["restored", "damaged", "older"] as const) {
       ).toHaveValue("99");
       // Even an authenticated socket cannot save a pristine startup snapshot during recovery.
       await page.keyboard.press("Control+S");
-      await expect(page.getByRole("alert")).toContainText(
-        "Wait for the core to reconnect",
-      );
+      await expect(page.getByRole("alert").filter({ hasText: "Wait for the core to reconnect" })).toBeVisible();
       releaseReply();
       if (outcome === "damaged") {
-        await expect(page.getByRole("alert")).toContainText(
-          /damaged|isn't a badshop project/,
-          { timeout: 15000 },
-        );
+        await expect(page.getByRole("alert").filter({ hasText: /damaged|isn't a badshop project/ }))
+          .toBeVisible({ timeout: 15000 });
         await expect(
           page.getByText("The core connection was lost."),
         ).toBeVisible();
@@ -228,6 +225,7 @@ for (const persisted of [false, true]) {
           .setInputFiles(path.join(root, "core/tests/fixtures/lincoln.png"));
         await expect(page.locator(".attachments img")).toHaveCount(1);
       }
+      await page.getByRole("button", { name: "AI assistant", exact: true }).click();
       await page
         .getByLabel("Message your agent")
         .fill("Typed draft without a recovery file");

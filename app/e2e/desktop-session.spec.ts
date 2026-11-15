@@ -147,7 +147,6 @@ test("reopening an earlier save of the same session clears discarded image selec
   await connect(page, core);
   const initial = (await core.call("session.get")) as Session;
   const project = path.join(core.folder, "same-session.badshop");
-  await page.locator(".session-name").click();
   page.once("dialog", (picker) => picker.accept(project));
   await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect

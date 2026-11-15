@@ -29,6 +29,7 @@ export function ImagePicker({ id, value, onChange, required, disabled, beforeSte
         onChange={(e) => onChange(e.target.value || undefined)}
       >
         <option value="">Choose an image…</option>
+        {!!value && !selected && <option value={String(value)} disabled>Previous image unavailable</option>}
         {imports.map((a) => {
           const producer = session?.steps.find(step => step.id === a.produced_by);
           const tooLate = beforeStepIndex !== undefined && !!producer && producer.index >= beforeStepIndex;

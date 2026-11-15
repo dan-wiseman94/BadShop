@@ -46,7 +46,7 @@ test("coordinate instructions keep the Fit image visible and pickable at the min
   )!;
   await connect(page, core);
   await page.getByLabel("Zoom", { exact: true }).selectOption("4");
-  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Steps" }).click();
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Inspector" }).click();
   await page.getByRole("button", { name: "Run tool", exact: true }).click();
   await page.getByLabel("Search tools").fill("cutout");
   await page.getByRole("button", { name: /^cutout crop/ }).click();
@@ -119,7 +119,7 @@ test("coordinate picking follows the chosen form image instead of the viewer sel
   await expect(dialog).toBeVisible();
 });
 
-test("replay refreshes a selected step input while preserving an active parameter draft", async ({
+test("replay preserves a stale parameter draft until the user reloads the changed input", async ({
   page,
   core,
 }) => {
@@ -153,10 +153,15 @@ test("replay refreshes a selected step input while preserving an active paramete
       return step.status === "done" && remapped !== first.outputs[0];
     })
     .toBe(true);
-  await expect(detail.getByRole("combobox", { name: "Image", exact: false })).toHaveValue(
-    remapped,
-  );
+  const input = detail.getByRole("combobox", { name: "Image", exact: false });
+  await expect(detail.getByText("Your draft values are still here.", { exact: false })).toBeVisible();
+  await expect(input).toHaveValue(first.outputs[0]);
   await expect(detail.getByLabel("Seed", { exact: false })).toHaveValue("99");
+  await expect(detail.getByRole("button", { name: "Apply & replay" })).toBeDisabled();
+  await detail.getByRole("button", { name: "Reload saved controls" }).click();
+  await expect(input).toHaveValue(remapped);
+  await expect(detail.getByLabel("Seed", { exact: false })).toHaveValue("2");
+  await detail.getByLabel("Seed", { exact: false }).fill("99");
   await detail.getByRole("button", { name: "Apply & replay" }).click();
   await expect
     .poll(async () => {
@@ -219,7 +224,7 @@ test("the empty chat remains at the top at the minimum desktop size", async ({
 }) => {
   await page.setViewportSize({ width: 900, height: 600 });
   await connect(page, core);
-  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Chat" }).click();
+  await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "AI", exact: true }).click();
   await expect
     .poll(() =>
       page.locator(".chat-history").evaluate((node) => node.scrollTop),

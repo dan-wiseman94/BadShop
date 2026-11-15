@@ -21,7 +21,7 @@ test("a pending replacement picture blocks collection creation until its real im
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).steps[0]?.status).toBe("done");
   await page.getByText("Make a scene: surprises & reaction sets", { exact: true }).click();
   await page.getByLabel("Import image files").setInputFiles(path.join(root, "core/tests/fixtures/lincoln.png"));
-  await expect(page.getByText("Opening your picture…", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Imported or queued 0 of 1 files." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Make three alternate takes" })).toBeDisabled();
   await expect.poll(() => !!releaseImport).toBe(true);
   releaseImport!();

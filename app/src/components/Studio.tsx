@@ -159,6 +159,7 @@ export function Studio({
   const { entries: library, controls: libraryPages } = useLibraryPage(filter,
     target && tab === "characters" ? ["cast"] : []);
   const project = session?.context?.document_incarnation ?? session?.id;
+  const layoutDraftOwner = `${project ?? ""}:${session?.context?.branch_id ?? ""}`;
   const { data: sources = [], error: sourceError } = useCoreQuery("sources.status");
   useEffect(() => {
     if (sources.length && source !== "all" && !sources.some((item) => item.id === source && item.configured))
@@ -698,7 +699,7 @@ export function Studio({
           <Cast key={project} image={image ?? ""} disabled={!!disabled} onUse={onAttach} />
         </div>}
         {visited.includes("recipes") && <div hidden={tab !== "recipes"}><RecipeStudio key={project} /></div>}
-        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={project} onAttach={onAttach} /></div>}
+        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={layoutDraftOwner} onAttach={onAttach} /></div>}
         {visited.includes("retro") && <div hidden={tab !== "retro"}>
           <RetroStudio
             key={project}

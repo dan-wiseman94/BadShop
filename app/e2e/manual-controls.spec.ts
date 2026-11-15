@@ -81,9 +81,9 @@ test("manual placement nudge and a selected variant commit through replay", asyn
   const imported = await emptyCore.call("artifacts.import", {
     path: path.join(root, "core/tests/fixtures/lincoln.png"),
   }) as { working: { id: string } };
-  await emptyCore.call("tools.run", { tool: "paste", params: {
+  const original = await emptyCore.call("tools.run", { tool: "paste", params: {
     base: imported.working.id, piece: imported.working.id, fit_box: [40, 40, 140, 180],
-  } });
+  } }) as Step;
   await page.locator(".step").first().click();
   const detail = page.locator(".step-detail");
   await detail.getByLabel("Placement controls").focus();
@@ -95,14 +95,11 @@ test("manual placement nudge and a selected variant commit through replay", asyn
   await expect.poll(async () => ((await emptyCore.call("session.get")) as Session).steps[0].params.rotate).toBe(15);
   await expect.poll(async () => ((await emptyCore.call("session.get")) as Session).steps[0].status).toBe("done");
   const result = ((await emptyCore.call("session.get")) as Session).steps[0];
-  expect(result.params.at).toEqual([100, 110]);
-  expect(result.params.anchor).toBe("center");
-  expect(result.params.fit_box).toBeNull();
-  expect(Number(result.params.width)).toBeGreaterThan(0);
+  expect(result.params).toEqual({ ...original.params, fit_box: [50, 40, 150, 180], rotate: 15 });
   await detail.getByText("Keep these settings for AI", { exact: true }).click();
   await detail.getByLabel("Keep this placement").click();
   await expect(detail.getByLabel("Keep this placement")).toBeChecked();
-  await expect.poll(async () => ((await emptyCore.call("session.get")) as Session).steps[0].locked_fields).toContain("at");
+  await expect.poll(async () => ((await emptyCore.call("session.get")) as Session).steps[0].locked_fields).toContain("fit_box");
   const oldIds = new Set(Object.keys(((await emptyCore.call("session.get")) as Session).artifacts));
   await page.getByLabel("Import image files").setInputFiles(path.join(root, "core/tests/fixtures/trump.png"));
   await expect.poll(async () => Object.keys(((await emptyCore.call("session.get")) as Session).artifacts)
@@ -116,7 +113,7 @@ test("manual placement nudge and a selected variant commit through replay", asyn
   await detail.getByRole("button", { name: "Apply & replay" }).click();
   await expect.poll(async () => ((await emptyCore.call("session.get")) as Session).steps[0].params.piece).toBe(replacement.id);
   const replaced = ((await emptyCore.call("session.get")) as Session).steps[0];
-  expect(replaced.params.at).toEqual(result.params.at);
+  expect(replaced.params.fit_box).toEqual(result.params.fit_box);
   expect(replaced.params.rotate).toBe(result.params.rotate);
   expect(replaced.params.width).toBe(result.params.width);
 });

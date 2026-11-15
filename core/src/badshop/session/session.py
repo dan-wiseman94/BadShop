@@ -758,6 +758,7 @@ class Session:
         """Capture immutable inputs for a previously validated preview."""
         if self._local_refusal(tool):
             raise EngineError("preview requires a local image tool")
+        params = registry.map_image_refs(registry.get(tool).params, params, self.artifacts.resolve)
         if missing := self._missing_preview_asset(tool, params):
             raise EngineError(missing)
         draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
@@ -767,7 +768,7 @@ class Session:
     def preview_tool(self, tool: str, raw: dict, *, portable: bool = False) -> list[OutputRecord]:
         """Use the existing executor for a disposable preview; never publish project state."""
         self._refuse_busy(self.data.steps)
-        params = self._resolved(runner.validate(tool, raw, "replay" if portable else "user"))
+        params = runner.validate(tool, raw, "replay" if portable else "user").model_dump(mode="json")
         outcome = self.executor.run(self.local_preview_call(tool, params, portable=portable))
         if not outcome.ok:
             raise EngineError(outcome.error_message or "preview failed", hint=outcome.error_hint)
