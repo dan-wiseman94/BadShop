@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Studio } from "../src/components/Studio";
 import { action } from "../src/data";
 import { sourceCard } from "../src/sourceCard";
@@ -54,8 +54,15 @@ function mount() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.setAttribute("open", ""); },
+  });
   sourceState.sources = sourceState.sources.map(source => ({ ...source, configured: source.id === "cleveland" }));
   useUI.getState().set({ status: "ready", selectedArtifact: "a" });
+});
+afterEach(() => {
+  delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
 });
 
 it("validates browser source cards and ignores injected fields", () => {
@@ -100,9 +107,11 @@ it("falls back to all collections when reconnecting removes the selected source 
   refresh();
   await waitFor(() => expect(screen.getByLabelText("Collection")).toHaveValue("all"));
   expect(screen.getByRole("option", { name: "Biodiversity Heritage Library (needs configuration)" })).toBeDisabled();
-  vi.mocked(action).mockResolvedValueOnce({ status: "done", outputs: [], result_text: "No candidates", data: { candidates: [] } } as never);
+  vi.mocked(action).mockResolvedValueOnce({
+    query: "birds", candidates: [], source_health: {}, duplicates_removed: 0, warnings: [],
+  });
   fireEvent.click(screen.getByText("Find candidates"));
-  await waitFor(() => expect(action).toHaveBeenCalledWith("tools.run", {
-    tool: "discover", params: expect.objectContaining({ query: "birds", source: "all" }),
+  await waitFor(() => expect(action).toHaveBeenCalledWith("materials.discover", {
+    params: expect.objectContaining({ query: "birds", source: "all" }),
   }));
 });

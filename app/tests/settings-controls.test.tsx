@@ -100,6 +100,9 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
                 : [],
       ) as never,
   );
+  const providerChecks = () => request.mock.calls
+    .filter(([method]) => method === "providers.test")
+    .map(([, params]) => params);
   render(<Settings updates={{ automatic: true, track: "stable", setTrack: () => {}, info: null, phase: "idle", error: "", progress: null,
     check: async () => {}, install: async () => {}, cancel: async () => {}, localOnly: false, setAutomatic: () => {} }} />, { wrapper });
   const guide = screen.getByText("Costs and plan limits").closest("details");
@@ -108,14 +111,12 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
   expect(guide).toHaveAttribute("open");
   expect(screen.getByText(/Pro may be worthwhile/)).toBeVisible();
   expect(screen.getByText(/provider fees for inference/)).toBeVisible();
-  expect(request.mock.calls.some(([method]) => method === "providers.test")).toBe(false);
+  expect(providerChecks()).toEqual([]);
   expect(screen.getByRole("button", { name: "Add provider" })).toBeVisible();
   expect(screen.getByText(/provider may charge/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Check setup" }));
   await waitFor(() =>
-    expect(request).toHaveBeenCalledWith("providers.test", {
-      profile_id: profile.id,
-    }, undefined, undefined),
+    expect(providerChecks()).toEqual([{ profile_id: profile.id }]),
   );
   await waitFor(() =>
     expect(screen.getByText(/No test request was sent/)).toBeVisible(),
@@ -123,10 +124,7 @@ it("keeps setup checks offline and only sends a paid-capable probe on explicit T
   probed = true;
   fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
   await waitFor(() =>
-    expect(request).toHaveBeenCalledWith("providers.test", {
-      profile_id: profile.id,
-      probe: true,
-    }, undefined, undefined),
+    expect(providerChecks()).toEqual([{ profile_id: profile.id }, { profile_id: profile.id, probe: true }]),
   );
   await waitFor(() =>
     expect(screen.getByText("Connection succeeded.")).toBeVisible(),
