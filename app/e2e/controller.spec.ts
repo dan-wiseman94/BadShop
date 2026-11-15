@@ -1,5 +1,5 @@
 import { test, expect, python, root } from "./fixtures";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "../src/types";
 
@@ -543,6 +543,8 @@ test("production assets and generated forms run under the packaged content secur
     await readFile(path.join(root, "app/src-tauri/tauri.conf.json"), "utf8"),
   ) as { app: { security: { csp: string } } };
   expect(config.app.security.csp).not.toContain("unsafe-eval");
+  const bundledAssets = await readdir(path.join(root, "app/dist/assets"));
+  expect(bundledAssets.filter(name => /^(ms_sans_serif|PerfectDOSVGA437Win).*\.woff2?$/i.test(name))).toEqual([]);
   await page.route("**/production/**", async (route) => {
     const relative = new URL(route.request().url()).pathname.replace(
       "/production/",

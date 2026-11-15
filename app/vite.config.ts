@@ -2,16 +2,28 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import prefixSelector from "postcss-prefix-selector";
+const classicCss = /[/\\]98\.css[/\\]dist[/\\]98\.css$/;
+const xpCss = /[/\\]xp\.css[/\\]dist[/\\]XP\.css$/;
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   css: {
     postcss: {
-      plugins: [prefixSelector({
+      plugins: [{
+        postcssPlugin: "exclude-retro-package-fonts",
+        Once(root) {
+          root.walkAtRules("font-face", rule => {
+            const file = rule.source?.input.file;
+            if (file && (classicCss.test(file) || xpCss.test(file)))
+              rule.remove();
+          });
+        },
+      }, prefixSelector({
         prefix: ':root:is([data-theme="classic"], [data-theme="geocities"])',
-        includeFiles: [/[/\\]98\.css[/\\]dist[/\\]98\.css$/],
+        includeFiles: [classicCss],
       }), prefixSelector({
         prefix: ':root[data-theme="xp"]',
-        includeFiles: [/[/\\]xp\.css[/\\]dist[/\\]XP\.css$/],
+        includeFiles: [xpCss],
       }), prefixSelector({
         prefix: ':root[data-theme="arcade"]',
         includeFiles: [/[/\\]vendor[/\\]nes-buttons\.css$/],
