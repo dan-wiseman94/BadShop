@@ -24,7 +24,7 @@ from badshop.server import local_runtime, rpc
 from badshop.server.app import CoreApp
 from badshop.server.rpc import Dispatcher, RpcError
 from badshop.server.settings import Settings, config_dir, load_settings, save_settings, settings_path
-from badshop.session import project
+from badshop.session import project, recovery
 from badshop.session.execution import InProcessExecutor, ToolOutcome
 from badshop.session.session import Session
 from conftest import FIXTURES
@@ -825,8 +825,19 @@ def test_local_edit_receipt_reports_failed_suffix_and_restores_previous_result(e
         })
         disconnected = asyncio.create_task(app.dispatcher.handle(request, "user"))
         assert await asyncio.to_thread(waiting.wait, 5)
-        disconnected.cancel()
-        release.set()
+        try:
+            recovered = recovery.load(project.autosave_path())
+            try:
+                interrupted = recovered.step(last["id"])
+                assert interrupted.status == "error"
+                assert interrupted.previous_outputs == last["outputs"]
+                for artifact in interrupted.previous_outputs:
+                    assert recovered.artifacts.data(artifact) == app.session.artifacts.data(artifact)
+            finally:
+                recovered.artifacts.close()
+        finally:
+            disconnected.cancel()
+            release.set()
         with pytest.raises(asyncio.CancelledError):
             await disconnected
         receipt = await c.call("operations.get", operation_id="ca" * 16)

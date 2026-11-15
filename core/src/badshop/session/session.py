@@ -423,6 +423,9 @@ class Session:
         failure: an EngineError, a crash, a killed worker or a stop (`cancel`, set by the caller) is a
         failed step with a clean error."""
         stem = self._stem(step)
+        if replay:
+            # The running autosave must retain the pixels named by output_ports.
+            step.previous_outputs = list(step.outputs or step.previous_outputs)
         step.status, step.started_at, step.finished_at = "running", time.time(), None
         step.outputs, step.result_text, step.data, step.error = [], "", None, None
         step.cache_key = cache_key(step.tool, {**step.params, "_bypass_step": step.id} if step.bypassed else step.params)
@@ -466,6 +469,7 @@ class Session:
         step.data = {k: v for k, v in outcome.data.items() if k != "sources"} or None
         if outcome.ok:
             step.status, step.outputs = "done", outputs
+            step.previous_outputs = []
             ports = dict(zip(_output_keys(outcome), outputs, strict=True))
             legacy = {f'legacy:{i}': key for i, key in enumerate(_output_keys(outcome))}
             if any(key.startswith('legacy:') for key in step.output_ports):
