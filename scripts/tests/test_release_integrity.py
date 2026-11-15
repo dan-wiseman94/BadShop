@@ -21,7 +21,12 @@ class ReleaseIntegrityTests(unittest.TestCase):
         triggers, jobs = native.split('\njobs:\n', 1)
         self.assertNotIn('\n  workflow_dispatch:', triggers)
         self.assertNotIn('source_ref', native)
-        self.assertNotIn('\n    secrets:', triggers)
+        signing_secrets = (
+            "TAURI_SIGNING_PRIVATE_KEY",
+            "TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
+        )
+        declared = triggers.split("\n    secrets:\n", 1)[1].split("\n    inputs:", 1)[0]
+        self.assertEqual(declared, "\n".join(f"      {name}:\n        required: false" for name in signing_secrets))
         guard, steps = jobs.split('\n    steps:\n', 1)
         self.assertIn("environment: ${{ inputs.nightly && 'updater-signing-nightly' || 'updater-signing-stable' }}", guard)
         self.assertIn('github.ref_protected', guard)
@@ -38,6 +43,14 @@ class ReleaseIntegrityTests(unittest.TestCase):
                 caller = (workflows / filename).read_text(encoding='utf-8')
                 self.assertIn('uses: ./.github/workflows/native-desktop.yml', caller)
                 self.assertNotIn('secrets: inherit', caller)
+                call = caller.split('uses: ./.github/workflows/native-desktop.yml', 1)[1]
+                job = call.split('\n  stage-', 1)[0]
+                if filename == 'release.yml':
+                    self.assertEqual(job, "\n    secrets:\n" + "\n".join(
+                        f"      {name}: ${{{{ secrets.{name} }}}}" for name in signing_secrets
+                    ))
+                else:
+                    self.assertNotIn('secrets:', job)
 
     def test_candidate_draft_access_does_not_raise_reusable_builder_permissions(self):
         root = Path(__file__).resolve().parents[2]

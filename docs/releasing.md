@@ -149,23 +149,19 @@ and tags** before adding signing secrets.
 | Environment | Allowed ref | Deployment protection |
 | --- | --- | --- |
 | `updater-signing-nightly` | Branch `main` only | Protect `main`. Scheduled runs require no reviewer. |
-| `updater-signing-stable` | Tags `v*` only | Require an independent reviewer, enable **Prevent self-review**, and disable administrator bypass where GitHub supports it. |
+| `updater-signing-stable` | Tags `v*` only | Require the repository maintainer as reviewer and allow self-review for solo maintenance. |
 
-Restrict creation of `v*` tags to release maintainers and keep the separate ruleset
-preventing their update and deletion. Before approving a stable signing deployment,
-the reviewer must independently verify that the run's source SHA is the commit
-the immutable tag resolves to and that it is an ancestor of protected `main`.
-Check ancestry against freshly fetched `main`, for example with
-`git merge-base --is-ancestor <run-sha> FETCH_HEAD` after `git fetch origin refs/heads/main`.
-A tag can run its own workflow, so a check reported by that workflow alone cannot
-authorize key access. This signing approval is separate from release publication
-approval. The stable signing environment needs a second eligible person whenever
-the only maintainer initiates the deployment.
+Keep the release tags immutable. Before approving stable signing, confirm that
+the run SHA resolves from the expected tag and belongs to protected main. This
+approval records the maintainer's release intent. Candidate acceptance and public
+promotion still use their separate gates.
 
-Set `TAURI_SIGNING_PRIVATE_KEY` and, if encrypted, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-only in the two signing environments. Remove any copies available as repository or
-organization secrets. Add credentials to each environment only after its ref
-restriction and any required reviewer controls are configured.
+The stable release workflow passes only the existing repository updater key and
+its optional password to the protected signing job. The repository secret remains
+available to other workflows that explicitly reference it, so restrict who can
+create refs or edit workflows. If the same key is installed directly in the stable
+environment, it takes precedence over the caller secret. Use the environment
+secret for nightly signing. Never commit the private key.
 These are updater signatures, separate from OS code signing. Never commit the private key.
 The public key is embedded at compile time; unsigned development/local builds report
 that updates are unavailable. Tag builds fail when signing configuration is absent.

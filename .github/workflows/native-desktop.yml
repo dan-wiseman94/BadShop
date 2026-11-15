@@ -1,6 +1,11 @@
 name: installed desktop
 on:
   workflow_call:
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
     inputs:
       nightly:
         description: Build versioned nightly packages with signed updates
@@ -10,7 +15,7 @@ permissions:
   contents: read
 jobs:
   bundle:
-    # Deployment rules enforce protected main for nightly and independent tag
+    # Deployment rules enforce protected main for nightly and maintainer tag
     # review for stable, including when a workflow asks for the key directly.
     if: >-
       github.repository == 'dan-wiseman94/BadShop' && github.ref_protected &&
