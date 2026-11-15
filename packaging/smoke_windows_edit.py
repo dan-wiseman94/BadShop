@@ -161,12 +161,15 @@ def smoke_editing(executable: Path, screenshot: Path, fixture: Path, root: Path,
 
     def edit(page: Page, pid: int, window: int, close: Callable[[], None], trace: Path) -> None:
         nonlocal output_hash
-        page.get_by_role('button', name='Attach images', exact=True).click()
         # v0.4.3 is the public upgrade baseline and opens the picker directly.
         # Remove this harness branch when that upgrade baseline is retired.
         if material_panel:
+            page.get_by_role('region', name='Image viewer').get_by_role(
+                'button', name='Add images', exact=True).click()
             page.get_by_role('dialog', name='Add material', exact=True).get_by_role(
                 'button', name='Choose files', exact=True).click()
+        else:
+            page.get_by_role('button', name='Attach images', exact=True).click()
         choose_file(pid, window, fixture)
         imported_hash = viewer_pixel_hash(page)
         page.get_by_role('button', name='Run tool', exact=True).click()
