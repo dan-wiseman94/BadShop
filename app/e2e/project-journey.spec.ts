@@ -25,7 +25,7 @@ async function deepfry(page: Page) {
 
 async function save(page: Page, core: Core, filename: string) {
   page.once("dialog", dialog => dialog.accept(filename));
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await snapshot(core)).unsaved_changes).toBe(false);
   expect((await readFile(filename)).length).toBeGreaterThan(0);
 }

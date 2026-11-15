@@ -136,7 +136,7 @@ test("chat, approval, edit, replay, save, open, manual tools and export use the 
   ).toHaveAttribute("aria-pressed", "true");
   const project = path.join(core.folder, "test.badshop");
   page.once("dialog", (dialog) => dialog.accept(project));
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await core.call("session.get") as Session).unsaved_changes).toBe(false);
   expect((await readFile(project)).length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Run tool", exact: true }).click();

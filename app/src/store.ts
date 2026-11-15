@@ -20,8 +20,10 @@ interface UIState {
   chatDraft: string;
   setChatDraft: (value: string | ((previous: string) => string)) => void;
   settingsOpen: boolean;
+  settingsAssets: boolean;
   paletteOpen: boolean;
   automaticPreview: boolean;
+  canvasDraft: { key: string; source: string; scope: "step" | "final"; revision: number } | null;
   pick: PickRequest | null;
   error: string | null;
   errorAction: "retry-turn" | null;
@@ -44,7 +46,9 @@ export const useUI = create<UIState>()((set) => ({
   chatDraft: "",
   setChatDraft: (value) => set(state => ({ chatDraft: typeof value === "function" ? value(state.chatDraft) : value })),
   settingsOpen: false,
+  settingsAssets: false,
   paletteOpen: false,
+  canvasDraft: null,
   automaticPreview: readPreference("automaticPreview", "on") !== "off",
   pick: null,
   error: null,
@@ -56,8 +60,9 @@ export const useUI = create<UIState>()((set) => ({
   textScale: [100, 115, 130, 150, 175, 200].includes(Number(readPreference("textScale", "100"))) ? Number(readPreference("textScale", "100")) : 100,
   motion: ["reduced", "full"].includes(readPreference("motion", "system")) ? readPreference("motion", "system") as Motion : "system",
   set: (patch) => set({
-    ...(("selectedArtifact" in patch || "selectedStep" in patch) && { viewerBefore: false, selectedElement: null }),
-    ...("documentGeneration" in patch && { viewerZoom: "fit" as const, chatDraft: "" }),
+    ...(patch.settingsOpen === false && { settingsAssets: false }),
+    ...(("selectedArtifact" in patch || "selectedStep" in patch) && { viewerBefore: false, selectedElement: null, canvasDraft: null }),
+    ...("documentGeneration" in patch && { canvasDraft: null, viewerZoom: "fit" as const, chatDraft: "" }),
     ...patch,
   }),
 }));

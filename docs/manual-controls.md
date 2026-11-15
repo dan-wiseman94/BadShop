@@ -23,6 +23,10 @@ and replay path. The AI sees the updated timeline and manual-change notes.
   **Box** limits the caption area; **Align** controls left, center or right
   alignment. **Overflow** can shrink all words or refuse clipping. Existing
   recorded captions retain their original wrapping and capitalization defaults.
+- **Canvas placement:** select a recorded paste and drag it on the canvas.
+  Its outline moves during the gesture. Releasing moves the draft, and
+  **Escape** cancels the drag. The saved image stays in view until you inspect
+  a preview or apply the edit.
 - **Replacement:** change the Piece image in a paste step. Position, scale and
   rotation remain recorded independently. Preview before applying.
 - **Portable font:** new manual captions default to the bundled Aileron font.
@@ -38,7 +42,9 @@ and replay path. The AI sees the updated timeline and manual-change notes.
   Quick ideas. Turn it off to render with **Preview changes**. While a preview
   renders, you can keep editing or cancel. Apply becomes available when the
   current request finishes. If the editor pauses automatic preview after a slow
-  render, use **Update preview** or **Resume automatic preview**.
+  render, use **Update preview** or **Resume automatic preview**. Use **View preview
+  on canvas** to inspect the draft at canvas size. Choose **Return to saved image**
+  to share the committed output.
 - **Preview final result, including later steps** can replay up to 60 local
   operations in a disposable session. The preview labels show whether you are
   seeing the final result or the selected step. The divider compares the draft

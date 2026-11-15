@@ -17,14 +17,22 @@ import type { MaterialTarget } from "./Studio";
 import { DraftDecision, useDraftDecision } from "./DraftDecision";
 import { layoutForImage, QuickLayoutEditor } from "./QuickLayoutEditor";
 
-export function QuickStart({ onImport, onAdvanced, onHistory, onResult, importedImage, importing = false, draftGuard, onBrowse }: {
+export type QuickDraftHandle = {
+  leave: () => Promise<boolean>;
+  recordedStepId: string | undefined;
+  creating: boolean;
+};
+
+export function QuickStart({ onImport, onAdvanced, onAllTools, onHistory, onResult, importedImage, importing = false, draftGuard, onBrowse, inspectorStepId }: {
   onImport: () => void;
   onAdvanced: () => void;
+  onAllTools?: () => void;
   onHistory: (stepId?: string) => void;
   onResult?: () => void;
   importedImage?: { id: string } | null;
   importing?: boolean;
-  draftGuard?: Ref<() => Promise<boolean>>;
+  draftGuard?: Ref<QuickDraftHandle>;
+  inspectorStepId?: string;
   onBrowse?: (target: MaterialTarget) => void;
 }) {
   const { data: session } = useSession();
@@ -51,10 +59,11 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
   useEffect(() => { if (importedImage) setImage(importedImage.id); }, [importedImage]);
   const { id: canvasId } = useCanvasArtifact(session);
   const canvasLayout = layoutForImage(session, canvasId);
-  const step = (draftTarget && session?.steps.find(item => item.invocation_id === draftTarget)) || canvasLayout;
+  const inspectorStep = session?.steps.find(item => item.id === inspectorStepId && item.tool === "layout");
+  const step = (draftTarget && session?.steps.find(item => item.invocation_id === draftTarget)) || inspectorStep || canvasLayout;
   const layout = step && layouts.find(item => item.id === (step.params.template ?? "trading-card"));
   const { visibleArtifacts } = useDocumentProjection(session);
-  const editing = !!step && !!layout && !choosingFormat && !chosen;
+  const editing = !!step && !!layout && (!!inspectorStep || (!choosingFormat && !chosen));
   const classic = useUI(s => s.theme === "classic");
   const ready = useUI(s => s.status === "ready");
   const disabled = !ready || busy || importing || !!session?.turn_running || !!session?.batch_running;
@@ -63,7 +72,7 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
     second !== (chosen.secondCaption ?? "Probably fine.") || image !== startingImage);
   const creationDecision = useDraftDecision(creationDirty, busy);
   const canLeave = async () => chosen ? creationDecision.request() : await editorGuard.current?.() ?? true;
-  useImperativeHandle(draftGuard, () => canLeave);
+  useImperativeHandle(draftGuard, () => ({ leave: canLeave, recordedStepId: editing ? step.id : undefined, creating: !!chosen }));
   const navigate = async (work: () => void) => { if (await canLeave()) work(); };
 
   async function make() {
@@ -97,20 +106,22 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
     return created;
   }
 
-  return <section className="quick-start pane window" aria-label="Quick ideas">
-    <div className="pane-heading title-bar"><span className={classic ? "pane-title" : undefined}>{classic && <ThemeIcon name="images" size={16} />}Make something terrible</span><button onClick={() => void navigate(onAdvanced)}>All tools</button></div>
+  return <section className={`quick-start pane window${inspectorStep ? " layout-inspector" : ""}`}
+    aria-label={inspectorStep ? "Inspector" : "Quick ideas"}>
+    <div className="pane-heading title-bar"><span className={classic ? "pane-title" : undefined}>{classic && <ThemeIcon name="images" size={16} />}{inspectorStep ? "Inspector" : "Make something terrible"}</span>
+      {!inspectorStep && <button onClick={onAllTools ?? onAdvanced}>All tools</button>}</div>
     <div className="quick-content">
       {editing && session && <QuickLayoutEditor key={step.invocation_id} session={session} step={step}
         layout={layout} materials={visibleArtifacts} disabled={disabled} onAdvanced={onAdvanced} onDraft={setDraftTarget}
         ref={editorGuard} onBrowse={onBrowse}
-        onHistory={onHistory} onFormats={() => setChoosingFormat(true)} onDuplicate={() => perform(async () => {
+        onHistory={onHistory} onFormats={!inspectorStep ? () => setChoosingFormat(true) : undefined} onDuplicate={() => perform(async () => {
           const current = queries.getQueryData<Session>(["session.get"]);
           if (!current) return;
           await action("branches.create", { name: `Another take ${new Date().toLocaleTimeString()}`,
             expected_revision: current.document_revision });
           useUI.getState().set({ notice: "Original take kept. You’re editing a copy." });
         })} />}
-      {!editing && !chosen && <>
+      {!inspectorStep && !editing && !chosen && <>
       {step && <button type="button" onClick={() => setChoosingFormat(false)}>Back to current joke</button>}
       {!step && !!session?.steps.length && <button type="button" onClick={onAdvanced}>Edit in workspace</button>}
       <p>Pick a joke. Use your own picture or our public-domain pigeon. No AI setup or downloads.</p>
@@ -137,7 +148,7 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
         </button>)}
       </div>
       </>}
-      {chosen && <form className="quick-form" onSubmit={event => { event.preventDefault(); void make(); }}>
+      {!inspectorStep && chosen && <form className="quick-form" onSubmit={event => { event.preventDefault(); void make(); }}>
         <button type="button" disabled={busy} onClick={() => void navigate(() => { setChoosingFormat(true); setChosen(null); })}>Back to formats</button>
         <h3>{chosen.name}</h3>
         {step && <p>Creates another image in this take.</p>}
@@ -156,10 +167,12 @@ export function QuickStart({ onImport, onAdvanced, onHistory, onResult, imported
         <DraftDecision decision={creationDecision} apply={make} discard={() => setChosen(null)}
           blocked={disabled || !definitions} busy={busy} applyLabel="Make this shitpost" />
       </form>}
+      {!inspectorStep && <>
       <details><summary>Save a reusable recipe</summary><RecipeStudio /></details>
       <CreativeCollections image={image} title={String(step?.params.title ?? title)} caption={String((step?.params.captions as string[] | undefined)?.[0] ?? caption)} disabled={disabled} />
       <details><summary>Show how it happened</summary><CreationReplay /></details>
       <details><summary>Play a remix challenge</summary><RemixChallenge /></details>
+      </>}
       {error && <p role="alert" className="error-text">{error}</p>}
     </div>
   </section>;

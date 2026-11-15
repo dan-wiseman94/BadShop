@@ -14,7 +14,7 @@ This tutorial runs the tools manually.*
 ## 1. Import and select a picture
 
 On first launch, **Edit a photo without AI** opens the workbench. From Quick ideas,
-choose **All tools** or **Art director / All tools**. Use **Import images**, or drop
+choose **Edit**. Use **Import images**, or drop
 a supported image into the window. Click its thumbnail if it is not already shown
 in the viewer.
 
@@ -24,7 +24,7 @@ to the working image. Enlarging an export later cannot restore discarded detail.
 
 ## 2. Run an effect twice
 
-1. Click **Run tool**, search for `deep fry`, and select `deepfry`. You can also
+1. Click **More tools**, search for `deep fry`, and select `deepfry`. You can also
    search by task, for example `remove background`, `add words` or `resize`.
 2. Check that **Image** points to the picture you want. The selected image usually
    supplies the default. Leave the other parameters at their defaults.
@@ -49,8 +49,10 @@ that step's input and output. **Replay from here** reruns the selected step and
 later work using the stored parameters; unchanged deterministic work may be cached.
 
 For corrections you want to inspect before committing, **Preview changes** renders
-a draft and **Cancel changes** discards it. The **Manual tools** row under the viewer
-also offers crop, resize, rotation, text and other basic edits. See
+a draft and **Cancel changes** discards it. The **Edit tools** toolbar opens
+Text, Cutout, Compose and Transform. In Compose, **Find subject** and **Find
+background** assign a picture to the corresponding field. Materials docks
+beside the canvas when space allows. See
 [manual corrections](../manual-controls.md) for preview limits, effect bypass,
 placement controls and source/wording pins.
 

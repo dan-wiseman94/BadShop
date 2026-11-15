@@ -2233,7 +2233,7 @@ button.welcome-choice {
 
 /* Quick ideas share the same session and viewer as the full workbench. Hidden
    panels remain mounted so switching workspaces never discards a chat draft. */
-.advanced-workbench > .quick-start,
+.advanced-workbench > .quick-start:not(.layout-inspector),
 .advanced-workbench[data-ai="false"] > .chat,
 .advanced-workbench[data-task="true"] > .chat,
 .advanced-workbench[data-task="false"] > .task-pane,
@@ -2299,17 +2299,34 @@ button.welcome-choice {
 .settings-content .section-title { flex-wrap: wrap; }
 .compact-panes { display: none; }
 
-.workbench[data-compact="true"]:not([hidden]) {
+.workbench > .compact-panes { order: -1; grid-column: 1 / -1; }
+.workbench > .resizer[aria-label="Resize chat pane"] { order: 1; }
+.workbench > .viewer { order: 2; }
+.workbench > .resizer[aria-label="Resize steps pane"] { order: 3; }
+.workbench > :is(.timeline, .layout-inspector) { order: 4; }
+.workbench[data-layout-inspector="true"] > .timeline,
+.workbench[data-materials="true"] > :is(.quick-start:not(.layout-inspector), .chat, .task-pane) { display: none; }
+
+.workbench:is([data-compact="true"], [data-split="true"]):not([hidden]) {
   grid-template-columns: minmax(0, 1fr) !important;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 6px;
 }
-.workbench[data-compact="true"] .compact-panes { display: flex; flex-wrap: wrap; gap: 6px; }
-.workbench[data-compact="true"] > .resizer,
-.workbench[data-compact="true"]:not([data-pane="left"]) > :is(.quick-start, .chat, .task-pane),
-.workbench[data-compact="true"]:not([data-pane="canvas"]) > .viewer,
-.workbench[data-compact="true"]:not([data-pane="steps"]) > .timeline { display: none; }
-.workbench[data-compact="true"] > :is(.viewer, .chat, .timeline) { overflow: auto; }
+.workbench:is([data-compact="true"], [data-split="true"]) .compact-panes {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.workbench:is([data-compact="true"], [data-split="true"]) > .resizer,
+.workbench:is([data-compact="true"], [data-split="true"]):not([data-pane="left"]) >
+  :is(.quick-start:not(.layout-inspector), .chat, .task-pane, .materials-pane[data-docked="true"]),
+.workbench:is([data-compact="true"], [data-split="true"]):not([data-pane="steps"]) > :is(.timeline, .layout-inspector),
+.workbench[data-compact="true"]:not([data-pane="canvas"]) > .viewer { display: none; }
+.workbench[data-split="true"][data-pane="left"][data-left="true"]:not([hidden]) {
+  grid-template-columns: minmax(290px, .7fr) minmax(0, 1fr) !important;
+}
+.workbench[data-split="true"][data-pane="steps"]:not([hidden]) {
+  grid-template-columns: minmax(0, 1fr) minmax(290px, .7fr) !important;
+}
+.workbench:is([data-compact="true"], [data-split="true"]) > :is(.viewer, .chat, .timeline) { overflow: auto; }
 .workbench[data-compact="true"] .viewer-stage { min-height: 9rem; }
 .workbench[data-compact="true"] .empty-stage .cut-paper { display: none; }
 .workbench[data-compact="true"] .chat-history { min-height: 7rem; }
@@ -2351,3 +2368,5 @@ button.welcome-choice {
 
 .materials-dialog { margin: auto; max-width: calc(100vw - 24px); }
 .materials-dialog::backdrop { background: #0008; }
+
+.canvas-draft-image { display: block; max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }

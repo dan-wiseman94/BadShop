@@ -20,6 +20,7 @@ from pydantic import TypeAdapter, ValidationError
 from PIL.PngImagePlugin import PngInfo
 
 from badshop import atomic, files
+from badshop.engine import manifest
 from badshop.engine.errors import EngineError
 from badshop.engine.result import Output
 from badshop.engine.types import FileName
@@ -644,11 +645,26 @@ class Session:
             return "network_step", "requires network access"
         return None
 
-    def _final_preview_refusal(self, step_id: str) -> tuple[str, str] | None:
+    @staticmethod
+    def _missing_preview_asset(tool: str, params: dict) -> str | None:
+        if tool != "cutout" or params.get("no_ai") or params.get("oval"):
+            return None
+        model = params.get("model", "u2net")
+        asset = next((item for item in manifest.ASSETS if item.rembg_model == model), None)
+        if asset is not None and not manifest.is_present(asset):
+            return f"Install the {model} background-removal model in Settings → Assets to preview this cutout."
+        return None
+
+    def _final_preview_refusal(self, step_id: str, params: dict) -> tuple[str, str] | None:
         if len(self.data.steps[self._position(step_id):]) > 60:
             return "operation_limit", "Final preview is limited to 60 operations."
         if self.local_replay_blocker(step_id) is not None:
             return "network_step", "Final preview requires local steps without file writes."
+        for step in self._replay_suffix(step_id, include_target=True):
+            if not step.bypassed:
+                missing = self._missing_preview_asset(step.tool, params if step.id == step_id else step.params)
+                if missing:
+                    return "missing_asset", missing
         return None
 
     def plan_preview(self, raw: dict, scope: str, *, step_id: str | None, tool: str | None) -> dict:
@@ -676,11 +692,13 @@ class Session:
                 reason, detail = refusal
                 return refuse(reason, f"This tool {detail}.")
             if step_id is not None:
-                self.validate_step_params(step_id, raw)
+                params = self.validate_step_params(step_id, raw)
             else:
-                self._resolved(runner.validate(tool, raw, "user"))
+                params = self._resolved(runner.validate(tool, raw, "user"))
         except EngineError as error:
             return refuse("invalid_params", error.message)
+        if missing := self._missing_preview_asset(tool, params):
+            return refuse("missing_asset", missing)
         plan["eligible"] = True
         if step_id is None:
             return plan
@@ -697,7 +715,7 @@ class Session:
             }}
         plan["can_apply_local"] = True
         if scope == "final":
-            refusal = self._final_preview_refusal(step_id)
+            refusal = self._final_preview_refusal(step_id, params)
             if refusal:
                 return refuse(*refusal)
             plan["scope"] = "final"
@@ -711,8 +729,8 @@ class Session:
             raise EngineError("enable this effect before previewing its settings")
         params = self.validate_step_params(step_id, raw)
         if final_result:
-            if refusal := self._final_preview_refusal(step_id):
-                raise EngineError(refusal[1].lower().rstrip("."), hint="preview this step alone instead")
+            if refusal := self._final_preview_refusal(step_id, params):
+                raise EngineError(refusal[1], hint="preview this step alone instead")
             # Own metadata and dictionaries; immutable bytes can safely be shared.
             store = self.artifacts.fork()
             try:
@@ -736,6 +754,8 @@ class Session:
         """Capture immutable inputs for a previously validated preview."""
         if self._local_refusal(tool):
             raise EngineError("preview requires a local image tool")
+        if missing := self._missing_preview_asset(tool, params):
+            raise EngineError(missing)
         draft = Step(id="preview", index=0, tool=tool, params=params, actor="user", status="proposed")
         return ToolCall(tool, params, self._inputs(draft), self._stem(draft),
                         guard_network=True, no_remote=True, catalogue_font=portable)

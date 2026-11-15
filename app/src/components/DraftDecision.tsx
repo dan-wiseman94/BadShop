@@ -24,17 +24,18 @@ export function useDraftDecision(dirty: boolean, busy: boolean) {
   return { dialog, request, finish };
 }
 
-export function DraftDecision({ decision, apply, discard, blocked, busy, applyLabel = "Apply changes" }: {
+export function DraftDecision({ decision, apply, discard, blocked, busy, applyLabel = "Apply changes", label = "Unsaved changes to this joke" }: {
   decision: ReturnType<typeof useDraftDecision>;
   apply: () => Promise<boolean>;
   discard: () => void;
   blocked: boolean;
   busy: boolean;
   applyLabel?: string;
+  label?: string;
 }) {
-  return <dialog className="quick-draft-decision" ref={decision.dialog} aria-label="Unsaved changes to this joke"
+  return <dialog className="quick-draft-decision" ref={decision.dialog} aria-label={label}
     onCancel={event => { event.preventDefault(); if (!busy) decision.finish(false); }}>
-    <p>Keep your changes before leaving this joke?</p>
+    <p>Keep your changes before leaving?</p>
     <div className="quick-editor-actions">
       <button type="button" disabled={blocked || busy} onClick={async () => decision.finish(await apply())}>{applyLabel}</button>
       <button type="button" disabled={busy} onClick={() => { discard(); decision.finish(true); }}>Discard changes</button>

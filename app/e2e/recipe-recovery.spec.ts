@@ -37,7 +37,7 @@ test("a failed recipe keeps completed pixels, explains the failure and can be re
   expect(await emptyCore.call("artifacts.get", { id: kept })).toEqual(bytes);
   const project = path.join(emptyCore.folder, "repaired.badshop");
   page.once("dialog", dialog => dialog.accept(project));
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).unsaved_changes).toBe(false);
   await emptyCore.call("session.open", { path: project });
   expect((await emptyCore.call("session.get") as Session).steps).toEqual(repaired.steps);
@@ -71,12 +71,13 @@ test("stopping a running recipe keeps finished images and permits another run", 
   const kept = completed[0].outputs[0];
   const bytes = await emptyCore.call("artifacts.get", { id: kept });
   await studio.getByLabel("Saved recipes").selectOption("One more");
+  await studio.getByRole("checkbox").first().check();
   await studio.getByRole("button", { name: "Run recipe on selected pictures" }).click();
   await expect(studio.getByRole("status")).toHaveText("1 steps completed. ");
   expect((await emptyCore.call("session.get") as Session).steps.at(-1)?.status).toBe("done");
   const project = path.join(emptyCore.folder, "stopped.badshop");
   page.once("dialog", dialog => dialog.accept(project));
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).unsaved_changes).toBe(false);
   await emptyCore.call("session.open", { path: project });
   expect(await emptyCore.call("artifacts.get", { id: kept })).toEqual(bytes);
@@ -91,8 +92,7 @@ test("a saved design keeps separate picture roles across projects and retries on
   await page.locator(".step").first().click();
   async function openDesigns() {
     await page.getByRole("button", { name: "Materials", exact: true }).click();
-    await page.getByRole("button", { name: "Retro workbench", exact: true }).click();
-    await page.getByRole("button", { name: "Recipes", exact: true }).click();
+    await page.getByRole("group", { name: "My library" }).getByRole("button", { name: "Recipes", exact: true }).click();
   }
   await openDesigns();
   const studio = page.getByRole("region", { name: "Visual recipes" });
@@ -100,13 +100,14 @@ test("a saved design keeps separate picture roles across projects and retries on
   await studio.getByLabel("Recipe name", { exact: true }).fill("Two distinct pictures");
   await studio.getByRole("button", { name: "Keep these recipe controls", exact: true }).click();
   await studio.getByRole("button", { name: "Save to design library", exact: true }).click();
-  await expect(studio.getByRole("status")).toHaveText("Design saved for use in any project.");
+  await expect(studio.getByRole("status")).toHaveText("Recipe saved in My library.");
   await emptyCore.call("session.new", { name: "Another project", discard_unsaved: true });
   const newFirst = await emptyCore.call("artifacts.import", { path: path.join(root, "core/tests/fixtures/lincoln.png") }) as { working: { id: string } };
   const newSecond = await emptyCore.call("artifacts.import", { path: path.join(root, "core/tests/fixtures/trump.png") }) as { working: { id: string } };
   await page.reload();
   await openDesigns();
   await studio.getByLabel("Design library").selectOption("Two distinct pictures");
+  await studio.getByRole("button", { name: "Run on several pictures" }).click();
   await studio.getByLabel("Row 1: base").selectOption(newSecond.working.id);
   await studio.getByLabel("Row 1: piece").selectOption(newFirst.working.id);
   await studio.getByRole("button", { name: "Add batch row", exact: true }).click();

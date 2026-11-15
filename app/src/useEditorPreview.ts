@@ -138,6 +138,11 @@ export function useEditorPreview({ session, target, scope, params, active, dirty
   }, [key, dirty, automatic, slow, delay, start]);
 
   const visible = key && result?.key === key ? result : null;
+  const visibleKey = visible?.key;
+  useEffect(() => () => {
+    const ui = useUI.getState();
+    if (visibleKey && ui.canvasDraft?.key === visibleKey) ui.set({ canvasDraft: null });
+  }, [visibleKey]);
   return {
     available,
     automatic,
@@ -150,6 +155,12 @@ export function useEditorPreview({ session, target, scope, params, active, dirty
       useUI.getState().set({ automaticPreview: value });
       savePreference("automaticPreview", value ? "on" : "off");
       if (!value) pending.current = null;
+    },
+    showOnCanvas() {
+      if (!visible?.image || !visible.plan || !session) return;
+      useUI.getState().set({ viewerBefore: false, canvasDraft: {
+        key: visible.key, source: visible.image, scope: visible.plan.scope, revision: session.document_revision,
+      } });
     },
     update() {
       if (live.current && !inFlight.current) void start(live.current, true);

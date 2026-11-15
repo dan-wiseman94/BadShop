@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
 import { useEffect, useRef, useState } from "react";
@@ -96,7 +97,9 @@ function RunningTime({ step }: { step: Step }) {
   }, []);
   return <span>{Math.max(0, Math.floor(now - (step.started_at ?? now)))}s elapsed</span>;
 }
-export function Timeline({ onViewImage, onEditQuickIdea }: {
+export function Timeline({ onViewImage, onEditQuickIdea, draftGuard, beforeSelect }: {
+  draftGuard?: Ref<() => Promise<boolean>>;
+  beforeSelect?: () => Promise<boolean>;
   onViewImage?: () => void;
   onEditQuickIdea?: (step: Step) => void;
 } = {}) {
@@ -105,6 +108,11 @@ export function Timeline({ onViewImage, onEditQuickIdea }: {
   const selected = useUI((s) => s.selectedStep);
   const element = useUI(s => s.selectedElement);
   const steps = session?.steps ?? [];
+  async function selectStep(id: string | null, focus?: () => void) {
+    if (id !== selected && beforeSelect && !(await beforeSelect())) return;
+    focus?.();
+    useUI.getState().set({ selectedStep: id, ...(id !== null && { selectedArtifact: null }) });
+  }
   const list = useRef<HTMLDivElement>(null);
   const focusAfterScroll = useRef(false);
   const selectedIndex = steps.findIndex(item => item.id === selected);
@@ -170,9 +178,10 @@ export function Timeline({ onViewImage, onEditQuickIdea }: {
         const index = Number(current.dataset.index);
         const next = event.key === "Home" ? 0 : event.key === "End" ? steps.length - 1
           : Math.max(0, Math.min(steps.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
-        focusAfterScroll.current = true;
-        if (windowed) virtual.scrollToIndex(next, { align: "auto" });
-        useUI.getState().set({ selectedStep: steps[next].id, selectedArtifact: null });
+        void selectStep(steps[next].id, () => {
+          focusAfterScroll.current = true;
+          if (windowed) virtual.scrollToIndex(next, { align: "auto" });
+        });
       }}>
         {session?.steps.length ? (
           <div style={windowed ? { height: virtual.getTotalSize(), position: "relative" } : undefined}>
@@ -186,7 +195,7 @@ export function Timeline({ onViewImage, onEditQuickIdea }: {
               aria-pressed={s.id === selected}
               tabIndex={windowed && row.index !== Math.max(0, selectedIndex) ? -1 : 0}
               className={`step ${s.id === selected ? "selected" : ""}`}
-              onClick={() => useUI.getState().set({ selectedStep: s.id, selectedArtifact: null })}
+              onClick={() => void selectStep(s.id)}
             >
               <span className={`step-number ${s.status}`}>
                 {s.status === "done" ? <Check size={14} /> : s.index}
@@ -247,7 +256,7 @@ export function Timeline({ onViewImage, onEditQuickIdea }: {
             <h3>
               {step.index}. {step.tool}
             </h3>
-            <button title="Close step details" onClick={() => useUI.getState().set({ selectedStep: null })}>
+            <button title="Close step details" onClick={() => void selectStep(null)}>
               <ThemeIcon name="close" size={16} />
             </button>
           </div>
@@ -263,8 +272,9 @@ export function Timeline({ onViewImage, onEditQuickIdea }: {
             </div>
           )}
           {step.tool === "layout" && onEditQuickIdea && (step.outputs.length || step.previous_outputs?.length)
-            ? <button onClick={() => onEditQuickIdea(step)}>Edit this joke in Quick ideas</button>
-            : <ToolForm
+            ? <button onClick={() => onEditQuickIdea(step)}>Edit this joke</button>
+            : <ToolForm key={step.invocation_id}
+            draftGuard={session?.pending_approvals.includes(step.id) ? undefined : draftGuard}
             tool={tool}
             stepId={step.id}
             initial={step.params}
@@ -376,7 +386,8 @@ export function Timeline({ onViewImage, onEditQuickIdea }: {
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
-                    await action("steps.delete", { step_id: step.id });
+                    if (beforeSelect && !(await beforeSelect())) return;
+                  await action("steps.delete", { step_id: step.id });
                     useUI.getState().set({ selectedStep: null });
                   })
                 }
@@ -428,7 +439,10 @@ export function Timeline({ onViewImage, onEditQuickIdea }: {
     </section>
   );
 }
-export function ToolPalette({ initialSearch = "" }: { initialSearch?: string } = {}) {
+export function ToolPalette({ initialSearch = "", beforeRun }: {
+  initialSearch?: string;
+  beforeRun?: () => Promise<boolean>;
+} = {}) {
   const picking = useUI((state) => !!state.pick);
   const [search, setSearch] = useState(initialSearch);
   const [tool, setTool] = useState<Tool | null>(null);
@@ -470,6 +484,7 @@ export function ToolPalette({ initialSearch = "" }: { initialSearch?: string } =
               previewEnabled
               initial={defaults.current}
               onSubmit={async (params) => {
+                if (beforeRun && !(await beforeRun())) return false;
                 const result = await action("tools.run", {
                   tool: tool.name,
                   params,

@@ -8,7 +8,7 @@ test("edits an overlapping recorded picture without leaving the final canvas", a
     template: "comic", title: "Recorded selection", captions: ["First words", "Second words"],
   } }) as Step;
   const paste = await core.call("tools.run", { tool: "paste", params: {
-    base: layout.outputs[0], piece: subject.working.id, at: [50, 140], width: 260,
+    base: layout.outputs[0], piece: subject.working.id, at: [50, 140], width: 260.49,
   } }) as Step;
   const caption = await core.call("tools.run", { tool: "text", params: {
     image: paste.outputs[0], text: "On top", font: "bundled", at: [180, 210], size: 36,
@@ -35,12 +35,35 @@ test("edits an overlapping recorded picture without leaving the final canvas", a
   const placement = details.getByRole("group", { name: "Placement controls" });
   await placement.focus();
   await page.keyboard.press("Shift+ArrowRight");
-  const placementBox = (await placement.boundingBox())!;
-  await page.mouse.move(placementBox.x + 35, placementBox.y + 40);
+  await page.setViewportSize({ width: 820, height: 980 });
+  const panes = page.getByRole("navigation", { name: "Workspace panels" });
+  await panes.getByRole("button", { name: "Canvas", exact: true }).click();
+  await expect(placement).toBeHidden();
+  const piece = page.getByRole("button", { name: "Edit Picture: step 2", exact: true });
+  await piece.scrollIntoViewIfNeeded();
+  const pieceBounds = (await piece.boundingBox())!;
+  const scale = (await canvas.boundingBox())!.width / 1000;
+  const start = { x: pieceBounds.x + 12 * scale, y: pieceBounds.y + 24 * scale };
+  const guide = page.locator(".canvas-placement-guide");
+  await page.mouse.move(start.x, start.y);
   await page.mouse.down();
-  await page.mouse.move(placementBox.x + 60, placementBox.y + 60);
-  await page.keyboard.press("Escape");
+  await page.mouse.move(start.x + 30 * scale, start.y + 20 * scale, { steps: 3 });
+  await expect(guide).toBeVisible();
+  await expectImageBytes(canvas, original.data);
+  expect(((await core.call("session.get")) as Session).steps[1].params.at).toEqual([50, 140]);
   await page.mouse.up();
+  await expect(guide).toHaveCount(0);
+
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 45 * scale, start.y + 30 * scale, { steps: 3 });
+  await expect(guide).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(guide).toHaveCount(0);
+  await page.mouse.up();
+  await panes.getByRole("button", { name: "Inspector", exact: true }).click();
+  await expect(placement).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 960 });
 
   const previewFinal = details.getByLabel("Preview final result, including later steps", { exact: false });
   if (await previewFinal.isVisible()) await previewFinal.check();
@@ -51,16 +74,17 @@ test("edits an overlapping recorded picture without leaving the final canvas", a
   expect(expected).not.toBe(original.data);
   await expectImageBytes(canvas, original.data);
   await details.getByRole("button", { name: "Apply & replay" }).click();
-  await expect.poll(async () => ((await core.call("session.get")) as Session).steps[1].params.at).toEqual([60, 140]);
+  await expect.poll(async () => ((await core.call("session.get")) as Session).steps[1].params.at).toEqual([90, 160]);
   await expectImageBytes(canvas, expected);
 
   await elements.selectOption({ label: "Layout: Image 1" });
-  await expect(details.getByRole("textbox", { name: "Caption", exact: true })).toHaveValue("First words");
-  await expect(details.getByRole("textbox", { name: "Headline", exact: true })).toHaveValue("Recorded selection");
+  const layoutEditor = page.getByRole("form", { name: "Edit this joke", exact: true });
+  await expect(layoutEditor.getByRole("textbox", { name: "Caption Image 1", exact: true })).toHaveValue("First words");
+  await expect(layoutEditor.getByRole("textbox", { name: "Headline", exact: true })).toHaveValue("Recorded selection");
   await elements.selectOption({ label: "Layout: Image 2" });
-  await expect(details.getByRole("textbox", { name: "Caption", exact: true })).toHaveValue("Second words");
+  await expect(layoutEditor.getByRole("textbox", { name: "Caption Image 2", exact: true })).toHaveValue("Second words");
   await page.getByRole("button", { name: "Edit Caption for Layout: Image 2", exact: true }).dblclick();
-  await expect(details.getByRole("textbox", { name: "Caption", exact: true })).toBeFocused();
+  await expect(layoutEditor.getByRole("textbox", { name: "Caption Image 2", exact: true })).toBeFocused();
   await page.locator(".image-surface").click({ position: { x: 6, y: 6 } });
   await expect(elements.locator("option:checked")).toHaveText("Choose an element");
   await expectImageBytes(canvas, expected);
@@ -69,8 +93,11 @@ test("edits an overlapping recorded picture without leaving the final canvas", a
   await core.call("session.save_as", { path: project });
   await core.call("session.open", { path: project });
   const reopened = await core.call("session.get") as Session;
-  expect(reopened.steps[1].params.at).toEqual([60, 140]);
-  expect((reopened.steps[1].data!.element_bounds as number[]).slice(0, 2)).toEqual([60, 140]);
+  expect(reopened.steps[1].params.at).toEqual([90, 160]);
+  expect(reopened.steps[1].params).toMatchObject({ ...paste.params, at: [90, 160] });
+  expect(reopened.steps[1].data!.element_bounds).toEqual(
+    (paste.data!.element_bounds as number[]).map((edge, i) => edge + (i % 2 ? 20 : 40)),
+  );
   expect((await core.call("artifacts.get", { id: reopened.steps[2].outputs[0] }) as { data: string }).data).toBe(expected);
 
   const crop = await core.call("tools.run", { tool: "transform", params: {

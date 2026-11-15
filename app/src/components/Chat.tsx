@@ -22,6 +22,7 @@ export function Chat({
   attachments,
   onAttachments,
   onImport,
+  onBrowseMaterials,
   onPaste,
   onConnect,
   onViewImage,
@@ -34,6 +35,7 @@ export function Chat({
   attachments: string[];
   onAttachments: (next: string[]) => void;
   onImport: () => void;
+  onBrowseMaterials?: () => void;
   onPaste: (event: React.ClipboardEvent) => void;
   onConnect?: () => void;
   onViewImage?: () => void;
@@ -412,6 +414,7 @@ export function Chat({
           }}
         />
         <div className="composer-actions">
+          {onBrowseMaterials && <button type="button" onClick={onBrowseMaterials}>Attach material</button>}
           <button aria-label="Attach images" title="Attach images" onClick={onImport}>
             <Paperclip size={17} />
           </button>

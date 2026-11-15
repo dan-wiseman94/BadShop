@@ -3,8 +3,8 @@ import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
 import { useOperation } from "../useOperation";
 import { InputField, SelectField, TextAreaField } from "./Fields";
-import { useEffect, useRef, useState } from "react";
-import { action, queries, run, useCoreQuery, useSession } from "../data";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { action, imageUrl, queries, run, useArtifact, useCoreQuery, useSession } from "../data";
 import { showError, useSelectedArtifact, useUI } from "../store";
 import { openLink, native, pickImages } from "../native";
 import { sourceCard } from "../sourceCard";
@@ -16,7 +16,10 @@ import { IdeaMixer } from "./IdeaMixer";
 import { SpriteSheet } from "./SpriteSheet";
 import { RetroStudio } from "./RetroStudio";
 import { LibraryImage } from "./LibraryImage";
-import type { LibraryEntry, Session } from "../types";
+import { Cast } from "./Cast";
+import { RecipeStudio } from "./RecipeStudio";
+import "../materials.css";
+import type { Artifact, LibraryEntry, Session } from "../types";
 import type { AcquireParams, DiscoverParams, ResponseSourceHealth } from "../wire.generated";
 
 type Candidate = {
@@ -39,28 +42,98 @@ type Candidate = {
 export type MaterialReceipt = { operation_id?: string; base_revision?: number; result_revision?: number };
 export type MaterialTarget = {
   label: string;
+  actionLabel?: string;
+  purpose?: DiscoverParams["purpose"];
+  beforeStepIndex?: number;
   revision: number;
   isCurrent: (revision: number) => boolean;
   assign: (id: string, receipt?: MaterialReceipt) => void;
 };
 
+const materialDestinations = [
+  ["Find material", [["project", "In this project"], ["discover", "Find images"], ["local", "Local files and clips"]]],
+  ["My library", [["library", "Junk drawer"], ["characters", "Characters"], ["recent", "Recent choices"], ["recipes", "Recipes"]]],
+  ["Formats", [["layouts", "Layouts & packs"], ["retro", "Retro workbench"], ["ideas", "Idea mixer"], ["pairs", "Image pairs"]]],
+  ["More tools", [["sheets", "Sprite sheets"]]],
+] as const;
+export type MaterialDestination = (typeof materialDestinations)[number][1][number][0];
+const selectionDestinations: MaterialDestination[] = ["project", "discover", "local", "library", "characters"];
+
+type ImportResult = MaterialReceipt & { working: { id: string } };
+type ImportIntent = { revision: number; browser: object; generation: number; target?: MaterialTarget | null };
+
+function ProjectThumbnail({ artifact }: { artifact: Artifact }) {
+  const { data } = useArtifact(artifact.id, true);
+  return <img className="studio-thumb" src={imageUrl(data)} alt="" />;
+}
+
+function ProjectPictures({ session, target, disabled, onSelect }: {
+  session: Session | undefined;
+  target?: MaterialTarget | null;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const artifacts = Object.values(session?.artifacts ?? {});
+  const originals = new Set(artifacts.map(artifact => artifact.original_id));
+  const producers = new Map(session?.steps.map(step => [step.id, step.index]));
+  const pictures = artifacts.filter(artifact => !originals.has(artifact.id) &&
+    artifact.label.toLowerCase().includes(filter.trim().toLowerCase())).reverse();
+  const pageSize = 50;
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(pictures.length / pageSize) - 1));
+  const shown = pictures.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  return <>
+    <InputField label="Search project pictures" bind={[filter, value => { setPage(0); setFilter(value); }]} />
+    {!shown.length && <p>{filter.trim() ? "No project pictures match." : "Add a picture to use it in this project."}</p>}
+    {pictures.length > pageSize && <nav aria-label="Project picture pages">
+      <Button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} label="Previous pictures" />
+      <span> {currentPage + 1} of {Math.ceil(pictures.length / pageSize)} </span>
+      <Button type="button" disabled={(currentPage + 1) * pageSize >= pictures.length}
+        onClick={() => setPage(currentPage + 1)} label="Next pictures" />
+    </nav>}
+    <div className="studio-grid">
+      {shown.map(artifact => {
+        const madeLater = !!artifact.produced_by && target?.beforeStepIndex !== undefined &&
+          (producers.get(artifact.produced_by) ?? Infinity) >= target.beforeStepIndex;
+        return <article key={artifact.id} className="studio-card">
+          <ProjectThumbnail artifact={artifact} />
+          <strong>{artifact.label}</strong>
+          <small>{artifact.source?.license || "Rights not supplied"}</small>
+          {madeLater && <p>Made after this step. Choose an imported or earlier picture.</p>}
+          <Button type="button" disabled={disabled || madeLater} onClick={() => onSelect(artifact.id)}
+            label={target?.actionLabel ?? target?.label ?? "Show in canvas"} />
+        </article>;
+      })}
+    </div>
+  </>;
+}
+
 export function Studio({
+  open = true,
+  compact = true,
+  destination,
   onClose,
   onAttach,
   onDraft,
   target,
 }: {
+  open?: boolean;
+  compact?: boolean;
+  destination?: MaterialDestination;
   onClose: () => void;
   onAttach: (id: string) => void;
   onDraft: (text: string) => void;
   target?: MaterialTarget | null;
 }) {
   const { busy, error, setError, perform } = useOperation();
-  const [tab, setTab] = useState("discover");
+  const [tab, setTab] = useState<MaterialDestination>("discover");
   const generation = useUI((s) => s.documentGeneration);
-  const [visited, setVisited] = useState<string[]>([]);
-  useEffect(() => { setVisited([tab]); }, [generation]);
-  function showTab(value: string) {
+  const [visited, setVisited] = useState<MaterialDestination[]>(["discover"]);
+  const scroll = useRef<HTMLDivElement>(null);
+  const scrollPositions = useRef(new Map<MaterialDestination, number>());
+  function showTab(value: MaterialDestination) {
+    if (value !== tab && scroll.current) scrollPositions.current.set(tab, scroll.current.scrollTop);
     setTab(value);
     setVisited((previous) => previous.includes(value) ? previous : [...previous, value]);
     setError("");
@@ -83,7 +156,9 @@ export function Studio({
   const [editing, setEditing] = useState<LibraryEntry | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const { data: session } = useSession();
-  const { entries: library, controls: libraryPages } = useLibraryPage(filter);
+  const { entries: library, controls: libraryPages } = useLibraryPage(filter,
+    target && tab === "characters" ? ["cast"] : []);
+  const project = session?.context?.document_incarnation ?? session?.id;
   const { data: sources = [], error: sourceError } = useCoreQuery("sources.status");
   useEffect(() => {
     if (sources.length && source !== "all" && !sources.some((item) => item.id === source && item.configured))
@@ -100,50 +175,130 @@ export function Studio({
       .reverse()
       .find((s) => s.outputs.length)?.outputs[0] ??
     Object.keys(session?.artifacts ?? {})[0];
-  useEffect(() => {
+  const previousProject = useRef(project);
+  useLayoutEffect(() => {
+    if (previousProject.current === project) return;
+    previousProject.current = project;
+    setTab("discover");
+    setVisited(["discover"]);
+    setQuery("");
+    setSource("all");
+    setPurpose("subject");
+    setMaterial("photo");
+    setPose("");
+    setExpression("");
+    setSameSubject(false);
     setCandidates([]);
     setNotes("");
     setSearchHealth({});
-  }, [generation]);
-  const disabled = busy || !ready || !!session?.turn_running;
+    setLink("");
+    setFilter("");
+    setName("");
+    setTags("");
+    setEditing(null);
+    setConfirmRemove(null);
+    scrollPositions.current.clear();
+  }, [project]);
+  const disabled = busy || !ready || session?.turn_running || session?.batch_running;
 
   const dialog = useRef<HTMLDialogElement>(null);
-  const open = useRef(true);
-  useEffect(() => {
-    dialog.current?.showModal();
-    open.current = true;
-    return () => { open.current = false; };
-  }, []);
-
-  function beginImport() {
-    const revision = queries.getQueryData<Session>(["session.get"])?.document_revision;
-    if (revision === undefined || (target && !target.isCurrent(revision)))
-      throw new Error("The edit target changed. Close Materials and reopen the current selection.");
-    return revision;
-  }
-
-  function receive(id: string, receipt: MaterialReceipt, operationId: string) {
-    if (!open.current) return;
-    if (target) {
-      if (receipt.operation_id !== operationId) throw new Error("The import result could not be matched to this edit.");
-      target.assign(id, receipt);
-      onClose();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const browser = useRef<object | null>(null);
+  const currentTarget = useRef(target);
+  currentTarget.current = target;
+  useLayoutEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (!open) {
+      if (node.open) node.close();
+      const previous = opener.current;
+      opener.current = null;
+      if (previous) requestAnimationFrame(() => {
+        if (!dialog.current?.open && previous.isConnected) previous.focus({ preventScroll: true });
+      });
       return;
     }
-    onAttach(id);
-    useUI.getState().set({ notice: "Picture added to Materials." });
+    if (!opener.current && document.activeElement instanceof HTMLElement)
+      opener.current = document.activeElement;
+    if (node.open && node.matches(":modal") === compact) return;
+    if (node.open) node.close();
+    if (compact) node.showModal();
+    else node.show();
+    heading.current?.focus({ preventScroll: true });
+  }, [open, compact]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    browser.current = {};
+    const next = destination && (!target || selectionDestinations.includes(destination))
+      ? destination : target ? "project" : undefined;
+    if (next) showTab(next);
+    if (target?.purpose) setPurpose(target.purpose);
+    setError("");
+    return () => { browser.current = null; };
+  }, [open, destination, target, project]);
+  useLayoutEffect(() => {
+    if (!open || !scroll.current) return;
+    scroll.current.scrollTop = scrollPositions.current.get(tab) ?? 0;
+  }, [open, tab, compact]);
+
+  function closeBrowser() {
+    if (scroll.current) scrollPositions.current.set(tab, scroll.current.scrollTop);
+    browser.current = null;
+    onClose();
   }
 
-  async function acquire(params: AcquireParams) {
-    const expected_revision = beginImport();
+  function beginImport(): ImportIntent {
+    const revision = queries.getQueryData<Session>(["session.get"])?.document_revision;
+    if (!browser.current || revision === undefined || (target && !target.isCurrent(revision)))
+      throw new Error("The edit target changed. Close Materials and reopen the current selection.");
+    return { revision, browser: browser.current, target, generation };
+  }
+
+  function stillBrowsing(intent: ImportIntent) {
+    return browser.current === intent.browser && currentTarget.current === intent.target &&
+      useUI.getState().documentGeneration === intent.generation;
+  }
+
+  function pickProjectPicture(id: string) {
+    void perform(async () => {
+      beginImport();
+      if (target) {
+        target.assign(id);
+        closeBrowser();
+      } else {
+        onAttach(id);
+        if (compact) closeBrowser();
+      }
+    });
+  }
+
+  async function importMaterial(
+    load: (revision: number, operationId: string) => Promise<ImportResult>,
+    intent = beginImport(),
+  ) {
     const operationId = crypto.randomUUID().replaceAll("-", "");
     try {
-      const result = await action("materials.acquire", { params, expected_revision }, { operationId });
-      receive(result.working.id, result, operationId);
+      const result = await load(intent.revision, operationId);
+      if (!stillBrowsing(intent)) return;
+      if (target) {
+        if (result.operation_id !== operationId) throw new Error("The import result could not be matched to this edit.");
+        target.assign(result.working.id, result);
+        closeBrowser();
+      } else {
+        onAttach(result.working.id);
+        useUI.getState().set({ notice: "Picture added to Materials." });
+      }
     } catch (error) {
+      if (!stillBrowsing(intent)) return;
       if (error instanceof Error && "operationId" in error) showError(error);
       throw error;
     }
+  }
+
+  function acquire(params: AcquireParams) {
+    return importMaterial((expected_revision, operationId) =>
+      action("materials.acquire", { params, expected_revision }, { operationId }));
   }
 
   async function search(variation: DiscoverParams["variation"] = "balanced", candidate?: Candidate) {
@@ -173,32 +328,40 @@ export function Studio({
       .map((t) => t.trim())
       .filter(Boolean);
   return (
-    <dialog className="modal studio materials-dialog" ref={dialog} aria-labelledby="studio-title"
-      onCancel={event => { event.preventDefault(); onClose(); }}>
+    <dialog className="modal studio materials-dialog materials-pane" ref={dialog}
+      data-docked={!compact} aria-modal={compact || undefined} aria-labelledby="studio-title"
+      onCancel={event => { event.preventDefault(); closeBrowser(); }}
+      onKeyDown={event => {
+        if (!compact && event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeBrowser();
+        }
+      }}>
         <div className="modal-heading">
           <div>
-            <h2 id="studio-title">{target?.label ?? "Materials"}</h2>
+            <h2 id="studio-title" ref={heading} tabIndex={-1}>{target?.label ?? "Materials"}</h2>
           </div>
-          <button aria-label="Close materials" onClick={onClose}>
+          <button type="button" aria-label="Close materials" onClick={closeBrowser}>
             <ThemeIcon name="close" size={18} />
           </button>
         </div>
+        <div className="materials-scroll" ref={scroll} onScroll={event => {
+          if (open) scrollPositions.current.set(tab, event.currentTarget.scrollTop);
+        }}>
         <nav className="studio-tabs" aria-label="Material destinations">
-          {([
-            ["Find material", [["discover", "Find images"], ["local", "Clips, pages & folders"]]],
-            ["My library", [["library", "Junk drawer"], ["recent", "Recent choices"]]],
-            ["Formats", [["layouts", "Layouts & packs"], ["retro", "Retro workbench"], ["ideas", "Idea mixer"],
-              ["sheets", "Sprite sheets"], ["pairs", "Image pairs"]]],
-          ] as const).map(([label, tabs]) => (
-            <div key={label} className="studio-tab-group" role="group" aria-label={label}>
-              <span>{label}</span>
-              <div>
-                {tabs.filter(([id]) => !target || ["discover", "local", "library"].includes(id)).map(([id, title]) => (
-                  <Button key={id} aria-pressed={tab === id} onClick={() => showTab(id)} label={title} />
-                ))}
+          {materialDestinations.map(([label, tabs]) => {
+            const available = tabs.filter(([id]) => !target || selectionDestinations.includes(id));
+            return available.length ? (
+              <div key={label} className="studio-tab-group" role="group" aria-label={label}>
+                <span>{label}</span>
+                <div>
+                  {available.map(([id, title]) => <Button key={id} type="button"
+                    aria-pressed={tab === id} onClick={() => showTab(id)} label={title} />)}
+                </div>
               </div>
-            </div>
-          ))}
+            ) : null;
+          })}
         </nav>
         {error && (
           <p className="error-banner" role="alert">
@@ -206,8 +369,11 @@ export function Studio({
           </p>
         )}
         {session?.turn_running && <p>Stop the agent before changing images.</p>}
-        {tab === "discover" && (
-          <>
+        {visited.includes("project") && <div hidden={tab !== "project"}>
+          <ProjectPictures key={project} session={session} target={target} disabled={!!disabled} onSelect={pickProjectPicture} />
+        </div>}
+        {visited.includes("discover") && (
+          <div hidden={tab !== "discover"}>
             <p className="muted">
               {[
                 ["pexels", "Photos provided by Pexels", "https://www.pexels.com/"],
@@ -352,7 +518,7 @@ export function Studio({
                               }),
                             )
                           }
-                          label={target?.label ?? "Add to Materials"}
+                          label={target?.actionLabel ?? target?.label ?? "Add to Materials"}
                         />
                         <Button
                           disabled={disabled}
@@ -403,10 +569,10 @@ export function Studio({
               />
               <Button disabled={disabled || !link.trim()} label="Import selected web image" />
             </form>
-          </>
+          </div>
         )}
-        {tab === "library" && (
-          <>
+        {(visited.includes("library") || (target && visited.includes("characters"))) && (
+          <div hidden={tab !== "library" && !(target && tab === "characters")}>
             <form
               className="studio-form"
               onSubmit={(e) => {
@@ -490,16 +656,9 @@ export function Studio({
                     <div className="studio-actions">
                       <Button
                         disabled={disabled}
-                        onClick={() =>
-                          void perform(async () => {
-                            const operationId = crypto.randomUUID().replaceAll("-", "");
-                            const result = await action("library.import", {
-                              id: entry.id, expected_revision: beginImport(),
-                            }, { operationId });
-                            receive(result.working.id, result, operationId);
-                          })
-                        }
-                        label={target?.label ?? "Add to Materials"}
+                        onClick={() => void perform(() => importMaterial((expected_revision, operationId) =>
+                          action("library.import", { id: entry.id, expected_revision }, { operationId })))}
+                        label={target?.actionLabel ?? target?.label ?? "Add to Materials"}
                       />
                       <Button
                         disabled={disabled}
@@ -533,19 +692,23 @@ export function Studio({
                   </article>
                 ))}
             </div>
-          </>
+          </div>
         )}
-        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={generation} onAttach={onAttach} /></div>}
+        {!target && visited.includes("characters") && <div hidden={tab !== "characters"}>
+          <Cast key={project} image={image ?? ""} disabled={!!disabled} onUse={onAttach} />
+        </div>}
+        {visited.includes("recipes") && <div hidden={tab !== "recipes"}><RecipeStudio key={project} /></div>}
+        {visited.includes("layouts") && <div hidden={tab !== "layouts"}><LayoutsPacks key={project} onAttach={onAttach} /></div>}
         {visited.includes("retro") && <div hidden={tab !== "retro"}>
           <RetroStudio
-            key={generation}
+            key={project}
             onAttach={onAttach}
             onDraft={onDraft}
           />
         </div>}
         {visited.includes("ideas") && <div hidden={tab !== "ideas"}>
           <IdeaMixer
-            key={generation}
+            key={project}
             onDraft={onDraft}
             onSearch={(value) => {
               setQuery(value);
@@ -561,32 +724,28 @@ export function Studio({
           />
         </div>}
         {visited.includes("sheets") && <div hidden={tab !== "sheets"}>
-          <SpriteSheet key={generation} onAttach={onAttach} />
+          <SpriteSheet key={project} onAttach={onAttach} />
         </div>}
         {visited.includes("local") && <div hidden={tab !== "local"}>
           {target ? <div>
             <p>Choose one picture to replace the selected slot.</p>
             <button type="button" disabled={!native || disabled} onClick={() => void perform(async () => {
-              const expected_revision = beginImport();
+              const intent = beginImport();
               const paths = await pickImages();
-              if (!paths?.length || !open.current) return;
+              const path = paths?.[0];
+              if (!path || !stillBrowsing(intent)) return;
               if (paths.length !== 1) throw new Error("Choose one picture for this slot.");
-              const operationId = crypto.randomUUID().replaceAll("-", "");
-              try {
-                const result = await action("artifacts.import", { path: paths[0], expected_revision }, { operationId });
-                receive(result.working.id, result, operationId);
-              } catch (error) {
-                if (error instanceof Error && "operationId" in error) showError(error);
-                throw error;
-              }
+              await importMaterial((expected_revision, operationId) =>
+                action("artifacts.import", { path, expected_revision }, { operationId }), intent);
             })}>Choose local picture</button>
             {!native && <p>Open the desktop app to use the file picker here, or choose a picture from My library.</p>}
-          </div> : <LocalMedia key={generation} onAttach={onAttach} />}
+          </div> : <LocalMedia key={project} onAttach={onAttach} />}
         </div>}
         {visited.includes("pairs") && <div hidden={tab !== "pairs"}>
-          <ImagePairs key={generation} onAttach={onAttach} />
+          <ImagePairs key={project} onAttach={onAttach} />
         </div>}
-        {visited.includes("recent") && <div hidden={tab !== "recent"}><RecentChoices key={generation} /></div>}
+        {visited.includes("recent") && <div hidden={tab !== "recent"}><RecentChoices key={project} /></div>}
+        </div>
     </dialog>
   );
 }

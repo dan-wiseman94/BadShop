@@ -152,7 +152,7 @@ for (const theme of ["light", "classic", "xp", "geocities", "y2k", "terminal", "
   await page.evaluate(() => { document.documentElement.dataset.theme = "terminal"; });
   await page.getByRole("navigation", { name: "Workspace panels" }).getByRole("button", { name: "Ideas" }).click();
   await page.getByRole("button", { name: /^all tools$/i }).click();
-  await expect(page.getByRole("button", { name: "Run tool", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Run a tool" }).getByLabel("Search tools")).toBeVisible();
 });
 
 test("a two-panel Quick idea keeps every edit and the exact result across undo and reopen", async ({ page, emptyCore }) => {
@@ -203,7 +203,7 @@ test("a two-panel Quick idea keeps every edit and the exact result across undo a
   await expect.poll(async () => (await snapshot()).steps[0]).toEqual(revised);
   const filename = path.join(emptyCore.folder, "two-panel.badshop");
   page.once("dialog", dialog => dialog.accept(filename));
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await snapshot()).unsaved_changes).toBe(false);
   await page.locator(".session-name").click();
   page.once("dialog", dialog => dialog.accept(filename));

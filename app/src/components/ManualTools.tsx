@@ -1,6 +1,8 @@
+import type { Ref } from "react";
 import { action, useCoreQuery, useSession } from "../data";
 import { outputSelection, useUI } from "../store";
 import type { Params } from "../types";
+import type { MaterialTarget } from "./Studio";
 import { ToolForm } from "./ToolForm";
 
 export const manualChoices = [
@@ -11,8 +13,11 @@ export const manualChoices = [
   { label: "Edit GIF frames", name: "animation_edit", params: {} },
 ] satisfies { label: string; name: string; params: Params }[];
 
-export function ManualTools({ image, choice, onClose }: {
+export function ManualTools({ image, choice, onClose, draftGuard, onBrowse, beforeRun }: {
   image: string | null;
+  draftGuard?: Ref<() => Promise<boolean>>;
+  onBrowse?: (target: MaterialTarget) => void;
+  beforeRun?: () => Promise<boolean>;
   choice: (typeof manualChoices)[number];
   onClose: (applied?: boolean) => void;
 }) {
@@ -33,9 +38,10 @@ export function ManualTools({ image, choice, onClose }: {
   } : { ...(input && { image: input }), ...choice.params };
   return <section className="manual-tools task-pane pane" aria-label={choice.label}>
     <div className="pane-heading"><h2>{choice.label}</h2><button type="button" onClick={() => onClose()}>Close tool</button></div>
-    {tool && <ToolForm key={choice.name} tool={tool} initial={initial} disabled={session?.turn_running || session?.batch_running}
+    {tool && <ToolForm key={choice.name} draftGuard={draftGuard} onBrowse={onBrowse} tool={tool} initial={initial} disabled={session?.turn_running || session?.batch_running}
       imageLabels={choice.name === "paste" ? { base: "Background", piece: "Subject" } : undefined}
       previewEnabled submitLabel={`Apply ${choice.label.toLowerCase()}`} onSubmit={async params => {
+        if (beforeRun && !(await beforeRun())) return false;
         const step = await action("tools.run", { tool: tool.name, params });
         if (step.status !== "done") throw new Error(step.error?.message ?? "Manual tool failed");
         useUI.getState().set({ selectedStep: step.id, selectedArtifact: outputSelection(step) });

@@ -32,6 +32,8 @@ Enter `Brain cell unavailable. Please hold.` in the caption field, then click
 **Apply changes**. You can also edit the headline or replace the picture in any
 slot. In a two-panel layout, each panel has its own caption and picture. Use
 **Undo** above the canvas to restore the previous text, pictures and result.
+Switch between **Quick ideas** and **Edit** to continue typing in the same layout
+draft. Apply the draft when the result is ready.
 
 Click **Duplicate take**. Wait for the notice that the original
 take was kept before editing the new copy. Change the punchline to

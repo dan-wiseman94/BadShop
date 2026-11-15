@@ -849,6 +849,29 @@ def test_local_edit_receipt_reports_failed_suffix_and_restores_previous_result(e
     run(body)
 
 
+def test_cutout_preview_requires_installed_model_before_execution(env, monkeypatch):
+    async def body(app):
+        c = Client(app)
+        image = await imported(c)
+        snapshot = await c.call("session.get")
+        revision = snapshot["document_revision"]
+        monkeypatch.setattr(manifest, "is_present", lambda _asset: False)
+        def unexpected(*_args, **_kwargs):
+            pytest.fail("preview admitted a worker with a missing model")
+        monkeypatch.setattr(app.session.executor, "run", unexpected)
+
+        plan = await c.call("previews.plan", tool="cutout", params={"image": image}, expected_revision=revision)
+        assert not plan["eligible"] and plan["reason"] == "missing_asset"
+        with pytest.raises(Failed, match="Install the u2net"):
+            await c.call("tools.preview", tool="cutout", params={"image": image}, expected_revision=revision)
+        plan = await c.call("previews.plan", tool="cutout", params={"image": image, "no_ai": True},
+                            expected_revision=revision)
+        assert plan["eligible"]
+        assert await c.call("session.get") == snapshot
+
+    run(body)
+
+
 def test_preview_plan_reports_scope_and_blocks_side_effects_without_mutation(env):
     async def body(app):
         c = Client(app)

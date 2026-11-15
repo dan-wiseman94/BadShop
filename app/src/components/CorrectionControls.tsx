@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { action, imageUrl, run, useArtifact, useCoreQuery, useSession } from "../data";
 import type { Params } from "../types";
 import { CutoutRepair } from "./CutoutRepair";
 import { AnimationEditor } from "./AnimationEditor";
 import { ImagePicker } from "./ImagePicker";
 import { useUI } from "../store";
+import { CanvasPlacementContext, type CanvasPlacement } from "../canvasPlacement";
 
 function LayoutSlotControls({ value, change, disabled, slotIndex, stepIndex, focusText }: {
   value: Params;
@@ -90,9 +91,12 @@ export function CorrectionControls({ tool, stepId, value, change, disabled }: {
     Math.min(box[1], box[3]) + Math.floor(Math.abs(box[3] - box[1]) / 2)]
     : Array.isArray(value.at) ? value.at as number[] : recordedCenter;
   const anchor = box ? "center" : String(value.anchor ?? "topleft");
-  const placement = (position: number[]) => ({ at: position, fit_box: undefined,
-    ...(tool === "paste" ? { width, height, anchor } : {}) });
-  const guideAt = (dragPatch?.at as number[] | undefined) ?? at;
+  const placement = (position: number[]): Params => box && tool === "paste"
+    ? { fit_box: box.map((edge, i) => edge + position[i % 2] - at[i % 2]) }
+    : { at: position };
+  const movedBox = dragPatch?.fit_box as number[] | undefined;
+  const guideAt = movedBox && box ? [at[0] + movedBox[0] - box[0], at[1] + movedBox[1] - box[1]]
+    : (dragPatch?.at as number[] | undefined) ?? at;
   const guideWidth = Number(dragPatch?.width ?? width);
   const guideHeight = drag.current?.resize && dragPatch && piece ? piece.meta.height * guideWidth / piece.meta.width : height;
   const endDrag = () => {
@@ -100,6 +104,21 @@ export function CorrectionControls({ tool, stepId, value, change, disabled }: {
     setDragPatch(null);
   };
   const canPlace = (tool === "paste" && !value.repeat) || tool === "text";
+  const canvasPlacement = useContext(CanvasPlacementContext);
+  useLayoutEffect(() => {
+    if (!canvasPlacement || !stepId || !selected || tool !== "paste" || !canPlace ||
+        disabled || !data || (box && !piece) || step?.params.base !== value.base) return;
+    const owner: CanvasPlacement = {
+      stepId,
+      draft: value,
+      moveBy: (x, y) => update(placement([at[0] + x, at[1] + y]), 0),
+    };
+    canvasPlacement.current = owner;
+    return () => {
+      if (canvasPlacement.current === owner) canvasPlacement.current = null;
+    };
+  });
+
   const field = tool === "paste" ? "rotate" : tool === "text" ? "size" : "seed";
   const alternatives = field === "rotate" ? [-15, 0, 15] : field === "size" ? [24, 40, 64] : [1, 2, 3];
   const point = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -124,7 +143,8 @@ export function CorrectionControls({ tool, stepId, value, change, disabled }: {
       <button type="button" disabled={disabled} onClick={() => update({ size: undefined, fit_exact: true })}>Fit these words automatically</button>
     </label>}
     {canPlace && data && <>
-      <p>Drag to move. Arrow keys nudge by one pixel, or ten with Shift. Escape cancels a drag.</p>
+      <p>{selected && tool === "paste" ? "Drag the selected picture on the canvas or move it here." : "Drag to move."}
+        {" "}Arrow keys nudge by one pixel, or ten with Shift. Escape cancels a drag.</p>
       {piece && !!Number(value.rotate) && <small>Set Rotation to zero to use the resize handle.</small>}
       <div role="group" aria-label="Placement controls" tabIndex={disabled ? -1 : 0}
         style={{ position: "relative", maxWidth: 400, touchAction: "none", cursor: "crosshair" }}

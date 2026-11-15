@@ -58,7 +58,7 @@ export function QuickLayoutEditor({ session, step, layout, materials, disabled, 
   onAdvanced: () => void;
   onHistory: (stepId?: string) => void;
   onDuplicate: () => Promise<void>;
-  onFormats: () => void;
+  onFormats?: () => void;
   onDraft: (stepId: string | null) => void;
   onBrowse?: (target: MaterialTarget) => void;
   ref?: Ref<() => Promise<boolean>>;
@@ -99,10 +99,21 @@ export function QuickLayoutEditor({ session, step, layout, materials, disabled, 
     const producer = session.steps.find(item => item.id === artifact.produced_by);
     return !!producer && producer.index < step.index;
   });
-  const ids = (params.images as string[] | undefined) ?? [];
-  const slotIds = params.image_slots as number[] | null;
-  const pictures = layout.slots.map((_, i) => ids[slotIds ? slotIds.indexOf(i) : i] ?? "");
+  function slotPictures(fields: Params) {
+    const images = (fields.images as string[] | undefined) ?? [];
+    const slots = fields.image_slots as number[] | null;
+    return layout.slots.map((_, i) => images[slots ? slots.indexOf(i) : i] ?? "");
+  }
+
+  const pictures = slotPictures(params);
   const captions = (params.captions as string[] | undefined) ?? [];
+  const currentParams = useRef(params);
+  currentParams.current = params;
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   function update(fields: Params, acceptedRevision?: number) {
     setBlocker("");
@@ -114,10 +125,18 @@ export function QuickLayoutEditor({ session, step, layout, materials, disabled, 
   }
 
   function replace(index: number, id: string, all = false, acceptedRevision?: number) {
-    const next = pictures.map((current, i) => all || i === index ? id : current);
-    const images = next.filter(Boolean);
-    const image_slots = next.flatMap((image, i) => image ? [i] : []);
-    update({ images, image_slots: slotIds || image_slots.some((slot, i) => slot !== i) ? image_slots : null }, acceptedRevision);
+    setBlocker("");
+    onDraft(step.invocation_id ?? null);
+    setDraft(previous => {
+      const fields = previous?.params ?? step.params;
+      const next = slotPictures(fields).map((current, i) => all || i === index ? id : current);
+      const images = next.filter(Boolean);
+      const slots = next.flatMap((image, i) => image ? [i] : []);
+      return {
+        revision: acceptedRevision ?? previous?.revision ?? session.document_revision,
+        params: { ...fields, images, image_slots: fields.image_slots || slots.some((slot, i) => slot !== i) ? slots : null },
+      };
+    });
   }
 
   function browse(index: number) {
@@ -128,14 +147,20 @@ export function QuickLayoutEditor({ session, step, layout, materials, disabled, 
     const before = fingerprint(session.steps);
     const isCurrent = (expected: number) => {
       const current = queries.getQueryData<Session>(["session.get"]);
-      return useUI.getState().documentGeneration === generation && current?.document_revision === expected &&
+      return alive.current && slotPictures(currentParams.current)[index] === pictures[index] &&
+        useUI.getState().documentGeneration === generation && current?.document_revision === expected &&
         current.context?.branch_id === session.context?.branch_id && fingerprint(current.steps) === before;
     };
     onBrowse?.({
       label: `Replace picture in slot ${index + 1}`,
+      beforeStepIndex: step.index,
       revision,
       isCurrent: expected => expected === revision && isCurrent(expected),
       assign: (id, receipt) => {
+        if (!receipt && isCurrent(revision)) {
+          replace(index, id);
+          return;
+        }
         if (receipt?.base_revision !== revision || receipt.result_revision === undefined || !isCurrent(receipt.result_revision))
           throw new Error("Picture added to Materials. The edit target changed, so the slot was left as it was.");
         replace(index, id, false, receipt.result_revision);
@@ -235,6 +260,7 @@ export function QuickLayoutEditor({ session, step, layout, materials, disabled, 
     })}
     {draft && !stale && <section aria-label="Draft preview">
       <EditorPreviewControls preview={preview} />
+      {preview.result?.plan && <p>Changes this step. Checks {preview.result.plan.later_steps} later steps and reuses unchanged results.</p>}
       {preview.result?.plan?.message && <p>{preview.result.plan.message}</p>}
       {preview.result?.image && <>
         <p>Draft preview · {preview.result.plan?.scope === "final" ? "Includes later steps" : "This step only"}</p>
@@ -259,8 +285,8 @@ export function QuickLayoutEditor({ session, step, layout, materials, disabled, 
       <button className="primary" disabled={unavailable || stale || preview.busy || !draft}>Apply changes</button>
       {draft && <button type="button" disabled={busy} onClick={discardDraft}>Cancel</button>}
       <button type="button" disabled={unavailable} onClick={() => void navigate(() => { void onDuplicate(); })}>Duplicate take</button>
-      <button type="button" disabled={busy} onClick={() => void navigate(onFormats)}>Try another format</button>
-      <button type="button" disabled={busy} onClick={() => void navigate(onAdvanced)}>Edit in workspace</button>
+      {onFormats && <button type="button" disabled={busy} onClick={() => void navigate(onFormats)}>Try another format</button>}
+      <button type="button" disabled={busy} onClick={onAdvanced}>Edit in workspace</button>
     </div>
     <DraftDecision decision={decision} apply={apply} discard={discardDraft} blocked={unavailable || stale || preview.busy} busy={busy} />
   </form>;

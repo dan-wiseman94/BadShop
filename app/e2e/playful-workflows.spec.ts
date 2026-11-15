@@ -146,7 +146,7 @@ test("a pass-and-play challenge keeps independent rounds after reopening", async
   await expect(challenge.getByText("Ada ★", { exact: true })).toBeVisible();
   const voted = await emptyCore.call("branches.list") as BranchList;
   const project = info.outputPath("challenge.badshop");
-  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
   await expect.poll(async () => (await emptyCore.call("session.get") as Session).unsaved_changes).toBe(false);
   await page.reload();
   await page.getByText("Play a remix challenge", { exact: true }).click();

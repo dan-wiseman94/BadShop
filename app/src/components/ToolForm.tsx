@@ -1,16 +1,19 @@
+import type { MaterialTarget } from "./Studio";
+import { DraftDecision, useDraftDecision } from "./DraftDecision";
+import { copyText } from "../native";
 import { ProposalPreview } from "./ProposalPreview";
 import { Button } from "./Button";
 import { CorrectionControls } from "./CorrectionControls";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from "react";
 import Form, { getDefaultRegistry } from "@rjsf/core";
 import { DEFAULT_ID_SEPARATOR } from "@rjsf/utils";
 import { customizeValidator } from "@rjsf/validator-cfworker";
 import type { RJSFSchema, UiSchema, WidgetProps, FieldProps, IconButtonProps, ObjectFieldTemplateProps } from "@rjsf/utils";
 import { Crosshair, Shuffle, Plus, Trash2, ArrowUp, ArrowDown, Copy, X } from "lucide-react";
-import type { Params, Tool } from "../types";
-import { run, useSession, useArtifact, imageUrl } from "../data";
+import type { Params, Session, Tool } from "../types";
+import { queries, run, useSession, useArtifact, imageUrl } from "../data";
 import { ImagePicker } from "./ImagePicker";
-import { useUI, type PickRequest } from "../store";
+import { showError, useUI, type PickRequest } from "../store";
 import { BIREFNET_MEMORY_NOTE } from "../constants";
 import { advancedToolFields } from "../toolPresentation";
 import { useEditorPreview } from "../useEditorPreview";
@@ -316,6 +319,8 @@ export function ToolForm({
   stepId,
   imageLabels,
   previewEnabled = false,
+  draftGuard,
+  onBrowse,
 }: {
   tool: Tool;
   initial?: Params;
@@ -325,8 +330,13 @@ export function ToolForm({
   stepId?: string;
   imageLabels?: Record<string, string>;
   previewEnabled?: boolean;
+  draftGuard?: Ref<() => Promise<boolean>>;
+  onBrowse?: (target: MaterialTarget) => void;
 }) {
   const [edited, setEdited] = useState(false);
+  const [baseRevision, setBaseRevision] = useState<number>();
+  const { data: session } = useSession();
+
   const [previewDelay, setPreviewDelay] = useState(300);
   const [divider, setDivider] = useState(50);
   const [previewBackground, setPreviewBackground] = useState("#888888");
@@ -346,8 +356,12 @@ export function ToolForm({
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
+  const dirty = edited && JSON.stringify(cleanParams(formData)) !== JSON.stringify(cleanParams(previewBaseline.current));
+  const staleDraft = !!draftGuard && dirty && baseRevision !== session?.document_revision;
+  const decision = useDraftDecision(!!draftGuard && dirty, busy);
+  useImperativeHandle(draftGuard, () => decision.request);
   useEffect(() => {
-    if (initialSignature === baselineSignature.current || submitting.current) return;
+    if ((draftGuard && dirty) || initialSignature === baselineSignature.current || submitting.current) return;
     previewBaseline.current = source.current.data;
     const merged = mergeParameterDraft(formData, baseline.current, source.current.data);
     setFormData(merged.data);
@@ -361,7 +375,7 @@ export function ToolForm({
     ]);
     baseline.current = source.current.data;
     baselineSignature.current = initialSignature;
-  }, [initialSignature, busy]);
+  }, [initialSignature, busy, draftGuard, dirty]);
   const schema = normalizeSchema(tool.schema);
   const ui = schemaUI(schema);
   for (const [name, label] of Object.entries(imageLabels ?? {}))
@@ -377,7 +391,6 @@ export function ToolForm({
     ui.speed = { "ui:widget": "updown", "ui:options": { inputType: "number" } };
     ui.loop = { "ui:widget": "updown" };
   }
-  const { data: session } = useSession();
   const pending = session?.steps.find(step => step.id === stepId && session.pending_approvals.includes(step.id));
   const pendingApproval = !!pending;
   const showPreview = !pendingApproval && !!(previewEnabled || stepId || ["animation_edit", "text"].includes(tool.name));
@@ -386,8 +399,8 @@ export function ToolForm({
     target: stepId ? { step_id: stepId } : { tool: tool.name },
     scope: stepId && finalPreview ? "final" : "step",
     params: formData,
-    active: showPreview && !disabled && !busy && !conflicts.length && !session?.turn_running && !session?.batch_running,
-    dirty: edited && JSON.stringify(cleanParams(formData)) !== JSON.stringify(cleanParams(previewBaseline.current)),
+    active: showPreview && !disabled && !busy && !staleDraft && !conflicts.length && !session?.turn_running && !session?.batch_running,
+    dirty,
     delay: previewDelay,
   });
   const plan = preview.result?.plan;
@@ -413,6 +426,86 @@ export function ToolForm({
     coordinateImageId: artifact?.id ?? null,
     coordinateImageLabel: artifact?.label,
   };
+  const formAlive = useRef(true);
+  const currentInputs = useRef(formData);
+  currentInputs.current = formData;
+  useEffect(() => {
+    formAlive.current = true;
+    return () => { formAlive.current = false; };
+  }, []);
+
+  function browseImage(field: "base" | "piece") {
+    if (!session || !onBrowse) return;
+    const revision = session.document_revision;
+    const owner = session.context;
+    const generation = useUI.getState().documentGeneration;
+    const input = formData[field];
+    const roles = JSON.stringify(session.creative?.source_roles ?? {});
+    const isCurrent = (expected: number) => {
+      const current = queries.getQueryData<Session>(["session.get"]);
+      return formAlive.current && useUI.getState().documentGeneration === generation &&
+        current?.id === session.id && current.document_revision === expected &&
+        current.context?.branch_id === owner?.branch_id && JSON.stringify(current.creative?.source_roles ?? {}) === roles &&
+        currentInputs.current[field] === input;
+    };
+    const purpose = field === "base" ? "background" : "subject";
+    onBrowse({
+      label: `Choose ${purpose}`,
+      actionLabel: `Use as ${purpose}`,
+      purpose,
+      revision,
+      isCurrent,
+      assign(id, receipt) {
+        const expected = receipt?.result_revision ?? revision;
+        if ((receipt && receipt.base_revision !== revision) || !isCurrent(expected))
+          throw new Error("The material target changed. The picture was added without replacing this field.");
+        setFormData(previous => ({ ...previous, [field]: id }));
+        setBaseRevision(expected);
+        setPreviewDelay(300);
+        setEdited(true);
+      },
+    });
+  }
+
+  function markEdited() {
+    if (!edited) setBaseRevision(session?.document_revision);
+    setEdited(true);
+  }
+
+  function discard() {
+    preview.clear();
+    setEdited(false);
+    setBaseRevision(undefined);
+    setFormData(source.current.data);
+    previewBaseline.current = source.current.data;
+    baseline.current = source.current.data;
+    baselineSignature.current = source.current.signature;
+    setConflicts([]);
+  }
+
+  async function submit(submitted: Params) {
+    if (staleDraft || !preview.canApply()) return false;
+    if (!preview.currentOwner()) throw new Error("The project changed. Review the current controls before applying.");
+    preview.clear();
+    setBusy(true);
+    submitting.current = true;
+    const previousSource = source.current.signature;
+    try {
+      if (await onSubmit(submitted) === false) return false;
+      setEdited(false);
+      setBaseRevision(undefined);
+      previewBaseline.current = submitted;
+      setFormData(source.current.signature !== previousSource ? source.current.data : submitted);
+      baseline.current = source.current.data;
+      baselineSignature.current = source.current.signature;
+      setConflicts([]);
+      return true;
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+
   return (
     <Form
       ref={form}
@@ -431,32 +524,10 @@ export function ToolForm({
         setFormData(next);
         if (fieldId) {
           setPreviewDelay(300);
-          setEdited(true);
+          markEdited();
         } else if (!edited) previewBaseline.current = next;
       }}
-      onSubmit={(event) =>
-        run(async () => {
-          if (!preview.canApply()) return;
-          if (!preview.currentOwner()) throw new Error("The project changed. Review the current controls before applying.");
-          preview.clear();
-          setBusy(true);
-          submitting.current = true;
-          const submitted = event.formData ?? {};
-          const previousSource = source.current.signature;
-          try {
-            await onSubmit(submitted);
-            setEdited(false);
-            previewBaseline.current = submitted;
-            setFormData(source.current.signature !== previousSource ? source.current.data : submitted);
-            baseline.current = source.current.data;
-            baselineSignature.current = source.current.signature;
-            setConflicts([]);
-          } finally {
-            submitting.current = false;
-            setBusy(false);
-          }
-        })
-      }
+      onSubmit={event => run(() => submit(event.formData ?? {}))}
       disabled={disabled || busy}
       showErrorList="top"
       noHtml5Validate={advancedFields.size > 0}
@@ -478,10 +549,14 @@ export function ToolForm({
         arrayMinItems: { populate: "requiredOnly" },
       }}
     >
+      {onBrowse && imageLabels?.base && <div className="compose-material-actions" role="group" aria-label="Find composition pictures">
+        <Button type="button" disabled={disabled || busy || staleDraft} label="Find subject" onClick={() => browseImage("piece")} />
+        <Button type="button" disabled={disabled || busy || staleDraft} label="Find background" onClick={() => browseImage("base")} />
+      </div>}
       {pending && session && <ProposalPreview step={pending} revision={session.document_revision} params={formData} />}
       <CorrectionControls tool={tool.name} stepId={stepId} value={formData}
         disabled={disabled || busy || conflicts.length > 0}
-        change={(next, delay = 300) => { setFormData(next); setPreviewDelay(delay); setEdited(true); }} />
+        change={(next, delay = 300) => { setFormData(next); setPreviewDelay(delay); markEdited(); }} />
       {!!conflicts.length && (
         <div className="parameter-conflict" role="alert">
           <p>
@@ -503,15 +578,27 @@ export function ToolForm({
           </div>
         </div>
       )}
+      {staleDraft && <div role="alert" className="parameter-conflict">
+        <p>The project changed while you were editing. Your draft values are still here.</p>
+        <Button type="button" label="Reload saved controls" onClick={discard} />
+        <Button type="button" label="Copy draft values" onClick={() => run(() => copyText(JSON.stringify(formData, null, 2)))} />
+      </div>}
+      {draftGuard && <DraftDecision decision={decision} discard={discard} busy={busy}
+        blocked={disabled || staleDraft || preview.busy} label="Unsaved tool changes"
+        apply={async () => {
+          if (!form.current?.validateForm()) return false;
+          try { return await submit(formData); }
+          catch (error) { showError(error); return false; }
+        }} />}
       {formData.model === "birefnet-general" && <p className="model-memory-note">{BIREFNET_MEMORY_NOTE}</p>}
       {showPreview && <div>
         {stepId && <label><input type="checkbox" checked={finalPreview} disabled={disabled || busy}
           onChange={event => setFinalPreview(event.target.checked)} />Preview final result, including later steps</label>}
         <EditorPreviewControls preview={preview} />
+        {stepId && plan && <p>Changes this step. Checks {plan.later_steps} later {plan.later_steps === 1 ? "step" : "steps"} and reuses unchanged results.</p>}
         {plan?.message && <p>{plan.message}{plan.eligible && finalPreview ? " Previewing this step only." : ""}</p>}
         {preview.result?.image && <p>Draft preview · {finalScope ? "Includes later steps" : "This step only"}</p>}
-        <Button type="button" label="Cancel changes" disabled={disabled || busy}
-          onClick={() => { preview.clear(); setEdited(false); setFormData(source.current.data); setConflicts([]); }} />
+        <Button type="button" label="Cancel changes" disabled={disabled || busy} onClick={discard} />
         {preview.result?.image && <>
           <label>Preview background <select value={previewBackground} onChange={(event) => setPreviewBackground(event.target.value)}>
             <option value="#888888">Gray</option>
@@ -533,7 +620,7 @@ export function ToolForm({
       <Button
         type="submit"
         className="primary form-run"
-        disabled={disabled || busy || preview.busy || conflicts.length > 0}
+        disabled={disabled || busy || preview.busy || staleDraft || conflicts.length > 0}
         label={busy ? "Working…" : submitLabel}
       />
     </Form>

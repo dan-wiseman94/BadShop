@@ -1,7 +1,7 @@
 import { useLibraryPage } from '../libraryPage';
 import { Button } from "./Button";
 import { ThemeIcon } from "./ThemeIcon";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import { Grid2X2, ScanFace, ChevronDown, MousePointer2, Undo2, Redo2 } from "lucide-react";
 import { action, imageUrl, queries, useArtifact, useCoreQuery, useSession, run } from "../data";
@@ -16,6 +16,7 @@ import { CopyImage, ShareImage } from "./ShareImage";
 import type { Artifact, Params, Session } from "../types";
 import { directionLabel } from "../directions";
 import { recordedElements } from "../recordedElements";
+import { CanvasPlacementContext, type CanvasPlacement } from "../canvasPlacement";
 import { useDocumentProjection } from '../documentProjection';
 export function ArtifactThumb({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
   const { data } = useArtifact(id, true);
@@ -81,6 +82,18 @@ type ViewerProps = {
   onOpenHistory?: () => void;
 };
 
+type PlacementDrag = {
+  pointer: HTMLButtonElement;
+  pointerId: number;
+  x: number;
+  y: number;
+  scale: number;
+  context: NonNullable<Session["context"]>;
+  generation: number;
+  elementId: string;
+  placement: CanvasPlacement;
+};
+
 export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps) {
   const { data: session } = useSession();
   const { visibleArtifacts } = useDocumentProjection(session);
@@ -113,11 +126,18 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
   const origin = useRef<number[] | null>(null);
   const ignoreSurfaceClick = useRef(false);
   const [selection, setSelection] = useState<number[] | null>(null);
+  const placementOwner = useContext(CanvasPlacementContext);
+  const placementDrag = useRef<PlacementDrag | null>(null);
+  const [placementGuide, setPlacementGuide] = useState<[number, number] | null>(null);
+  const generation = useUI(state => state.documentGeneration);
   const [cursor, setCursor] = useState<number[] | null>(null);
   const id = pick?.artifactId ?? canvasId;
+  const currentDraft = useUI(state => state.canvasDraft);
+  const draft = !pick && currentDraft?.revision === session?.document_revision ? currentDraft : null;
   const confirmed = confirmedSaved?.id === id && confirmedSaved?.revision === session?.document_revision;
-  const canShare = !!id && !pick && kind !== "missing" && (kind !== "last_saved" || confirmed);
-  const canvasLabel = kind === "before" ? `Before step ${selectedStep ? session?.steps.find(step => step.id === selectedStep)?.index : ""}`
+  const canShare = !!id && !pick && !draft && kind !== "missing" && (kind !== "last_saved" || confirmed);
+  const canvasLabel = draft ? `Draft preview · ${draft.scope === "final" ? "Includes later steps" : "This step only"}`
+    : kind === "before" ? `Before step ${selectedStep ? session?.steps.find(step => step.id === selectedStep)?.index : ""}`
     : kind === "missing" ? "This output is no longer available"
     : kind === "last_saved" ? "Last successful image · Changes not fully applied"
     : kind === "final" ? `Final result · ${take}`
@@ -137,7 +157,7 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
   const paused = playing === null ? reduced : !playing;
   const { data, error } = useArtifact(id, false, paused, frame);
   const meta = data?.meta;
-  const elements = recordedElements(session, canvasId);
+  const elements = draft ? [] : recordedElements(session, canvasId);
   const selected = elements.find(element => element.id === selectedElement?.id);
   const selectElement = (elementId: string, focusText?: number) => {
     const element = elements.find(item => item.id === elementId);
@@ -179,6 +199,53 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
       ? Math.max(0.001, Math.min(Math.max(1, size.width - 24) / meta.width, Math.max(1, size.height - 24) / meta.height, 1))
       : zoom
     : 1;
+  const cancelPlacement = () => {
+    const drag = placementDrag.current;
+    if (!drag) return;
+    placementDrag.current = null;
+    ignoreSurfaceClick.current = true;
+    setPlacementGuide(null);
+    if (drag.pointer.hasPointerCapture(drag.pointerId))
+      drag.pointer.releasePointerCapture(drag.pointerId);
+  };
+  useEffect(cancelPlacement, [canvasId, generation, pick, scale, selectElements, selected?.id,
+    session?.context?.branch_id, session?.context?.document_incarnation, session?.document_revision]);
+
+  const beginPlacement = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const placement = placementOwner?.current;
+    if (event.button !== 0 || placementDrag.current || !session?.context || pick ||
+        (kind !== "final" && kind !== "earlier") || selected?.step.id !== placement?.stepId || !placement || !selected) return;
+    const pointer = event.currentTarget;
+    pointer.focus({ preventScroll: true });
+    pointer.setPointerCapture(event.pointerId);
+    placementDrag.current = {
+      pointer, pointerId: event.pointerId, x: event.clientX, y: event.clientY, scale,
+      context: session.context, generation, elementId: selected.id, placement,
+    };
+  };
+  const placementOffset = (event: React.PointerEvent, drag: PlacementDrag): [number, number] =>
+    [Math.round((event.clientX - drag.x) / drag.scale), Math.round((event.clientY - drag.y) / drag.scale)];
+  const finishPlacement = (event: React.PointerEvent) => {
+    const drag = placementDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const [x, y] = placementOffset(event, drag);
+    if (!x && !y && !ignoreSurfaceClick.current) {
+      placementDrag.current = null;
+      return;
+    }
+    cancelPlacement();
+
+    const ui = useUI.getState();
+    const current = queries.getQueryData<Session>(["session.get"])?.context;
+    const owner = placementOwner?.current;
+    if (!current || ui.pick || ui.viewerBefore || ui.documentGeneration !== drag.generation ||
+        ui.selectedElement?.id !== drag.elementId || ui.selectedStep !== drag.placement.stepId ||
+        current.core_instance_id !== drag.context.core_instance_id || current.document_id !== drag.context.document_id ||
+        current.document_incarnation !== drag.context.document_incarnation || current.branch_id !== drag.context.branch_id ||
+        current.revision !== drag.context.revision || owner?.stepId !== drag.placement.stepId ||
+        owner.draft !== drag.placement.draft) return;
+    if (x || y) owner.moveBy(x, y);
+  };
   const point = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!meta) return [0, 0];
     const rect = event.currentTarget.getBoundingClientRect();
@@ -203,8 +270,9 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
         <span className="muted">{meta ? `${meta.width} × ${meta.height}` : "No image selected"}</span>
       </div>
       {canvasLabel && !pick && <div className="canvas-view-state">
-        <span>{canvasLabel}{outputLabel}</span>
-        {["before", "earlier", "missing", "source"].includes(kind) && !!session?.steps.some(step => step.outputs.length) &&
+        <span>{canvasLabel}{!draft && outputLabel}</span>
+        {draft && <button onClick={() => useUI.getState().set({ canvasDraft: null })}>Return to saved image</button>}
+        {!draft && ["before", "earlier", "missing", "source"].includes(kind) && !!session?.steps.some(step => step.outputs.length) &&
           <button onClick={() => useUI.getState().set({ selectedStep: null, selectedArtifact: null })}>Return to final result</button>}
         {kind === "last_saved" && !confirmed && canvasId && session && <button onClick={() =>
           confirmSaved({ id: canvasId, revision: session.document_revision })}>Choose this saved image</button>}
@@ -282,7 +350,7 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
       <div className={`viewer-stage ${pick ? "picking" : ""}`} ref={stage}
         onPointerDownCapture={() => { ignoreSurfaceClick.current = !!pick; }}
         onClick={event => { if (event.target === event.currentTarget) clearSelection(); }}>
-        {meta ? (
+        {draft ? <img className="canvas-draft-image" alt="Draft preview on canvas" src={draft.source} /> : meta ? (
           <div
             className="image-surface"
             style={{
@@ -295,10 +363,29 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
               const p = point(event);
               setCursor(p);
               if (origin.current && pick && pick.kind !== "point") setSelection([...origin.current, ...p]);
+              const drag = placementDrag.current;
+              if (drag?.pointerId === event.pointerId) {
+                const offset = placementOffset(event, drag);
+                if (offset[0] || offset[1]) ignoreSurfaceClick.current = true;
+                if (ignoreSurfaceClick.current) setPlacementGuide(offset);
+              }
             }}
             onPointerLeave={() => setCursor(null)}
             onClick={clearSelection}
-            onPointerCancel={() => { origin.current = null; setSelection(null); }}
+            onKeyDown={event => {
+              if (event.key !== "Escape" || !placementDrag.current) return;
+              event.preventDefault();
+              event.stopPropagation();
+              cancelPlacement();
+            }}
+            onPointerCancel={event => {
+              if (placementDrag.current?.pointerId === event.pointerId) cancelPlacement();
+              origin.current = null;
+              setSelection(null);
+            }}
+            onLostPointerCapture={event => {
+              if (placementDrag.current?.pointerId === event.pointerId) cancelPlacement();
+            }}
             onPointerDown={(event) => {
               if (!pick) return;
               event.currentTarget.setPointerCapture(event.pointerId);
@@ -310,6 +397,7 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
               }
             }}
             onPointerUp={(event) => {
+              finishPlacement(event);
               if (!pick || pick.kind === "point" || !origin.current) return;
               const end = point(event);
               const start = origin.current;
@@ -343,11 +431,15 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
                   aria-pressed={selected?.id === element.id}
                   tabIndex={-1}
                   style={{ left: x * scale, top: y * scale, width: width * scale, height: height * scale }}
-                  onClick={event => { event.stopPropagation(); if (event.detail < 2) selectElement(element.id); }}
+                  onPointerDown={selected?.id === element.id && element.step.tool === "paste" ? beginPlacement : undefined}
+                  onClick={event => {
+                    event.stopPropagation();
+                    if (!ignoreSurfaceClick.current && event.detail < 2) selectElement(element.id);
+                  }}
                   onDoubleClick={caption ? event => selectElement(element.id, event.timeStamp) : undefined} />;
               });
             })}
-            {(grid || boxes || selection) && (
+            {(grid || boxes || selection || placementGuide) && (
               <svg className="image-overlay" viewBox={`0 0 ${meta.width} ${meta.height}`} aria-hidden="true">
                 {grid && (
                   <>
@@ -380,6 +472,11 @@ export function Viewer({ onImport, onSelectElement, onOpenHistory }: ViewerProps
                       height={box[3] - box[1]}
                     />
                   ))}
+                {placementGuide && selected && (
+                  <rect className="selection-box canvas-placement-guide"
+                    x={selected.box[0] + placementGuide[0]} y={selected.box[1] + placementGuide[1]}
+                    width={selected.box[2] - selected.box[0]} height={selected.box[3] - selected.box[1]} />
+                )}
                 {selection && (
                   <rect
                     className="selection-box"
